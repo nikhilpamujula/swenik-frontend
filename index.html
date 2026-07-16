@@ -280,7 +280,7 @@
   table.ob-table th:first-child, table.ob-table td:first-child { text-align: left; }
   table.ob-table td { padding: 2px 6px; text-align: right; border: none; }
   .loop-scroll { overflow-x: auto; margin-bottom: 8px; -webkit-overflow-scrolling: touch; }
-  table.ob-table.dual { min-width: 420px; margin-bottom: 0; }
+  table.ob-table.dual { width: 100%; min-width: 420px; margin-bottom: 0; }
   table.ob-table.dual th.ob-group { text-align: center; background: #fff; font-weight: 700; color: #222; }
   table.ob-table.dual .ob-sub { font-weight: 400; color: var(--gray-500); font-size: 10px; margin-top: 2px; }
   .ob-size-cell { text-align: left !important; vertical-align: middle; white-space: nowrap; }
@@ -324,7 +324,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 25</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 26</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -439,6 +439,38 @@ let pageFilters = {
 };
 let draftFilter = {}; // working copy while the drawer is open, committed on Apply
 
+// ------------------------------------------------------------------
+// UI STATE PERSISTENCE
+// A full page reload (browser refresh, mobile pull-to-refresh) used to
+// reset everything to the Direct page with cleared filters, because this
+// state only lived in memory. We now remember it in localStorage and
+// restore it on load, so a refresh keeps you on the same page with the
+// same filters/toggles. (localStorage is fine on the real site; it works
+// across reloads even in an Incognito session.)
+// ------------------------------------------------------------------
+function saveUiState() {
+  try {
+    localStorage.setItem('swenikUi', JSON.stringify({
+      page: currentPage, pageFilters, withVolume, showDisabledWallets, sortBy, sortDir
+    }));
+  } catch (e) {}
+}
+function loadUiState() {
+  try {
+    const s = JSON.parse(localStorage.getItem('swenikUi') || 'null');
+    if (!s) return null;
+    if (s.pageFilters && typeof s.pageFilters === 'object') {
+      // merge defensively so a future new page/field can't break an old saved blob
+      pageFilters = Object.assign({}, pageFilters, s.pageFilters);
+    }
+    if (typeof s.withVolume === 'boolean') withVolume = s.withVolume;
+    if (typeof s.showDisabledWallets === 'boolean') showDisabledWallets = s.showDisabledWallets;
+    if (s.sortBy === 'percentage' || s.sortBy === 'profit') sortBy = s.sortBy;
+    if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
+    return (s.page && PAGES[s.page]) ? s.page : null;
+  } catch (e) { return null; }
+}
+
 let allOpportunities = SEED_DATA.opportunities;
 let lastFetchTs = SEED_DATA.ts;
 let usingSeedData = true;
@@ -527,6 +559,7 @@ function findOpportunity(card) {
 // ================================================================
 function selectPage(page) {
   currentPage = page;
+  saveUiState();
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   document.getElementById(PAGES[page].navId).classList.add('active');
   renderToolbar();
@@ -571,11 +604,11 @@ function sortControlsHtml() {
   return `
     <div class="sort-wrap">
       <span>Sort by</span>
-      <select class="sort-select" onchange="sortBy=this.value; renderCards();">
+      <select class="sort-select" onchange="sortBy=this.value; saveUiState(); renderCards();">
         <option value="percentage" ${sortBy==='percentage'?'selected':''}>Percentage</option>
         <option value="profit" ${sortBy==='profit'?'selected':''}>Profit</option>
       </select>
-      <select class="sort-select" onchange="sortDir=this.value; renderCards();">
+      <select class="sort-select" onchange="sortDir=this.value; saveUiState(); renderCards();">
         <option value="desc" ${sortDir==='desc'?'selected':''}>Descending</option>
         <option value="asc" ${sortDir==='asc'?'selected':''}>Ascending</option>
       </select>
@@ -669,10 +702,12 @@ function renderToolbar() {
 
 function onVolumeToggle() {
   withVolume = document.getElementById('volumeToggle').checked;
+  saveUiState();
   fullRefresh(); // volume changes the query param — needs a fresh fetch
 }
 function onDisabledToggle() {
   showDisabledWallets = document.getElementById('disabledToggle').checked;
+  saveUiState();
   renderCards(); // client-side filter only, no refetch needed
 }
 
@@ -759,6 +794,7 @@ function applyDrawerFilter() {
       pageFilters.direct.buyExchanges = [...document.querySelectorAll('input.draftBuyEx:checked')].map(el => el.value);
     }
   }
+  saveUiState();
   closeDrawer();
   renderToolbar();
   renderCards();
@@ -769,6 +805,7 @@ function resetDrawerFilter() {
     : currentPage === 'direct' ? { coin: '', buyExchanges: [] }
     : currentPage === 'loop' ? { buyCoin: '', sellCoin: '', loopEx: [], viaEx: [] }
     : { coin: '' };
+  saveUiState();
   closeDrawer();
   renderToolbar();
   renderCards();
@@ -1953,7 +1990,10 @@ if (location.protocol === 'file:') {
   setBanner('You are running this page from a local file (Downloads). Live refresh is less reliable here and errors like "feed unreachable" are often the file, not the scanner — judge everything on the deployed site instead.');
 }
 
-selectPage('direct');
+// Restore the page + filters the user last had, so a full page reload
+// (browser refresh / mobile pull-to-refresh) keeps them where they were
+// instead of snapping back to Direct with cleared filters.
+selectPage(loadUiState() || 'direct');
 fullRefresh();
 setInterval(fullRefresh, 10000);
 setInterval(() => {
