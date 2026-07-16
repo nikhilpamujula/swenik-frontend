@@ -324,7 +324,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 27</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 29</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -720,6 +720,20 @@ function onUsdtToggle() {
   saveUiState();
   renderCards(); // client-side filter only, no refetch needed
 }
+// In-modal volume toggle: same global `withVolume`, reachable from inside a
+// Track Live modal so you can flip walked ⇄ top-of-book without closing it.
+function modalVolumeToggleHtml() {
+  return `<label class="toggle-wrap" style="display:inline-flex; vertical-align:middle; margin-right:12px; font-size:12px;"><span>Volume</span>
+    <label class="switch"><input type="checkbox" id="modalVolumeToggle" ${withVolume?'checked':''} onchange="onModalVolumeToggle()"><span class="slider"></span></label>
+  </label>`;
+}
+function onModalVolumeToggle() {
+  withVolume = document.getElementById('modalVolumeToggle').checked;
+  saveUiState();
+  const main = document.getElementById('volumeToggle');
+  if (main) main.checked = withVolume;        // keep the main-page toggle in sync
+  fullRefresh(); // refetch the list AND re-render the open modal in the new mode
+}
 
 // ================================================================
 // FILTER DRAWER
@@ -1109,6 +1123,7 @@ function intraLoopCard(o) {
           <div class="arb-main">${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}</div>
           <div class="arb-sub">${l ? `max ${fmtCoin(l.qty,2)} ${o.coin.toUpperCase()} at top-of-book · instant, no transfer` : 'top-of-book spread'}</div>
         </div>
+        <button class="track-live-btn" onclick="openCardModal('intraloop','${o.coin}','','','','')">◉ Track Live</button>
       </div>
     </div>`;
 }
@@ -1221,9 +1236,9 @@ function renderDirectModal(entry) {
     return;
   }
   document.getElementById('modalTitle').textContent = `${entry.coin.toUpperCase()} — Direct Arbitrage`;
-  document.getElementById('modalStatus').innerHTML = withVolume
+  document.getElementById('modalStatus').innerHTML = modalVolumeToggleHtml() + (withVolume
     ? `refreshes every 15s while open · <a href="#" onclick="refreshDirectModalLive(); return false;" style="color:var(--primary);">refresh now</a>`
-    : 'Volume is OFF — showing top-of-book only';
+    : 'Volume is OFF — showing top-of-book only');
 
   // Volume OFF (or the walk not loaded yet): show the rough spread box but
   // STILL render the live order book below — same normal book view, just
@@ -1470,14 +1485,21 @@ function renderLoopModal() {
   }
   const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
   document.getElementById('modalTitle').textContent = `${c1} → ${c2} — Loop Arbitrage`;
-  document.getElementById('modalStatus').innerHTML = `refreshes every 15s while open · <a href="#" onclick="refreshLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
+  document.getElementById('modalStatus').innerHTML = modalVolumeToggleHtml() + `refreshes every 15s while open · <a href="#" onclick="refreshLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
 
   if (!withVolume || !entry.walked) {
     const legsEarly = entry.liveBooks && entry.liveBooks.legs;
+    // The live loop object (from the loop /live endpoint) carries `walked`
+    // but NO `roughPct`; the list entry carries `roughPct` but no books.
+    // Use whichever spread number is present so this never crashes on
+    // `roughPct.toFixed` when the live entry (with the order book) replaces
+    // the list entry — that crash was freezing the modal on "Loading…".
+    const loopPct = entry.roughPct != null ? entry.roughPct
+                   : (entry.walked ? entry.walked.profitPct : null);
     document.getElementById('modalBody').innerHTML = `
       <div class="note-box">Volume is OFF — spread below is top-of-book only, no depth walked.</div>
-      <div class="profit-box ${entry.roughPct < 0 ? 'negative' : ''}">
-        <div class="profit-pct">${entry.roughPct.toFixed(2)}%</div>
+      <div class="profit-box ${(loopPct ?? 0) < 0 ? 'negative' : ''}">
+        <div class="profit-pct">${loopPct != null ? loopPct.toFixed(2) + '%' : '—'}</div>
         <div class="profit-sub">raw two-leg spread, fees not applied</div>
       </div>
       ${legsEarly ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legsEarly)}` : '<div class="modal-note">Loading order book depth…</div>'}`;
@@ -1565,6 +1587,65 @@ async function refreshLoopModalLive() {
     loopLiveEntry = null;
   }
   if (openCard) renderLoopModal();
+}
+
+// ================================================================
+// RENDER — INTRA LOOP modal (WazirX triangle, top-of-book)
+// ================================================================
+let intraLoopLiveEntry = null;
+let intraLoopLiveError = null;
+
+async function fetchIntraLoopLive(coin) {
+  const res = await fetch(`${API_BASE}/api/opportunities/intraloop/${coin}/live`);
+  if (!res.ok) {
+    let reason = `API returned ${res.status}`;
+    try { const body = await res.json(); if (body.error) reason = body.error; } catch (e) {}
+    throw new Error(reason);
+  }
+  return res.json();
+}
+
+function renderIntraLoopModal() {
+  const coin = (openCard.coin || '').toUpperCase();
+  document.getElementById('modalTitle').textContent = `${coin} — Intra Loop (WazirX triangle)`;
+  document.getElementById('modalStatus').innerHTML = `refreshes every 15s while open · <a href="#" onclick="refreshIntraLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
+  const entry = intraLoopLiveEntry;
+  if (!entry) {
+    document.getElementById('modalBody').innerHTML = intraLoopLiveError
+      ? `<div class="banner-error">Couldn't load this triangle (${intraLoopLiveError}). Retrying every 15s.</div>`
+      : `<div class="modal-note">Loading…</div>`;
+    return;
+  }
+  const opps = entry.opportunities || [];
+  const legs = entry.liveBooks && entry.liveBooks.legs;
+  const pathHtml = opps.length ? opps.map(op => {
+    const l = op.walked;
+    const p = l ? l.profitPct : op.roughPct;
+    return `<div class="profit-box ${(p ?? 0) < 0 ? 'negative' : ''}" style="flex-direction:column; align-items:flex-start; gap:2px;">
+      <div class="profit-pct">${p != null ? p.toFixed(2) + '%' : '—'}${l ? ` (${fmtInr(l.profit,2)})` : ''}</div>
+      <div class="profit-sub">${op.pathLabel || ''}${l ? ` · max ${fmtCoin(l.qty,2)} ${coin} at top-of-book` : ''}</div>
+    </div>`;
+  }).join('') : `<div class="modal-note">No computable triangle right now (thin WazirX book).</div>`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="note-box">Same-exchange WazirX triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
+    ${pathHtml}
+    ${legs ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legs)}` : '<div class="modal-note">Loading order book depth…</div>'}
+  `;
+}
+
+async function refreshIntraLoopModalLive() {
+  if (!openCard || openCard.type !== 'intraloop') return;
+  renderIntraLoopModal(); // show what we have immediately
+  try {
+    const data = await fetchIntraLoopLive(openCard.coin);
+    intraLoopLiveEntry = data.view;
+    intraLoopLiveError = null;
+    liveCache[`intraloop:${openCard.coin}`] = data.view;
+  } catch (err) {
+    intraLoopLiveError = err.message;
+    intraLoopLiveEntry = null;
+  }
+  if (openCard) renderIntraLoopModal();
 }
 
 // ================================================================
@@ -1898,6 +1979,12 @@ function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket) {
     renderDirectModal(directLiveEntry || findOpportunity(openCard));
     refreshDirectModalLive();
     modalTimer = setInterval(refreshDirectModalLive, 15000);
+  } else if (type === 'intraloop') {
+    intraLoopLiveEntry = liveCache[`intraloop:${coin}`] || null;
+    intraLoopLiveError = null;
+    renderIntraLoopModal();
+    refreshIntraLoopModalLive();
+    modalTimer = setInterval(refreshIntraLoopModalLive, 15000);
   } else {
     loopLiveEntry = liveCache[`loop:${coin1}:${coin2}`] || null;
     loopLiveError = null;
@@ -1910,6 +1997,7 @@ function closeModal() {
   openCard = null;
   loopLiveEntry = null; loopLiveError = null;
   directLiveEntry = null; liveBookError = null;
+  intraLoopLiveEntry = null; intraLoopLiveError = null;
   document.getElementById('modalOverlay').classList.add('hidden');
   if (modalTimer) { clearInterval(modalTimer); modalTimer = null; }
 }
@@ -1949,6 +2037,7 @@ async function fullRefresh() {
     ? `Last refreshed: <strong>${fmtTime(new Date(lastFetchTs))}</strong>` : 'Last refreshed: —';
   countdown = 10;
   if (openCard && openCard.type === 'loop') renderLoopModal();
+  if (openCard && openCard.type === 'intraloop') renderIntraLoopModal();
   // Render the open book from the last-good LIVE entry (which holds the full
   // two-sided book), NOT the list entry — the list entry has no order book, so
   // rendering it here made the open Track Live book collapse to the sparse
