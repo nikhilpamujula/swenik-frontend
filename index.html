@@ -324,7 +324,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 26</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 27</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -428,6 +428,7 @@ function knownExchanges() {
 let currentPage = 'direct';
 let withVolume = true;
 let showDisabledWallets = false; // Direct only. OFF = wallets=enabled only, ON = include disabled too.
+let showUsdtPairs = true;        // Direct only. ON = include coin/USDT pairs, OFF = INR pairs only.
 let sortBy = 'percentage';       // 'percentage' | 'profit' — Direct + Intra Loop only
 let sortDir = 'desc';            // 'desc' | 'asc'
 
@@ -451,7 +452,7 @@ let draftFilter = {}; // working copy while the drawer is open, committed on App
 function saveUiState() {
   try {
     localStorage.setItem('swenikUi', JSON.stringify({
-      page: currentPage, pageFilters, withVolume, showDisabledWallets, sortBy, sortDir
+      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir
     }));
   } catch (e) {}
 }
@@ -465,6 +466,7 @@ function loadUiState() {
     }
     if (typeof s.withVolume === 'boolean') withVolume = s.withVolume;
     if (typeof s.showDisabledWallets === 'boolean') showDisabledWallets = s.showDisabledWallets;
+    if (typeof s.showUsdtPairs === 'boolean') showUsdtPairs = s.showUsdtPairs;
     if (s.sortBy === 'percentage' || s.sortBy === 'profit') sortBy = s.sortBy;
     if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
     return (s.page && PAGES[s.page]) ? s.page : null;
@@ -694,6 +696,9 @@ function renderToolbar() {
     <label class="toggle-wrap"><span>Disabled Wallets</span>
       <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
     </label>
+    <label class="toggle-wrap"><span>USDT pairs</span>
+      <label class="switch"><input type="checkbox" id="usdtToggle" ${showUsdtPairs?'checked':''} onchange="onUsdtToggle()"><span class="slider"></span></label>
+    </label>
     ${sortControlsHtml()}
     <button class="apply-filter-btn" onclick="openDrawer()">Apply Filter</button>
     ${activeFilterChips()}
@@ -707,6 +712,11 @@ function onVolumeToggle() {
 }
 function onDisabledToggle() {
   showDisabledWallets = document.getElementById('disabledToggle').checked;
+  saveUiState();
+  renderCards(); // client-side filter only, no refetch needed
+}
+function onUsdtToggle() {
+  showUsdtPairs = document.getElementById('usdtToggle').checked;
   saveUiState();
   renderCards(); // client-side filter only, no refetch needed
 }
@@ -857,9 +867,11 @@ function filteredOpportunities() {
   // ON = wallet-blocked coins ONLY (a separate view, not a superset).
   const scoped = showDisabledWallets ? direct.filter(o => o.walletEnabled === false)
                                      : direct.filter(o => o.walletEnabled !== false);
+  // USDT-pairs toggle: OFF hides the coin/USDT direct pairs, leaving INR pairs only.
+  const quoted = showUsdtPairs ? scoped : scoped.filter(o => (o.quote || 'INR') !== 'USDT');
   // Volume ON = show only valid (non-negative) opportunities. Volume OFF
   // (fixed ₹1,00,000 view) shows everything, negatives included.
-  const signed = withVolume ? scoped.filter(o => pctOf(o) >= 0) : scoped;
+  const signed = withVolume ? quoted.filter(o => pctOf(o) >= 0) : quoted;
   return sortList(signed);
 }
 
