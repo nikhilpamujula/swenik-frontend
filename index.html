@@ -1,0 +1,1965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Swenik — Live Arbitrage Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#13293d">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #13293d;        /* deep trading navy */
+    --primary-light: #1d4e6b;
+    --accent: #2176ae;         /* chart blue for links/active */
+    --success: #21a05f;
+    --danger: #e0455a;
+    --warning: #e9a13b;
+    --light: #f4f6f9;
+    --gray-100: #eef1f5;
+    --gray-200: #dde3ea;
+    --gray-500: #94a0ad;
+    --gray-700: #5d6b78;
+    --border: #d8dfe7;
+    --ask-bg: #fdeef0;
+    --bid-bg: #e4f7ef;
+    --spread-bg: #fbf5dd;
+  }
+  body {
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    background: var(--light);
+    color: #2b3440;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------------- App-level header ---------------- */
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; background: var(--primary); color: #fff; gap: 10px; flex-wrap: wrap;
+  }
+  .topbar h1 { font-size: 16px; font-weight: 700; }
+  .topbar .subtitle { font-size: 11px; opacity: 0.75; margin-top: 2px; }
+  .topbar-status { font-size: 11px; opacity: 0.85; display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  #refreshBtn {
+    background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 6px; padding: 5px 10px; font-size: 11.5px; cursor: pointer;
+  }
+  #refreshBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .banner-error {
+    background: #fdecea; border: 1px solid #f4c2c2; color: #a33; font-size: 11.5px;
+    line-height: 1.5; padding: 9px 12px; border-radius: 6px; margin: 10px 0;
+  }
+
+  /* ---------------- Shell: sidebar + main ---------------- */
+  .app-shell { display: flex; align-items: flex-start; }
+  .sidebar {
+    width: 190px; flex: 0 0 190px; background: #fff; border-right: 1px solid var(--border);
+    padding: 14px 0; position: sticky; top: 0;
+  }
+  .sidebar-group-label {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--gray-500);
+    padding: 0 16px 8px; letter-spacing: .4px;
+  }
+  .sidebar-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    padding: 10px 16px; font-size: 13.5px; font-weight: 600; color: var(--gray-700);
+    cursor: pointer; border-left: 3px solid transparent;
+  }
+  .sidebar-item:hover { background: #fafafa; }
+  .sidebar-item.active { background: #e6f0f8; color: var(--accent); border-left-color: var(--accent); }
+  .new-badge { background: var(--danger); color: #fff; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
+
+  .main-area { flex: 1; min-width: 0; padding: 12px 16px 40px; max-width: 1320px; }
+  #cardList { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; align-items: start; }
+  #cardList .card { margin-bottom: 0; }
+  #cardList .empty-state, #cardList .banner-error, #cardList .coming-soon { grid-column: 1 / -1; }
+  @media (max-width: 760px) { #cardList { grid-template-columns: 1fr; gap: 8px; } }
+
+  /* ---------------- Toolbar ---------------- */
+  .toolbar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 4px 0 14px; }
+  .toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--gray-700); }
+  .switch { position: relative; width: 34px; height: 19px; flex: 0 0 auto; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: #ccc; border-radius: 20px; cursor: pointer; transition: .2s; }
+  .slider::before { content:''; position:absolute; width:15px; height:15px; left:2px; top:2px; background:#fff; border-radius:50%; transition:.2s; }
+  .switch input:checked + .slider { background: var(--success); }
+  .switch input:checked + .slider::before { transform: translateX(15px); }
+  .sort-wrap { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--gray-700); }
+  .sort-select { font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background:#fff; color:#333; }
+  .apply-filter-btn {
+    margin-left: auto; background: #fff; color: var(--primary); border: 1px solid var(--primary);
+    border-radius: 6px; padding: 8px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .active-filter-chip {
+    display:inline-flex; align-items:center; gap:6px; background:#e6f0f8; color:var(--accent);
+    font-size:11.5px; font-weight:600; padding:4px 9px; border-radius:12px;
+  }
+  .active-filter-chip button { background:none; border:none; color:var(--primary); font-size:13px; cursor:pointer; line-height:1; }
+
+  .note-box {
+    background: #eef5ff; border: 1px solid #cfe1f7; color: var(--gray-700);
+    font-size: 11.5px; line-height: 1.5; padding: 10px 12px; border-radius: 6px; margin-bottom: 14px;
+  }
+
+  /* ---------------- Cards (unchanged design) ---------------- */
+  .card {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .coin-pair { font-size: 15px; font-weight: 700; color: #222; }
+  .badge {
+    font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 10px;
+    text-transform: uppercase; letter-spacing: .3px;
+  }
+  .badge-direct { background: #e6f0f8; color: var(--accent); }
+  .badge-loop { background: #fdf2e3; color: #b5750e; }
+  .badge-ok { background: #e6f6ec; color: var(--success); }
+  .badge-blocked { background: #fdecea; color: var(--danger); }
+  .badge-row { display: flex; gap: 6px; }
+
+  .leg-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; color: #444; }
+  .leg-row .leg-label { color: var(--gray-700); }
+  .leg-row .leg-val { font-weight: 600; }
+
+  .profit-box {
+    margin-top: 10px; background: linear-gradient(135deg, rgba(39,174,96,0.12), rgba(39,174,96,0.04));
+    border: 1px solid rgba(39,174,96,0.35); border-radius: 6px; padding: 10px 12px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;
+  }
+  .profit-box.rough { background: linear-gradient(135deg, rgba(39,174,96,0.12), rgba(39,174,96,0.04)); border-color: rgba(39,174,96,0.35); }
+  .profit-box.negative { background: linear-gradient(135deg, rgba(231,76,60,0.10), rgba(231,76,60,0.03)); border-color: rgba(231,76,60,0.3); }
+  .profit-pct { font-size: 18px; font-weight: 800; color: var(--success); }
+  .profit-box.rough .profit-pct { color: var(--success); }
+  .profit-box.negative .profit-pct { color: var(--danger); }
+  .profit-sub { font-size: 11px; color: var(--gray-700); }
+  .track-btn {
+    background: var(--primary); color: #fff; border: none; border-radius: 6px;
+    padding: 8px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer; margin-top: 10px; width: 100%;
+  }
+
+  /* KoinKnight-style card rows */
+  .card { padding: 0; overflow: hidden; }
+  .card .card-top { padding: 12px 14px 6px; margin-bottom: 0; }
+  .kk-row { border-top: 1px solid var(--gray-200); }
+  details.kk-row summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center;
+    gap: 10px; padding: 12px 14px;
+  }
+  details.kk-row summary::-webkit-details-marker { display: none; }
+  .kk-tag { flex: 0 0 52px; font-size: 12.5px; font-weight: 700; }
+  .kk-tag .kk-coin { display:block; font-weight: 400; color: var(--gray-700); font-size: 11.5px; margin-top: 2px; }
+  .kk-tag.buy { color: var(--success); }
+  .kk-tag.sell { color: var(--danger); }
+  .kk-tag.convert { color: var(--primary); }
+  .kk-mid { flex: 1; min-width: 0; }
+  .kk-mid .kk-qty { font-size: 13.5px; font-weight: 700; color: #222; }
+  .kk-mid .kk-price { font-size: 12px; color: var(--gray-700); margin-top: 1px; }
+  .kk-mid .kk-price .kk-caret { display:inline-block; transition: transform .15s; color: var(--gray-500); }
+  details.kk-row[open] .kk-caret { transform: rotate(180deg); }
+  .kk-ex { flex: 0 0 auto; text-align: right; font-size: 12px; }
+  .kk-ex .ex-name { font-weight: 700; color: #222; }
+  .kk-ex .ex-market { color: var(--gray-500); font-size: 11px; }
+  .kk-body { padding: 0 14px 12px 76px; font-size: 12px; background: #fcfcfc; }
+  .kk-body .leg-line { padding: 3px 0; }
+
+  .arb-bar {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    background: var(--success); color: #fff; padding: 11px 14px;
+  }
+  .arb-bar.negative { background: var(--danger); }
+  .arb-bar.rough { background: var(--success); }
+  .arb-bar .arb-label { font-size: 12px; font-weight: 700; flex: 0 0 auto; }
+  .arb-bar .arb-mid { flex: 1; }
+  .arb-bar .arb-main { font-size: 15px; font-weight: 800; }
+  .arb-bar .arb-sub { font-size: 11px; opacity: .9; margin-top: 1px; }
+  .arb-bar .track-live-btn {
+    background: #fff; color: #222; border: none; border-radius: 18px;
+    padding: 8px 15px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+
+  /* ---------------- Empty / coming-soon states ---------------- */
+  .empty-state {
+    text-align: center; color: var(--gray-700); font-size: 12.5px; padding: 40px 16px;
+    border: 1px dashed var(--border); border-radius: 8px; background: #fff;
+  }
+  .empty-state .emoji { font-size: 26px; display: block; margin-bottom: 8px; }
+  .coming-soon { text-align:center; padding: 46px 16px; color: var(--gray-700); background:#fff; border:1px dashed var(--border); border-radius:8px; font-size: 12.5px; line-height:1.6; }
+  .coming-soon .emoji { font-size: 30px; display:block; margin-bottom: 10px; }
+  .coming-soon strong { color: var(--primary); }
+
+  /* ---------------- Filter drawer ---------------- */
+  .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; display: flex; justify-content: flex-end; }
+  .drawer-overlay.hidden { display: none; }
+  .drawer { background: #fff; width: 340px; max-width: 92vw; height: 100%; overflow-y: auto; padding: 18px; box-shadow: -4px 0 16px rgba(0,0,0,0.15); }
+  .drawer-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px; }
+  .drawer-header span { font-weight: 700; font-size: 15px; color: var(--primary); }
+  .drawer-header button.close-x { background:none; border:none; font-size: 20px; color: var(--gray-700); cursor:pointer; }
+  .drawer-sub { font-size: 11px; color: var(--gray-500); margin-bottom: 16px; }
+  .drawer .drawer-section-label { font-size: 13px; font-weight: 700; color: var(--accent); border-bottom: 1px solid var(--gray-200); padding-bottom: 5px; margin-top: 4px; }
+  .drawer label.field-label { display:block; font-size: 12px; color: var(--gray-700); margin: 14px 0 6px; font-weight: 600; }
+  .drawer input[type=text], .drawer select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+  .drawer .drawer-actions { display: flex; gap: 8px; margin-top: 22px; }
+  .drawer .btn-apply { flex:1; background: var(--primary); color:#fff; border:none; border-radius:6px; padding:9px; font-weight:700; font-size:13px; cursor:pointer; }
+  .drawer .btn-reset { background:#fff; color: var(--gray-700); border:1px solid var(--border); border-radius:6px; padding:9px 14px; font-weight:600; font-size:13px; cursor:pointer; }
+
+  /* ---------------- Track Live modal (unchanged from before) ---------------- */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: flex-end; justify-content: center; z-index: 100; }
+  .modal-overlay.hidden { display: none; }
+  .modal { background: #fff; width: 100%; max-width: 760px; max-height: 94vh; overflow-y: auto; border-radius: 14px 14px 0 0; padding: 10px 12px; }
+  @media (min-width: 760px) { .modal-overlay { align-items: center; } .modal { border-radius: 12px; } }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .modal-header span { font-size: 15px; font-weight: 700; color: var(--primary); }
+  .modal-header button { background: none; border: none; font-size: 22px; line-height: 1; color: var(--gray-700); cursor: pointer; }
+  .modal-status { font-size: 10.5px; color: var(--danger); margin-bottom: 6px; }
+  .ob-chip { display:inline-flex; align-items:center; gap:6px; background: var(--danger); color:#fff; font-size:12px; font-weight:700; padding:5px 10px; border-radius: 6px; }
+  .ob-chip button { background:none; border:none; color:#fff; font-size:14px; cursor:pointer; line-height:1; padding:0; }
+
+  .create-alert-wrap { position: relative; }
+  .create-alert-menu { position: absolute; top: calc(100% + 4px); left: 0; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); z-index: 50; min-width: 170px; overflow: hidden; }
+  .create-alert-menu.hidden { display: none; }
+  .cam-item { padding: 10px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .cam-item:hover { background: var(--gray-100); }
+  .cam-item.cam-disabled { color: var(--gray-500); cursor: not-allowed; font-weight: 400; }
+
+  .alert-form .af-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px 10px; margin-bottom: 6px; }
+  .alert-form .af-grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+  .alert-form .af-label { font-size: 12px; font-weight: 700; color: var(--gray-700); margin-bottom: 4px; }
+  .alert-form .af-radio { display:block; font-size: 13px; padding: 2px 0; cursor: pointer; }
+  .alert-form input[type=text], .alert-form input[type=number], .alert-form select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit;
+  }
+  .alert-form .field-label { display:block; font-size: 12px; color: var(--gray-700); margin: 12px 0 5px; font-weight: 600; }
+  .alert-form .drawer-actions { display:flex; gap:8px; margin-top: 18px; }
+  .alert-form .btn-apply { flex:1; background: var(--success); color:#fff; border:none; border-radius:6px; padding:9px; font-weight:700; font-size:13px; cursor:pointer; }
+  .alert-form .btn-reset { background: var(--danger); color:#fff; border:none; border-radius:6px; padding:9px 16px; font-weight:700; font-size:13px; cursor:pointer; }
+
+  .modal-note { font-size: 11px; color: var(--gray-700); background: #fafafa; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
+
+  details.leg-detail { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px; overflow: hidden; }
+  details.leg-detail summary { list-style: none; cursor: pointer; padding: 6px 10px; display: flex; justify-content: space-between; align-items: center; background: #fafafa; }
+  details.leg-detail summary::-webkit-details-marker { display: none; }
+  details.leg-detail summary::after { content: '▾'; color: var(--gray-500); transition: transform .15s; }
+  details.leg-detail[open] summary::after { transform: rotate(180deg); }
+  .leg-summary-left .leg-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .leg-tag.buy { color: var(--success); }
+  .leg-tag.sell { color: var(--danger); }
+  .leg-summary-left .leg-amount { font-size: 14px; font-weight: 700; color: #222; margin-top: 1px; }
+  .leg-summary-left .leg-sub { font-size: 11px; color: var(--gray-500); }
+  .leg-summary-right { text-align: right; font-size: 11.5px; }
+  .leg-summary-right .ex-name { font-weight: 700; color: #222; }
+  .leg-summary-right .ex-market { color: var(--gray-500); }
+  .leg-detail-body { padding: 5px 10px 7px; font-size: 12px; }
+  .leg-line { display: flex; justify-content: space-between; padding: 2px 0; }
+  .leg-line .k { color: var(--gray-700); }
+  .leg-line .v { font-weight: 600; color: #222; }
+
+  .arb-box { background: var(--success); color: #fff; border-radius: 6px; padding: 8px 12px; margin-bottom: 5px; }
+  .arb-box .arb-pct { font-size: 17px; font-weight: 800; }
+  .arb-box .arb-time { font-size: 12px; opacity: 0.9; margin-top: 2px; }
+  details.arb-detail summary { list-style:none; cursor:pointer; }
+  details.arb-detail summary::-webkit-details-marker{display:none;}
+  details.arb-detail[open] .arb-caret { transform: rotate(180deg); }
+  .arb-caret { display:inline-block; transition: transform .15s; }
+
+  .ob-legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 8px 0 4px; font-size: 10px; color: var(--gray-700); }
+  .ob-legend-item { display: flex; align-items: center; gap: 6px; }
+  .ob-swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+  .ob-bar-icon { width: 22px; height: 4px; border-radius: 2px; display: inline-block; }
+  .ob-section-title { font-size: 12.5px; font-weight: 700; color: var(--gray-700); margin: 2px 0 4px; }
+  table.ob-table { width: auto; min-width: 340px; border-collapse: collapse; font-size: 11px; margin-bottom: 8px; }
+  table.ob-table td, table.ob-table th { white-space: nowrap; }
+  table.ob-table th { padding: 3px 6px; text-align: right; border: none; border-bottom: 1px solid var(--border); background: var(--gray-100); font-size: 10px; }
+  table.ob-table th:first-child, table.ob-table td:first-child { text-align: left; }
+  table.ob-table td { padding: 2px 6px; text-align: right; border: none; }
+  .loop-scroll { overflow-x: auto; margin-bottom: 8px; -webkit-overflow-scrolling: touch; }
+  table.ob-table.dual { min-width: 420px; margin-bottom: 0; }
+  table.ob-table.dual th.ob-group { text-align: center; background: #fff; font-weight: 700; color: #222; }
+  table.ob-table.dual .ob-sub { font-weight: 400; color: var(--gray-500); font-size: 10px; margin-top: 2px; }
+  .ob-size-cell { text-align: left !important; vertical-align: middle; white-space: nowrap; }
+  .ob-price-cell { text-align: right !important; vertical-align: middle; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 12px !important; }
+  table.ob-table.dual td { border-bottom: 1px solid rgba(255,255,255,.7); }
+  table.ob-table.dual th.ob-group { border-bottom: 1px solid var(--border); }
+  tr.kk-ask-row td { background: var(--ask-bg); }
+  tr.kk-bid-row td { background: var(--bid-bg); }
+  tr.kk-spread-row td { background: var(--spread-bg); color: var(--gray-700); font-weight: 700; }
+  .kk-spread-label { text-align: right !important; }
+  .kk-ob-size { font-weight: 700; }
+  .kk-ob-bar { display: flex; align-items: center; gap: 5px; margin-top: 1px; }
+  .kk-ob-track { flex: 1; max-width: 70px; height: 6px; border: 1.5px solid currentColor; border-radius: 5px; position: relative; overflow: hidden; background: #fff; }
+  .kk-ob-fill { position: absolute; left: 0; top: 0; height: 100%; }
+  .kk-ob-pct { font-size: 10px; font-weight: 700; }
+  .kk-ob-consumed { font-size: 9px; margin-top: 0; }
+  .ob-bar-track { height: 4px; background: rgba(0,0,0,0.08); border-radius: 2px; margin-top: 4px; position: relative; }
+  .ob-bar-fill { position: absolute; left:0; top:0; height:100%; border-radius: 2px; }
+  .ob-bar-label { font-size: 9px; margin-top: 1px; }
+  .ob-unused { opacity: 0.45; }
+
+  .summary-box { background: rgba(39,174,96,0.1); border: 1px solid var(--success); border-radius: 6px; padding: 12px; }
+  .summary-box .title { font-weight: 700; color: var(--success); margin-bottom: 8px; font-size: 13px; }
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .summary-grid .lab { font-size: 10px; color: var(--gray-700); text-transform: uppercase; }
+  .summary-grid .val { font-size: 14px; font-weight: 700; margin-top: 2px; }
+
+  @media (max-width: 760px) {
+    .app-shell { flex-direction: column; }
+    .sidebar { width: 100%; flex: none; display:flex; overflow-x:auto; border-right:none; border-bottom:1px solid var(--border); padding: 8px 8px; gap:4px; position:static; -webkit-overflow-scrolling: touch; }
+    .sidebar-group-label { display:none; }
+    .sidebar-item { flex:0 0 auto; border-left:none; border-bottom:3px solid transparent; border-radius: 6px 6px 0 0; white-space:nowrap; }
+    .sidebar-item.active { border-left-color:transparent; border-bottom-color: var(--primary); }
+    .drawer { width: 100%; max-width: 100%; }
+    .apply-filter-btn { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Swenik Arbitrage Scanner</h1>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 25</span></div>
+  </div>
+  <div class="topbar-status">
+    <span id="lastRefreshed">Last refreshed: —</span>
+    <span id="nextRefresh">Next auto-refresh in 10s</span>
+    <button id="refreshBtn" onclick="manualRefresh()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-group-label">Arbitrages</div>
+    <div class="sidebar-item" id="nav-direct" onclick="selectPage('direct')">Direct</div>
+    <div class="sidebar-item" id="nav-loop" onclick="selectPage('loop')">Loop</div>
+    <div class="sidebar-item" id="nav-intraloop" onclick="selectPage('intraloop')">
+      Intra Loop <span class="new-badge">New</span>
+    </div>
+    <div class="sidebar-group-label" style="padding-top:14px;">Tools</div>
+    <div class="sidebar-item" id="nav-orderbook" onclick="selectPage('orderbook')">Orderbook</div>
+    <div class="sidebar-item" id="nav-alerts" onclick="selectPage('alerts')">Alerts</div>
+  </div>
+
+  <div class="main-area">
+    <div id="bannerSlot"></div>
+    <div class="note-box" id="noteBox"></div>
+    <div class="toolbar" id="toolbar"></div>
+    <div id="cardList"></div>
+  </div>
+</div>
+
+<!-- Filter drawer -->
+<div class="drawer-overlay hidden" id="drawerOverlay">
+  <div class="drawer">
+    <div class="drawer-header">
+      <span id="drawerTitle">Apply Filter</span>
+      <button class="close-x" onclick="closeDrawer()">×</button>
+    </div>
+    <div class="drawer-sub" id="drawerSub"></div>
+    <div id="drawerBody"></div>
+    <div class="drawer-actions">
+      <button class="btn-apply" onclick="applyDrawerFilter()">Apply</button>
+      <button class="btn-reset" onclick="resetDrawerFilter()">Reset</button>
+    </div>
+  </div>
+</div>
+
+<!-- Track Live modal -->
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modalTitle">Opportunity</span>
+      <button onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-status" id="modalStatus"></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// CONFIG
+// ================================================================
+const API_BASE = 'https://swenik-ldokv.ondigitalocean.app';
+
+// ================================================================
+// SEED DATA — a real snapshot from the live API (captured earlier
+// today) so the page shows opportunities immediately on load, even
+// before/without the backend responding. Replaced by live data on
+// the first successful fetch. Includes all direct opportunities from
+// the snapshot plus the top loop opportunities (positive ones and a
+// few representative negatives) — not every last deep-negative loop.
+// ================================================================
+const SEED_DATA = {"withVolume":true,"wallets":"all","profit":"all","ts":1784099664700,"opportunities":[{"type":"direct","coin":"bonk","walletEnabled":false,"buyExchange":"binance","buyMarket":"BONKUSDT","sellExchange":"wazirx","sellMarket":"bonkinr","network":"NA","rateSource":"forex","roughPct":7.638383159126887,"walked":{"buyQty":34432072,"sellQty":34432072,"buyCost":12613.127019503,"sellRevenue":13525.941949300002,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.0003663191404659876,"priceBid":0.0003943,"qty":127352},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":0.0003663191404659876,"priceBid":0.0003942,"qty":12680699},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":0.0003663191404659876,"priceBid":0.0003941,"qty":12940346},{"purpose":"trade","askLevel":0,"bidLevel":3,"priceAsk":0.0003663191404659876,"priceBid":0.0003901,"qty":8144593},{"purpose":"trade","askLevel":0,"bidLevel":4,"priceAsk":0.0003663191404659876,"priceBid":0.000371,"qty":539082}],"buyPrice":12613.127019503,"tradingChargeBuy":12.613127019502999,"finalBuy":12625.740146522503,"sellPrice":13525.941949300002,"transferCharge":0,"tradingChargeSell":0,"finalSell":13525.941949300002,"marginalSellPrice":0.0003342,"profit":900.2018027774993,"profitPct":7.129893315802489,"lastAskLevel":0,"lastBidLevel":5},"executionMin":0},{"type":"direct","coin":"xec","walletEnabled":false,"buyExchange":"binance","buyMarket":"XECUSDT","sellExchange":"wazirx","sellMarket":"xecinr","network":"NA","rateSource":"forex","roughPct":4.824764033543044,"walked":{"buyQty":12051131,"sellQty":12051131,"buyCost":7338.186723548024,"sellRevenue":7692.2369173,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.0006089209986637788,"priceBid":0.0006383,"qty":12051131}],"buyPrice":7338.186723548024,"tradingChargeBuy":7.3381867235480245,"finalBuy":7345.5249102715725,"sellPrice":7692.2369173,"transferCharge":0,"tradingChargeSell":0,"finalSell":7692.2369173,"marginalSellPrice":0.0005411,"profit":346.71200702842725,"profitPct":4.720043989553483,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"wld","walletEnabled":true,"buyExchange":"binance","buyMarket":"WLDUSDT","sellExchange":"wazirx","sellMarket":"wldinr","network":"WLD","rateSource":"forex","roughPct":3.3608573679361293,"walked":{"buyQty":21.1652,"sellQty":21.1052,"buyCost":839.5568903912696,"sellRevenue":865.3132,"rows":[{"purpose":"fee","askLevel":0,"price":39.66685362724045,"qty":0.06},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":39.66685362724045,"priceBid":41,"qty":21.1052}],"buyPrice":839.5568903912696,"tradingChargeBuy":0.8395568903912696,"finalBuy":840.3964472816608,"sellPrice":867.6714514,"transferCharge":2.3582514,"tradingChargeSell":0,"finalSell":865.3132,"marginalSellPrice":39.30419,"profit":24.91675271833924,"profitPct":2.964880777273007,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"paxg","walletEnabled":true,"buyExchange":"binance","buyMarket":"PAXGUSDT","sellExchange":"wazirx","sellMarket":"paxginr","network":"ETH","rateSource":"forex","roughPct":2.8075839757372707,"walked":{"buyQty":0.25423999999999997,"sellQty":0.2541,"buyCost":98918.77239718074,"sellRevenue":101639.98333999999,"rows":[{"purpose":"fee","askLevel":0,"price":389076.35461446166,"qty":0.00014},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":389076.35461446166,"priceBid":400000,"qty":0.25},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":389076.35461446166,"priceBid":399996,"qty":0.00384},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":389076.35461446166,"priceBid":399995,"qty":0.00026}],"buyPrice":98918.77239718074,"tradingChargeBuy":98.91877239718075,"finalBuy":99017.69116957793,"sellPrice":101686.89734,"transferCharge":46.913999999999994,"tradingChargeSell":0,"finalSell":101639.98333999999,"marginalSellPrice":335100,"profit":2622.2921704220644,"profitPct":2.648306721201084,"lastAskLevel":0,"lastBidLevel":3},"executionMin":5},{"type":"direct","coin":"gala","walletEnabled":true,"buyExchange":"binance","buyMarket":"GALAUSDT","sellExchange":"wazirx","sellMarket":"galainr","network":"ETH","rateSource":"forex","roughPct":2.2871567370444907,"walked":{"buyQty":34057,"sellQty":33781,"buyCost":6669.08468043229,"sellRevenue":6757.6803,"rows":[{"purpose":"fee","askLevel":0,"price":0.19582126084012952,"qty":276},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.19582126084012952,"priceBid":0.2003,"qty":2534},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":0.19582126084012952,"priceBid":0.2002,"qty":1},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":0.19582126084012952,"priceBid":0.2001,"qty":7199},{"purpose":"trade","askLevel":0,"bidLevel":3,"priceAsk":0.19582126084012952,"priceBid":0.2,"qty":24047}],"buyPrice":6669.08468043229,"tradingChargeBuy":6.66908468043229,"finalBuy":6675.753765112722,"sellPrice":6811.5279,"transferCharge":53.8476,"tradingChargeSell":0,"finalSell":6757.6803,"marginalSellPrice":0.1951,"profit":81.92653488727774,"profitPct":1.2272252358291467,"lastAskLevel":0,"lastBidLevel":4},"executionMin":5},{"type":"direct","coin":"pol","walletEnabled":false,"buyExchange":"binance","buyMarket":"POLUSDT","sellExchange":"wazirx","sellMarket":"polinr","network":"NA","rateSource":"forex","roughPct":1.258804632284885,"walked":{"buyQty":201.2,"sellQty":201.2,"buyCost":1625.7533416260844,"sellRevenue":1646.2184,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":8.080284998141574,"priceBid":8.182,"qty":201.2}],"buyPrice":1625.7533416260844,"tradingChargeBuy":1.6257533416260845,"finalBuy":1627.3790949677104,"sellPrice":1646.2184,"transferCharge":0,"tradingChargeSell":0,"finalSell":1646.2184,"marginalSellPrice":7.979,"profit":18.83930503228953,"profitPct":1.157646985299595,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"bnb","walletEnabled":true,"buyExchange":"binance","buyMarket":"BNBUSDT","sellExchange":"wazirx","sellMarket":"bnbinr","network":"BSC","rateSource":"forex","roughPct":1.3593315491479399,"walked":{"buyQty":1.74501,"sellQty":1.745,"buyCost":97753.36408444666,"sellRevenue":98977.78149000001,"rows":[{"purpose":"fee","askLevel":0,"price":56018.79879453222,"qty":0.00001},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":56018.79879453222,"priceBid":56780.28,"qty":0.004},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":56018.79879453222,"priceBid":56720.66,"qty":0.872},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":56018.79879453222,"priceBid":56720.65,"qty":0.869}],"buyPrice":97753.36408444666,"tradingChargeBuy":97.75336408444666,"finalBuy":97851.1174485311,"sellPrice":98978.33638410001,"transferCharge":0.5548941000000001,"tradingChargeSell":0,"finalSell":98977.78149000001,"marginalSellPrice":55489.41,"profit":1126.6640414689027,"profitPct":1.1514064129737904,"lastAskLevel":0,"lastBidLevel":3},"executionMin":5},{"type":"direct","coin":"icp","walletEnabled":false,"buyExchange":"binance","buyMarket":"ICPUSDT","sellExchange":"wazirx","sellMarket":"icpinr","network":"NA","rateSource":"forex","roughPct":1.248360965809377,"walked":{"buyQty":89.31,"sellQty":89.31,"buyCost":18972.081964396082,"sellRevenue":19201.65,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":212.3491165181464,"priceBid":215,"qty":15},{"purpose":"trade","askLevel":1,"bidLevel":0,"priceAsk":212.4457706449184,"priceBid":215,"qty":74.31}],"buyPrice":18972.081964396082,"tradingChargeBuy":18.972081964396082,"finalBuy":18991.054046360478,"sellPrice":19201.65,"transferCharge":0,"tradingChargeSell":0,"finalSell":19201.65,"marginalSellPrice":211,"profit":210.59595363952394,"profitPct":1.1089218804044392,"lastAskLevel":1,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"vet","walletEnabled":false,"buyExchange":"binance","buyMarket":"VETUSDT","sellExchange":"wazirx","sellMarket":"vetinr","network":"NA","rateSource":"forex","roughPct":1.9200494223937326,"walked":{"buyQty":32373,"sellQty":32373,"buyCost":15119.25091022791,"sellRevenue":15295.910920000002,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.4670327405624412,"priceBid":0.476,"qty":10912},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":0.4670327405624412,"priceBid":0.47071,"qty":10622},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":0.4670327405624412,"priceBid":0.4707,"qty":10839}],"buyPrice":15119.25091022791,"tradingChargeBuy":15.11925091022791,"finalBuy":15134.370161138137,"sellPrice":15295.910920000002,"transferCharge":0,"tradingChargeSell":0,"finalSell":15295.910920000002,"marginalSellPrice":0.44212,"profit":161.54075886186547,"profitPct":1.0673768193979292,"lastAskLevel":0,"lastBidLevel":3},"executionMin":0},{"type":"direct","coin":"trx","walletEnabled":true,"buyExchange":"binance","buyMarket":"TRXUSDT","sellExchange":"wazirx","sellMarket":"trxinr","network":"TRX","rateSource":"forex","roughPct":1.2048678991220745,"walked":{"buyQty":3355.5,"sellQty":3354,"buyCost":106248.18937284812,"sellRevenue":107436.39592999998,"rows":[{"purpose":"fee","askLevel":0,"price":31.663891930516503,"qty":1.5},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":31.663891930516503,"priceBid":32.0454,"qty":1546.1},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":31.663891930516503,"priceBid":32.0453,"qty":1539.9},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":31.663891930516503,"priceBid":32.0032,"qty":161.1},{"purpose":"trade","askLevel":0,"bidLevel":3,"priceAsk":31.663891930516503,"priceBid":31.7,"qty":106.9}],"buyPrice":106248.18937284812,"tradingChargeBuy":106.24818937284813,"finalBuy":106354.43756222098,"sellPrice":107483.72947999998,"transferCharge":47.33355,"tradingChargeSell":0,"finalSell":107436.39592999998,"marginalSellPrice":31.5557,"profit":1081.958367779007,"profitPct":1.0173137976927613,"lastAskLevel":0,"lastBidLevel":4},"executionMin":5}
+,{"type":"direct","coin":"xrp","walletEnabled":true,"buyExchange":"binance","buyMarket":"XRPUSDT","sellExchange":"wazirx","sellMarket":"xrpinr","network":"BSC","rateSource":"forex","roughPct":1.0806493957273071,"walked":{"buyQty":412.416,"sellQty":412.4,"buyCost":44162.78667743398,"sellRevenue":44606.88676000001,"rows":[{"purpose":"fee","askLevel":0,"price":107.08310705073026,"qty":0.016},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":107.08310705073026,"priceBid":108.2403,"qty":182.8},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":107.08310705073026,"priceBid":108.2402,"qty":47.1},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":107.08310705073026,"priceBid":108.0682,"qty":182.5}],"buyPrice":44162.78667743398,"tradingChargeBuy":44.16278667743398,"finalBuy":44206.949464111414,"sellPrice":44608.60036000001,"transferCharge":1.7136,"tradingChargeSell":0,"finalSell":44606.88676000001,"marginalSellPrice":107.1,"profit":399.93729588859424,"profitPct":0.9046932682230785,"lastAskLevel":0,"lastBidLevel":3},"executionMin":5},{"type":"direct","coin":"eth","walletEnabled":true,"buyExchange":"binance","buyMarket":"ETHUSDT","sellExchange":"wazirx","sellMarket":"ethinr","network":"BSC","rateSource":"forex","roughPct":1.0794418394460028,"walked":{"buyQty":0.6108093,"sellQty":0.6108,"buyCost":110792.82590959722,"sellRevenue":111904.83846,"rows":[{"purpose":"fee","askLevel":0,"price":181386.93354799482,"qty":0.0000093},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":181386.93354799482,"priceBid":183344.9,"qty":0.0273},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":181386.93354799482,"priceBid":183344.8,"qty":0.2701},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":181386.93354799482,"priceBid":183344.5,"qty":0.0281},{"purpose":"trade","askLevel":0,"bidLevel":3,"priceAsk":181386.93354799482,"priceBid":183082.9,"qty":0.2694},{"purpose":"trade","askLevel":0,"bidLevel":4,"priceAsk":181386.93354799482,"priceBid":182615,"qty":0.0159}],"buyPrice":110792.82590959722,"tradingChargeBuy":110.79282590959721,"finalBuy":110903.61873550681,"sellPrice":111906.49386,"transferCharge":1.6554000000000002,"tradingChargeSell":0,"finalSell":111904.83846,"marginalSellPrice":178000,"profit":1001.2197244931886,"profitPct":0.9027836385402264,"lastAskLevel":0,"lastBidLevel":5},"executionMin":5},{"type":"direct","coin":"btc","walletEnabled":true,"buyExchange":"binance","buyMarket":"BTCUSDT","sellExchange":"wazirx","sellMarket":"btcinr","network":"BSC","rateSource":"forex","roughPct":1.1782262180765088,"walked":{"buyQty":0.018380269999999997,"sellQty":0.01838,"buyCost":115247.00359458107,"sellRevenue":116384.92981999999,"rows":[{"purpose":"fee","askLevel":0,"price":6270147.478496294,"qty":2.7e-7},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":6270147.478496294,"priceBid":6344024,"qty":0.0078},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":6270147.478496294,"priceBid":6344023,"qty":0.0008},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":6270147.478496294,"priceBid":6328699,"qty":0.00778},{"purpose":"trade","askLevel":0,"bidLevel":3,"priceAsk":6270147.478496294,"priceBid":6294523,"qty":0.002}],"buyPrice":115247.00359458107,"tradingChargeBuy":115.24700359458107,"finalBuy":115362.25059817565,"sellPrice":116386.62286768999,"transferCharge":1.69304769,"tradingChargeSell":0,"finalSell":116384.92981999999,"marginalSellPrice":6270547,"profit":1022.6792218243354,"profitPct":0.8864938197040585,"lastAskLevel":0,"lastBidLevel":4},"executionMin":5},{"type":"direct","coin":"doge","walletEnabled":false,"buyExchange":"binance","buyMarket":"DOGEUSDT","sellExchange":"wazirx","sellMarket":"dogeinr","network":"NA","rateSource":"forex","roughPct":0.9360350839242334,"walked":{"buyQty":703,"sellQty":703,"buyCost":5051.922730826718,"sellRevenue":5099.2105,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":7.186234325500311,"priceBid":7.2535,"qty":703}],"buyPrice":5051.922730826718,"tradingChargeBuy":5.0519227308267185,"finalBuy":5056.974653557545,"sellPrice":5099.2105,"transferCharge":0,"tradingChargeSell":0,"finalSell":5099.2105,"marginalSellPrice":7,"profit":42.23584644245511,"profitPct":0.8351998840402037,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"dot","walletEnabled":false,"buyExchange":"binance","buyMarket":"DOTUSDT","sellExchange":"wazirx","sellMarket":"dotinr","network":"NA","rateSource":"forex","roughPct":0.9264631076575145,"walked":{"buyQty":152.21,"sellQty":152.21,"buyCost":12607.948013026667,"sellRevenue":12717.4408,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":82.83258664362833,"priceBid":83.6,"qty":60.77},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":82.83258664362833,"priceBid":83.52,"qty":91.44}],"buyPrice":12607.948013026667,"tradingChargeBuy":12.607948013026668,"finalBuy":12620.555961039694,"sellPrice":12717.4408,"transferCharge":0,"tradingChargeSell":0,"finalSell":12717.4408,"marginalSellPrice":82,"profit":96.8848389603063,"profitPct":0.7676748889620615,"lastAskLevel":0,"lastBidLevel":2},"executionMin":0},{"type":"direct","coin":"link","walletEnabled":true,"buyExchange":"binance","buyMarket":"LINKUSDT","sellExchange":"wazirx","sellMarket":"linkinr","network":"BSC","rateSource":"forex","roughPct":0.8389858648262805,"walked":{"buyQty":6.2521,"sellQty":6.25,"buyCost":5056.105022550034,"sellRevenue":5096.8125,"rows":[{"purpose":"fee","askLevel":0,"price":808.7050787015617,"qty":0.0021},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":808.7050787015617,"priceBid":815.49,"qty":6.25}],"buyPrice":5056.105022550034,"tradingChargeBuy":5.056105022550034,"finalBuy":5061.161127572584,"sellPrice":5098.429647,"transferCharge":1.6171470000000001,"tradingChargeSell":0,"finalSell":5096.8125,"marginalSellPrice":770.07,"profit":35.65137242741639,"profitPct":0.7044109351348665,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"shib","walletEnabled":true,"buyExchange":"binance","buyMarket":"SHIBUSDT","sellExchange":"wazirx","sellMarket":"shibinr","network":"BSC","rateSource":"forex","roughPct":1.0273043528115344,"walked":{"buyQty":119777464,"sellQty":119773317,"buyCost":49202.19130702428,"sellRevenue":49598.279119,"rows":[{"purpose":"fee","askLevel":0,"price":0.00041078003878112064,"qty":4147},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.00041078003878112064,"priceBid":0.000415,"qty":12125881},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":0.00041078003878112064,"priceBid":0.000414,"qty":107647436}],"buyPrice":49202.19130702428,"tradingChargeBuy":49.20219130702428,"finalBuy":49251.39349833131,"sellPrice":49599.979389,"transferCharge":1.70027,"tradingChargeSell":0,"finalSell":49598.279119,"marginalSellPrice":0.00041,"profit":346.88562066869054,"profitPct":0.7043163574253861,"lastAskLevel":0,"lastBidLevel":2},"executionMin":5},{"type":"direct","coin":"etc","walletEnabled":false,"buyExchange":"binance","buyMarket":"ETCUSDT","sellExchange":"wazirx","sellMarket":"etcinr","network":"NA","rateSource":"forex","roughPct":0.8241587626394631,"walked":{"buyQty":7.9399999999999995,"sellQty":7.9399999999999995,"buyCost":5402.733716652134,"sellRevenue":5445.193789999999,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":680.4450524750799,"priceBid":686.053,"qty":7.43},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":680.4450524750799,"priceBid":682,"qty":0.51}],"buyPrice":5402.733716652134,"tradingChargeBuy":5.402733716652134,"finalBuy":5408.1364503687855,"sellPrice":5445.193789999999,"transferCharge":0,"tradingChargeSell":0,"finalSell":5445.193789999999,"marginalSellPrice":680.52,"profit":37.057339631213836,"profitPct":0.6852145830878004,"lastAskLevel":0,"lastBidLevel":2},"executionMin":0},{"type":"direct","coin":"ltc","walletEnabled":true,"buyExchange":"binance","buyMarket":"LTCUSDT","sellExchange":"wazirx","sellMarket":"ltcinr","network":"LTC","rateSource":"forex","roughPct":0.7818621179960229,"walked":{"buyQty":3.3051,"sellQty":3.3049999999999997,"buyCost":14365.736401108568,"sellRevenue":14476.58696,"rows":[{"purpose":"fee","askLevel":0,"price":4346.536080938116,"qty":0.0001},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":4346.536080938116,"priceBid":4380.52,"qty":1.141},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":4346.536080938116,"priceBid":4380.51,"qty":1.164},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":4346.536080938116,"priceBid":4379.5,"qty":1}],"buyPrice":14365.736401108568,"tradingChargeBuy":14.365736401108569,"finalBuy":14380.102137509677,"sellPrice":14477.007203000001,"transferCharge":0.42024300000000003,"tradingChargeSell":0,"finalSell":14476.58696,"marginalSellPrice":4202.43,"profit":96.4848224903235,"profitPct":0.6709606202215236,"lastAskLevel":0,"lastBidLevel":3},"executionMin":5},{"type":"direct","coin":"ada","walletEnabled":false,"buyExchange":"binance","buyMarket":"ADAUSDT","sellExchange":"wazirx","sellMarket":"adainr","network":"NA","rateSource":"forex","roughPct":0.7332103963774814,"walked":{"buyQty":319.5,"sellQty":319.5,"buyCost":5064.482934600744,"sellRevenue":5101.61625,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":15.851276790612657,"priceBid":15.9675,"qty":319.5}],"buyPrice":5064.482934600744,"tradingChargeBuy":5.064482934600743,"finalBuy":5069.547417535345,"sellPrice":5101.61625,"transferCharge":0,"tradingChargeSell":0,"finalSell":5101.61625,"marginalSellPrice":15.6639,"profit":32.068832464655316,"profitPct":0.6325778185589233,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"xlm","walletEnabled":true,"buyExchange":"binance","buyMarket":"XLMUSDT","sellExchange":"wazirx","sellMarket":"xlminr","network":"XLM","rateSource":"forex","roughPct":0.6389370114280409,"walked":{"buyQty":286.10400000000004,"sellQty":286.1,"buyCost":5068.819148020943,"sellRevenue":5101.13439,"rows":[{"purpose":"fee","askLevel":0,"price":17.716701437312803,"qty":0.004},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":17.716701437312803,"priceBid":17.8299,"qty":286.1}],"buyPrice":5068.819148020943,"tradingChargeBuy":5.0688191480209435,"finalBuy":5073.887967168965,"sellPrice":5101.2033512,"transferCharge":0.0689612,"tradingChargeSell":0,"finalSell":5101.13439,"marginalSellPrice":17.2403,"profit":27.24642283103549,"profitPct":0.5369929925007381,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"hbar","walletEnabled":false,"buyExchange":"binance","buyMarket":"HBARUSDT","sellExchange":"wazirx","sellMarket":"hbarinr","network":"NA","rateSource":"forex","roughPct":0.6110507897402447,"walked":{"buyQty":488.5,"sellQty":488.5,"buyCost":3204.5187627925816,"sellRevenue":3224.1,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":6.559915584017567,"priceBid":6.6,"qty":488.5}],"buyPrice":3204.5187627925816,"tradingChargeBuy":3.2045187627925817,"finalBuy":3207.7232815553743,"sellPrice":3224.1,"transferCharge":0,"tradingChargeSell":0,"finalSell":3224.1,"marginalSellPrice":6.44703,"profit":16.376718444625567,"profitPct":0.5105402494907464,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"1inch","walletEnabled":true,"buyExchange":"binance","buyMarket":"1INCHUSDT","sellExchange":"wazirx","sellMarket":"1inchinr","network":"BSC","rateSource":"forex","roughPct":0.6061543852684874,"walked":{"buyQty":699.76,"sellQty":699.53,"buyCost":5072.601881249594,"sellRevenue":5101.6722899999995,"rows":[{"purpose":"fee","askLevel":0,"price":7.249059507902129,"qty":0.23},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":7.249059507902129,"priceBid":7.293,"qty":699.53}],"buyPrice":5072.601881249594,"tradingChargeBuy":5.072601881249594,"finalBuy":5077.674483130843,"sellPrice":5103.314259999999,"transferCharge":1.6419700000000002,"tradingChargeSell":0,"finalSell":5101.6722899999995,"marginalSellPrice":7.139,"profit":23.997806869156193,"profitPct":0.47261412579483403,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"pepe","walletEnabled":true,"buyExchange":"binance","buyMarket":"PEPEUSDT","sellExchange":"wazirx","sellMarket":"pepeinr","network":"ETH","rateSource":"forex","roughPct":1.6075449486971765,"walked":{"buyQty":38886196,"sellQty":38684785,"buyCost":10486.246576845982,"sellRevenue":10545.5292642,"rows":[{"purpose":"fee","askLevel":0,"price":0.0002696650136939592,"qty":201411},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.0002696650136939592,"priceBid":0.000274,"qty":364963},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":0.0002696650136939592,"priceBid":0.000273,"qty":7326007},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":0.0002696650136939592,"priceBid":0.0002728,"qty":23627309},{"purpose":"trade","askLevel":0,"bidLevel":3,"priceAsk":0.0002696650136939592,"priceBid":0.000272,"qty":3676470},{"purpose":"trade","askLevel":0,"bidLevel":4,"priceAsk":0.0002696650136939592,"priceBid":0.000271,"qty":3690036}],"buyPrice":10486.246576845982,"tradingChargeBuy":10.486246576845982,"finalBuy":10496.732823422828,"sellPrice":10599.46713,"transferCharge":53.9378658,"tradingChargeSell":0,"finalSell":10545.5292642,"marginalSellPrice":0.0002678,"profit":48.79644077717239,"profitPct":0.4648726570260612,"lastAskLevel":0,"lastBidLevel":5},"executionMin":5}
+,{"type":"direct","coin":"wif","walletEnabled":false,"buyExchange":"binance","buyMarket":"WIFUSDT","sellExchange":"wazirx","sellMarket":"wifinr","network":"NA","rateSource":"forex","roughPct":0.5200077803738332,"walked":{"buyQty":3.9,"sellQty":3.9,"buyCost":58.20124897704462,"sellRevenue":58.503899999999994,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":14.923397173601185,"priceBid":15.001,"qty":3.9}],"buyPrice":58.20124897704462,"tradingChargeBuy":0.05820124897704462,"finalBuy":58.25945022602166,"sellPrice":58.503899999999994,"transferCharge":0,"tradingChargeSell":0,"finalSell":58.503899999999994,"marginalSellPrice":14.844,"profit":0.24444977397833156,"profitPct":0.4195881921816484,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"floki","walletEnabled":true,"buyExchange":"binance","buyMarket":"FLOKIUSDT","sellExchange":"wazirx","sellMarket":"flokiinr","network":"BSC","rateSource":"forex","roughPct":0.7803842532380357,"walked":{"buyQty":4634898,"sellQty":4634117,"buyCost":10029.089514214289,"sellRevenue":10078.969659999999,"rows":[{"purpose":"fee","askLevel":0,"price":0.0021631193571579953,"qty":781},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.0021631193571579953,"priceBid":0.00218,"qty":1269613},{"purpose":"trade","askLevel":1,"bidLevel":0,"priceAsk":0.002164085898425716,"priceBid":0.00218,"qty":1023964},{"purpose":"trade","askLevel":1,"bidLevel":1,"priceAsk":0.002164085898425716,"priceBid":0.00217,"qty":2340540}],"buyPrice":10029.089514214289,"tradingChargeBuy":10.02908951421429,"finalBuy":10039.118603728502,"sellPrice":10080.570709999998,"transferCharge":1.60105,"tradingChargeSell":0,"finalSell":10078.969659999999,"marginalSellPrice":0.00205,"profit":39.85105627149642,"profitPct":0.3969577195421901,"lastAskLevel":1,"lastBidLevel":2},"executionMin":5},{"type":"direct","coin":"avax","walletEnabled":false,"buyExchange":"binance","buyMarket":"AVAXUSDT","sellExchange":"wazirx","sellMarket":"avaxinr","network":"NA","rateSource":"forex","roughPct":1.707056408303757,"walked":{"buyQty":15.68,"sellQty":15.68,"buyCost":10099.251491007963,"sellRevenue":10148.68342,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":644.0064466820252,"priceBid":655,"qty":0.22},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":644.0064466820252,"priceBid":647.127,"qty":2.73},{"purpose":"trade","askLevel":1,"bidLevel":1,"priceAsk":644.1031008087972,"priceBid":647.127,"qty":12.73}],"buyPrice":10099.251491007963,"tradingChargeBuy":10.099251491007962,"finalBuy":10109.350742498971,"sellPrice":10148.68342,"transferCharge":0,"tradingChargeSell":0,"finalSell":10148.68342,"marginalSellPrice":611.503,"profit":39.33267750102823,"profitPct":0.3890722411645738,"lastAskLevel":1,"lastBidLevel":2},"executionMin":0},{"type":"direct","coin":"bch","walletEnabled":false,"buyExchange":"binance","buyMarket":"BCHUSDT","sellExchange":"wazirx","sellMarket":"bchinr","network":"BITCOIN CASH","rateSource":"forex","roughPct":0.45867762701525194,"walked":{"buyQty":0.0105,"sellQty":0.0105,"buyCost":239.50892614108636,"sellRevenue":240.60750000000002,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":22810.3739181987,"priceBid":22915,"qty":0.0105}],"buyPrice":239.50892614108636,"tradingChargeBuy":0.23950892614108638,"finalBuy":239.74843506722746,"sellPrice":240.60750000000002,"transferCharge":0,"tradingChargeSell":0,"finalSell":240.60750000000002,"marginalSellPrice":21597,"profit":0.8590649327725544,"profitPct":0.3583193077075416,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"near","walletEnabled":false,"buyExchange":"binance","buyMarket":"NEARUSDT","sellExchange":"wazirx","sellMarket":"nearinr","network":"NA","rateSource":"forex","roughPct":0.4495277168894596,"walked":{"buyQty":26.016,"sellQty":26.016,"buyCost":5079.398599444203,"sellRevenue":5102.231903999999,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":195.24133607949736,"priceBid":196.119,"qty":26.016}],"buyPrice":5079.398599444203,"tradingChargeBuy":5.079398599444203,"finalBuy":5084.477998043647,"sellPrice":5102.231903999999,"transferCharge":0,"tradingChargeSell":0,"finalSell":5102.231903999999,"marginalSellPrice":182,"profit":17.753905956352355,"profitPct":0.34917853835110546,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"render","walletEnabled":false,"buyExchange":"binance","buyMarket":"RENDERUSDT","sellExchange":"wazirx","sellMarket":"renderinr","network":"NA","rateSource":"forex","roughPct":0.42861815692933486,"walked":{"buyQty":34.24,"sellQty":34.24,"buyCost":5079.986256534977,"sellRevenue":5101.76,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":148.36408459506356,"priceBid":149,"qty":34.24}],"buyPrice":5079.986256534977,"tradingChargeBuy":5.079986256534977,"finalBuy":5085.066242791511,"sellPrice":5101.76,"transferCharge":0,"tradingChargeSell":0,"finalSell":5101.76,"marginalSellPrice":147,"profit":16.693757208488933,"profitPct":0.32828986706227614,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"enj","walletEnabled":false,"buyExchange":"binance","buyMarket":"ENJUSDT","sellExchange":"wazirx","sellMarket":"enjinr","network":"NA","rateSource":"forex","roughPct":0.35642999847342366,"walked":{"buyQty":2404,"sellQty":2404,"buyCost":6789.457536605922,"sellRevenue":6811.02087,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":2.8242335842786694,"priceBid":2.8343,"qty":1790.9},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":2.8242335842786694,"priceBid":2.83,"qty":613.1}],"buyPrice":6789.457536605922,"tradingChargeBuy":6.789457536605922,"finalBuy":6796.246994142528,"sellPrice":6811.02087,"transferCharge":0,"tradingChargeSell":0,"finalSell":6811.02087,"marginalSellPrice":2.8202,"profit":14.773875857472376,"profitPct":0.2173828566002018,"lastAskLevel":0,"lastBidLevel":2},"executionMin":0},{"type":"direct","coin":"sushi","walletEnabled":true,"buyExchange":"binance","buyMarket":"SUSHIUSDT","sellExchange":"wazirx","sellMarket":"sushiinr","network":"BSC","rateSource":"forex","roughPct":0.3435026167038348,"walked":{"buyQty":627.976,"sellQty":627.866,"buyCost":10069.544690497976,"sellRevenue":10099.192799999999,"rows":[{"purpose":"fee","askLevel":0,"price":16.03491963147951,"qty":0.11},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":16.03491963147951,"priceBid":16.09,"qty":310.752},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":16.03491963147951,"priceBid":16.08,"qty":317.114}],"buyPrice":10069.544690497976,"tradingChargeBuy":10.069544690497976,"finalBuy":10079.614235188474,"sellPrice":10100.8802,"transferCharge":1.6874,"tradingChargeSell":0,"finalSell":10099.192799999999,"marginalSellPrice":15.34,"profit":19.57856481152521,"profitPct":0.19423922736224758,"lastAskLevel":0,"lastBidLevel":2},"executionMin":5},{"type":"direct","coin":"ape","walletEnabled":true,"buyExchange":"binance","buyMarket":"APEUSDT","sellExchange":"wazirx","sellMarket":"apeinr","network":"BSC","rateSource":"forex","roughPct":0.32226609237344234,"walked":{"buyQty":354.91,"sellQty":354.79,"buyCost":5087.211442473566,"sellRevenue":5101.8802000000005,"rows":[{"purpose":"fee","askLevel":0,"price":14.33380700029181,"qty":0.12},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":14.33380700029181,"priceBid":14.38,"qty":354.79}],"buyPrice":5087.211442473566,"tradingChargeBuy":5.087211442473566,"finalBuy":5092.29865391604,"sellPrice":5103.5614000000005,"transferCharge":1.6811999999999998,"tradingChargeSell":0,"finalSell":5101.8802000000005,"marginalSellPrice":14.01,"profit":9.581546083960347,"profitPct":0.188157583345824,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"inj","walletEnabled":true,"buyExchange":"binance","buyMarket":"INJUSDT","sellExchange":"wazirx","sellMarket":"injinr","network":"INJ","rateSource":"forex","roughPct":0.2834661934175391,"walked":{"buyQty":110.661,"sellQty":110.66,"buyCost":52824.55378549074,"sellRevenue":52965.30646,"rows":[{"purpose":"fee","askLevel":0,"price":477.2780780002762,"qty":0.001},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":477.2780780002762,"priceBid":478.631,"qty":22.878999999999998},{"purpose":"trade","askLevel":1,"bidLevel":0,"priceAsk":477.3747321270482,"priceBid":478.631,"qty":87.781}],"buyPrice":52824.55378549074,"tradingChargeBuy":52.82455378549074,"finalBuy":52877.37833927623,"sellPrice":52965.75646,"transferCharge":0.45,"tradingChargeSell":0,"finalSell":52965.30646,"marginalSellPrice":450,"profit":87.92812072377274,"profitPct":0.16628683850322726,"lastAskLevel":1,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"arb","walletEnabled":true,"buyExchange":"binance","buyMarket":"ARBUSDT","sellExchange":"wazirx","sellMarket":"arbinr","network":"ARBITRUM","rateSource":"forex","roughPct":0.3914452953419436,"walked":{"buyQty":589.51,"sellQty":588.7,"buyCost":5088.186682612697,"sellRevenue":5101.0855,"rows":[{"purpose":"fee","askLevel":0,"price":8.631213520742136,"qty":0.81},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":8.631213520742136,"priceBid":8.665,"qty":588.7}],"buyPrice":5088.186682612697,"tradingChargeBuy":5.088186682612697,"finalBuy":5093.27486929531,"sellPrice":5107.41808,"transferCharge":6.33258,"tradingChargeSell":0,"finalSell":5101.0855,"marginalSellPrice":7.818,"profit":7.810630704690084,"profitPct":0.1533518395360182,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"uni","walletEnabled":true,"buyExchange":"binance","buyMarket":"UNIUSDT","sellExchange":"wazirx","sellMarket":"uniinr","network":"BSC","rateSource":"forex","roughPct":0.2476840217855688,"walked":{"buyQty":14.624699999999999,"sellQty":14.62,"buyCost":5150.931042833708,"sellRevenue":5162.0296,"rows":[{"purpose":"fee","askLevel":0,"price":352.20763795727146,"qty":0.0047},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":352.20763795727146,"priceBid":353.08,"qty":14.62}],"buyPrice":5150.931042833708,"tradingChargeBuy":5.150931042833708,"finalBuy":5156.081973876541,"sellPrice":5163.685739,"transferCharge":1.656139,"tradingChargeSell":0,"finalSell":5162.0296,"marginalSellPrice":352.37,"profit":5.947626123458576,"profitPct":0.11535165952737796,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"crv","walletEnabled":true,"buyExchange":"binance","buyMarket":"CRVUSDT","sellExchange":"wazirx","sellMarket":"crvinr","network":"OPTIMISM","rateSource":"forex","roughPct":0.24478117411565364,"walked":{"buyQty":514.008,"sellQty":513.878,"buyCost":10865.233473932101,"sellRevenue":10886.68027,"rows":[{"purpose":"fee","askLevel":0,"price":21.13825752504261,"qty":0.13},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":21.13825752504261,"priceBid":21.19,"qty":274.423},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":21.13825752504261,"priceBid":21.18,"qty":239.455}],"buyPrice":10865.233473932101,"tradingChargeBuy":10.865233473932102,"finalBuy":10876.098707406034,"sellPrice":10889.04627,"transferCharge":2.366,"tradingChargeSell":0,"finalSell":10886.68027,"marginalSellPrice":18.2,"profit":10.581562593966737,"profitPct":0.09729189554671167,"lastAskLevel":0,"lastBidLevel":2},"executionMin":5},{"type":"direct","coin":"zec","walletEnabled":false,"buyExchange":"binance","buyMarket":"ZECUSDT","sellExchange":"wazirx","sellMarket":"zecinr","network":"NA","rateSource":"forex","roughPct":0.17475419223838876,"walked":{"buyQty":0.095,"sellQty":0.095,"buyCost":5090.5795488291915,"sellRevenue":5099.47555,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":53585.04788241254,"priceBid":53678.69,"qty":0.095}],"buyPrice":5090.5795488291915,"tradingChargeBuy":5.090579548829192,"finalBuy":5095.67012837802,"sellPrice":5099.47555,"transferCharge":0,"tradingChargeSell":0,"finalSell":5099.47555,"marginalSellPrice":45000,"profit":3.8054216219798036,"profitPct":0.07467951272566166,"lastAskLevel":0,"lastBidLevel":1},"executionMin":0},{"type":"direct","coin":"aave","walletEnabled":true,"buyExchange":"binance","buyMarket":"AAVEUSDT","sellExchange":"wazirx","sellMarket":"aaveinr","network":"BSC","rateSource":"forex","roughPct":0.18924128351660163,"walked":{"buyQty":0.53618,"sellQty":0.536,"buyCost":5084.998101632138,"sellRevenue":5092.884400000001,"rows":[{"purpose":"fee","askLevel":0,"price":9483.702918871426,"qty":0.00018},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":9483.702918871426,"priceBid":9501.65,"qty":0.50882},{"purpose":"trade","askLevel":1,"bidLevel":0,"priceAsk":9484.669460139146,"priceBid":9501.65,"qty":0.027179999999999982}],"buyPrice":5084.998101632138,"tradingChargeBuy":5.084998101632138,"finalBuy":5090.08309973377,"sellPrice":5094.250780000001,"transferCharge":1.3663800000000001,"tradingChargeSell":0,"finalSell":5092.884400000001,"marginalSellPrice":7591,"profit":2.80130026623101,"profitPct":0.05503447019121414,"lastAskLevel":1,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"fil","walletEnabled":false,"buyExchange":"binance","buyMarket":"FILUSDT","sellExchange":"wazirx","sellMarket":"filinr","network":"NA","rateSource":"forex","roughPct":0.158322476906029,"walked":{"buyQty":135.243,"sellQty":135.243,"buyCost":10235.214754484048,"sellRevenue":10250.727289999999,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":75.68018126249824,"priceBid":75.8,"qty":66.032},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":75.68018126249824,"priceBid":75.79,"qty":69.211}],"buyPrice":10235.214754484048,"tradingChargeBuy":10.235214754484048,"finalBuy":10245.449969238533,"sellPrice":10250.727289999999,"transferCharge":0,"tradingChargeSell":0,"finalSell":10250.727289999999,"marginalSellPrice":74.26,"profit":5.277320761466399,"profitPct":0.05150892129980918,"lastAskLevel":0,"lastBidLevel":2},"executionMin":0},{"type":"direct","coin":"usdc","walletEnabled":true,"buyExchange":"binance","buyMarket":"USDCUSDT","sellExchange":"wazirx","sellMarket":"usdcinr","network":"BSC","rateSource":"forex","roughPct":0.15257747733755764,"walked":{"buyQty":104.3,"sellQty":104.3,"buyCost":10086.065935033723,"sellRevenue":10100.928199999998,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":96.7024538354144,"priceBid":96.85,"qty":51.62},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":96.7024538354144,"priceBid":96.84,"qty":52.68}],"buyPrice":10086.065935033723,"tradingChargeBuy":10.086065935033723,"finalBuy":10096.152000968756,"sellPrice":10100.928199999998,"transferCharge":0,"tradingChargeSell":0,"finalSell":10100.928199999998,"marginalSellPrice":95.63,"profit":4.776199031242868,"profitPct":0.04730712286012114,"lastAskLevel":0,"lastBidLevel":2},"executionMin":5},{"type":"direct","coin":"s","walletEnabled":false,"buyExchange":"binance","buyMarket":"SUSDT","sellExchange":"wazirx","sellMarket":"sinr","network":"NA","rateSource":"forex","roughPct":0.15285979790918136,"walked":{"buyQty":903.1,"sellQty":903.1,"buyCost":2238.2678440691207,"sellRevenue":2241.4942,"rows":[{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":2.478211810434808,"priceBid":2.482,"qty":701.6},{"purpose":"trade","askLevel":1,"bidLevel":0,"priceAsk":2.479178351702528,"priceBid":2.482,"qty":201.5}],"buyPrice":2238.2678440691207,"tradingChargeBuy":2.238267844069121,"finalBuy":2240.5061119131897,"sellPrice":2241.4942,"transferCharge":0,"tradingChargeSell":0,"finalSell":2241.4942,"marginalSellPrice":2.482,"profit":0.9880880868104214,"profitPct":0.044101110974728984,"lastAskLevel":2,"lastBidLevel":0},"executionMin":0},{"type":"direct","coin":"sand","walletEnabled":true,"buyExchange":"binance","buyMarket":"SANDUSDT","sellExchange":"wazirx","sellMarket":"sandinr","network":"BSC","rateSource":"forex","roughPct":0.4198426500905554,"walked":{"buyQty":62.36,"sellQty":62,"buyCost":293.7128310663948,"sellRevenue":293.24326,"rows":[{"purpose":"fee","askLevel":0,"price":4.709955597600944,"qty":0.36},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":4.709955597600944,"priceBid":4.72973,"qty":62}],"buyPrice":293.7128310663948,"tradingChargeBuy":0.29371283106639484,"finalBuy":294.0065438974612,"sellPrice":294.68686,"transferCharge":1.4435999999999998,"tradingChargeSell":0,"finalSell":293.24326,"marginalSellPrice":4.01,"profit":-0.7632838974611786,"profitPct":-0.2596145947443212,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"ondo","walletEnabled":true,"buyExchange":"binance","buyMarket":"ONDOUSDT","sellExchange":"wazirx","sellMarket":"ondoinr","network":"ETH","rateSource":"forex","roughPct":0.3000972303680639,"walked":{"buyQty":415.96000000000004,"sellQty":414.19,"buyCost":12821.135507440436,"sellRevenue":12797.26625,"rows":[{"purpose":"fee","askLevel":0,"price":30.823001027599854,"qty":1.77},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":30.823001027599854,"priceBid":30.9155,"qty":164.2},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":30.823001027599854,"priceBid":30.885,"qty":249.99}],"buyPrice":12821.135507440436,"tradingChargeBuy":12.821135507440436,"finalBuy":12833.956642947876,"sellPrice":12850.366250000001,"transferCharge":53.1,"tradingChargeSell":0,"finalSell":12797.26625,"marginalSellPrice":30,"profit":-36.69039294787581,"profitPct":-0.28588528049950046,"lastAskLevel":0,"lastBidLevel":2},"executionMin":5},{"type":"direct","coin":"tlm","walletEnabled":true,"buyExchange":"binance","buyMarket":"TLMUSDT","sellExchange":"wazirx","sellMarket":"tlminr","network":"BSC","rateSource":"forex","roughPct":0.24398894176332853,"walked":{"buyQty":1701,"sellQty":1691,"buyCost":274.8912956367763,"sellRevenue":273.942,"rows":[{"purpose":"fee","askLevel":0,"price":0.16160569996283147,"qty":10},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.16160569996283147,"priceBid":0.162,"qty":1691}],"buyPrice":274.8912956367763,"tradingChargeBuy":0.27489129563677633,"finalBuy":275.1661869324131,"sellPrice":275.54200000000003,"transferCharge":1.6,"tradingChargeSell":0,"finalSell":273.942,"marginalSellPrice":0.16,"profit":-1.2241869324130903,"profitPct":-0.44489003029786417,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"celr","walletEnabled":true,"buyExchange":"binance","buyMarket":"CELRUSDT","sellExchange":"wazirx","sellMarket":"celrinr","network":"BSC","rateSource":"forex","roughPct":0.17347075613144702,"walked":{"buyQty":288.86,"sellQty":279,"buyCost":49.19417848660663,"sellRevenue":47.5974,"rows":[{"purpose":"fee","askLevel":0,"price":0.17030457137231403,"qty":9.86},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.17030457137231403,"priceBid":0.1706,"qty":279}],"buyPrice":49.19417848660663,"tradingChargeBuy":0.049194178486606635,"finalBuy":49.24337266509324,"sellPrice":49.175,"transferCharge":1.5776,"tradingChargeSell":0,"finalSell":47.5974,"marginalSellPrice":0.16,"profit":-1.6459726650932396,"profitPct":-3.342526264981048,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"amp","walletEnabled":true,"buyExchange":"binance","buyMarket":"AMPUSDT","sellExchange":"wazirx","sellMarket":"ampinr","network":"ETH","rateSource":"forex","roughPct":5.61714925438253,"walked":{"buyQty":5413,"sellQty":4111,"buyCost":226.01755650973956,"sellRevenue":180.5036,"rows":[{"purpose":"fee","askLevel":0,"price":0.04175458276551627,"qty":1302},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":0.04175458276551627,"priceBid":0.0441,"qty":1134},{"purpose":"trade","askLevel":0,"bidLevel":1,"priceAsk":0.04175458276551627,"priceBid":0.044,"qty":1331},{"purpose":"trade","askLevel":0,"bidLevel":2,"priceAsk":0.04175458276551627,"priceBid":0.0437,"qty":1646}],"buyPrice":226.01755650973956,"tradingChargeBuy":0.22601755650973956,"finalBuy":226.2435740662493,"sellPrice":234.14600000000002,"transferCharge":53.6424,"tradingChargeSell":0,"finalSell":180.5036,"marginalSellPrice":0.0412,"profit":-45.73997406624929,"profitPct":-20.217137328663124,"lastAskLevel":0,"lastBidLevel":3},"executionMin":5},{"type":"direct","coin":"ens","walletEnabled":true,"buyExchange":"binance","buyMarket":"ENSUSDT","sellExchange":"wazirx","sellMarket":"ensinr","network":"ETH","rateSource":"forex","roughPct":2.973670355062206,"walked":{"buyQty":0.14,"sellQty":0.01,"buyCost":57.373889651876055,"sellRevenue":4.22,"rows":[{"purpose":"fee","askLevel":0,"price":409.8134975134004,"qty":0.13},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":409.8134975134004,"priceBid":422,"qty":0.01}],"buyPrice":57.373889651876055,"tradingChargeBuy":0.05737388965187606,"finalBuy":57.43126354152793,"sellPrice":56.22,"transferCharge":52,"tradingChargeSell":0,"finalSell":4.219999999999999,"marginalSellPrice":400,"profit":-53.211263541527934,"profitPct":-92.65208574603524,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5},{"type":"direct","coin":"uma","walletEnabled":true,"buyExchange":"binance","buyMarket":"UMAUSDT","sellExchange":"wazirx","sellMarket":"umainr","network":"ETH","rateSource":"forex","roughPct":4.052103653186267,"walked":{"buyQty":1.531,"sellQty":0.001,"buyCost":54.455708256374976,"sellRevenue":0.03701,"rows":[{"purpose":"fee","askLevel":0,"price":35.56871865210645,"qty":1.53},{"purpose":"trade","askLevel":0,"bidLevel":0,"priceAsk":35.56871865210645,"priceBid":37.01,"qty":0.001}],"buyPrice":54.455708256374976,"tradingChargeBuy":0.054455708256374975,"finalBuy":54.51016396463135,"sellPrice":53.678810000000006,"transferCharge":53.6418,"tradingChargeSell":0,"finalSell":0.03701000000000221,"marginalSellPrice":35.06,"profit":-54.47315396463135,"profitPct":-99.93210440529216,"lastAskLevel":0,"lastBidLevel":1},"executionMin":5}
+,{"type":"loop","coin1":"sol","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":4,"trbQty":1.516,"trbArrived":1.516,"trbSellRevenue":118.18736,"trbTransferCharge":0,"trbTradingCharge":0.11818736,"usdtFromTRB":118.06917264,"galaBuySpent":117.95122141858144,"galaBuyTradingCharge":0.11795122141858144,"galaQty":31121694.30569431,"galaArrived":31121694.30569431,"galaSellRevenue":12244.860076951352,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":11555.98414,"inrReceived":12244.860076951352,"profit":688.8759369513518,"profitPct":5.961205282091637,"sellTRBTouched":[{"level":0,"qty":1.516,"price":77.96,"pct":0.525817427587379}],"buyGALATouched":[{"level":0,"qty":31121694.30569431,"price":0.00000379,"pct":0.6816293527969345}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":12940346,"price":0.0003941,"pct":100},{"level":3,"qty":5373297.305694312,"price":0.0003901,"pct":65.9737976556264}]},"executionMin":0},{"type":"loop","coin1":"doge","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":0,"trbQty":225,"trbArrived":225,"trbSellRevenue":16.7265,"trbTransferCharge":0,"trbTradingCharge":0.016726500000000002,"usdtFromTRB":16.7097735,"galaBuySpent":16.693080419580422,"galaBuyTradingCharge":0.01669308041958042,"galaQty":4404506.707013303,"galaArrived":4404506.707013303,"galaSellRevenue":1736.2692791046443,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":1651.1175,"inrReceived":1736.2692791046443,"profit":85.15177910464422,"profitPct":5.157221039971064,"sellTRBTouched":[{"level":0,"qty":225,"price":0.07434,"pct":0.1949334627113945}],"buyGALATouched":[{"level":0,"qty":4404506.707013303,"price":0.00000379,"pct":0.09646778952975954}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":4277154.707013303,"price":0.0003942,"pct":33.729644611967394}]},"executionMin":0},{"type":"loop","coin1":"eth","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":1,"trbQty":0.0562,"trbArrived":0.0561,"trbSellRevenue":105.280065,"trbTransferCharge":0.18766500000000003,"trbTradingCharge":0.10546773,"usdtFromTRB":105.17459726999999,"galaBuySpent":105.06952774225775,"galaBuyTradingCharge":0.10506952774225775,"galaQty":27722830.538854286,"galaArrived":27722830.538854286,"galaSellRevenue":10918.963321507059,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":10452.09836,"inrReceived":10918.963321507059,"profit":466.864961507059,"profitPct":4.4667103717062515,"sellTRBTouched":[{"level":0,"qty":0.0561,"price":1876.65,"pct":0.8989376191773358}],"buyGALATouched":[{"level":0,"qty":27722830.538854286,"price":0.00000379,"pct":0.6071872197022649}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":12940346,"price":0.0003941,"pct":100},{"level":3,"qty":1974433.538854286,"price":0.0003901,"pct":24.24226156978361}]},"executionMin":5},{"type":"loop","coin1":"zec","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":0,"trbQty":0.208,"trbArrived":0.208,"trbSellRevenue":115.31312,"trbTransferCharge":0,"trbTradingCharge":0.11531312,"usdtFromTRB":115.19780688,"galaBuySpent":115.08272415584418,"galaBuyTradingCharge":0.11508272415584418,"galaQty":30364834.869615875,"galaArrived":30364834.869615875,"galaSellRevenue":11949.609210937155,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":11440,"inrReceived":11949.609210937155,"profit":509.6092109371548,"profitPct":4.454625969730374,"sellTRBTouched":[{"level":0,"qty":0.208,"price":554.39,"pct":6.076541045866199}],"buyGALATouched":[{"level":0,"qty":30364834.869615875,"price":0.00000379,"pct":0.6650525686892002}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":12940346,"price":0.0003941,"pct":100},{"level":3,"qty":4616437.869615875,"price":0.0003901,"pct":56.68101364446173}]},"executionMin":0},{"type":"loop","coin1":"algo","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":1,"trbQty":861.8199999999999,"trbArrived":861.8199999999999,"trbSellRevenue":73.599428,"trbTransferCharge":0,"trbTradingCharge":0.07359942800000001,"usdtFromTRB":73.52582857200001,"galaBuySpent":73.4523761958042,"galaBuyTradingCharge":0.0734523761958042,"galaQty":19380574.19414359,"galaArrived":19380574.19414359,"galaSellRevenue":7639.177830211989,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":7325.28005,"inrReceived":7639.177830211989,"profit":313.8977802119889,"profitPct":4.2851300983638,"sellTRBTouched":[{"level":0,"qty":861.8199999999999,"price":0.0854,"pct":3.6807892713760997}],"buyGALATouched":[{"level":0,"qty":19380574.19414359,"price":0.00000379,"pct":0.4244745840322059}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":6572523.19414359,"price":0.0003941,"pct":50.79093862052522}]},"executionMin":0},{"type":"loop","coin1":"ada","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":7,"trbQty":428.50000000000006,"trbArrived":428.50000000000006,"trbSellRevenue":70.23115,"trbTransferCharge":0,"trbTradingCharge":0.07023115,"usdtFromTRB":70.16091885,"galaBuySpent":70.09082802197803,"galaBuyTradingCharge":0.07009082802197802,"galaQty":18493622.16938734,"galaArrived":18493622.16938734,"galaSellRevenue":7289.6300372555515,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":7001.05621,"inrReceived":7289.6300372555515,"profit":288.5738272555518,"profitPct":4.121861310631469,"sellTRBTouched":[{"level":0,"qty":428.50000000000006,"price":0.1639,"pct":0.28672180290134364}],"buyGALATouched":[{"level":0,"qty":18493622.16938734,"price":0.00000379,"pct":0.4050485036698037}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":5685571.169387341,"price":0.0003941,"pct":43.9367785790839}]},"executionMin":0},{"type":"loop","coin1":"rsr","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":0,"trbQty":40535.8,"trbArrived":39602.200000000004,"trbSellRevenue":48.750308200000006,"trbTransferCharge":1.1492616000000002,"trbTradingCharge":0.04989956980000001,"usdtFromTRB":48.70040863020001,"galaBuySpent":48.65175687332669,"galaBuyTradingCharge":0.04865175687332669,"galaQty":12836875.164466145,"galaArrived":12836875.164466145,"galaSellRevenue":5060.306042616108,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":4864.296,"inrReceived":5060.306042616108,"profit":196.01004261610797,"profitPct":4.029566511086249,"sellTRBTouched":[{"level":0,"qty":39602.200000000004,"price":0.001231,"pct":3.431084645094372}],"buyGALATouched":[{"level":0,"qty":12836875.164466145,"price":0.00000379,"pct":0.28115406649595936}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":28824.164466144517,"price":0.0003941,"pct":0.2227464742144029}]},"executionMin":5},{"type":"loop","coin1":"etc","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":3,"trbQty":7.779999999999999,"trbArrived":7.779999999999999,"trbSellRevenue":54.6934,"trbTransferCharge":0,"trbTradingCharge":0.054693399999999996,"usdtFromTRB":54.6387066,"galaBuySpent":54.584122477522484,"galaBuyTradingCharge":0.054584122477522486,"galaQty":14402143.133910945,"galaArrived":14402143.133910945,"galaSellRevenue":5677.178149374304,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":5465.2122899999995,"inrReceived":5677.178149374304,"profit":211.96585937430427,"profitPct":3.878456098807907,"sellTRBTouched":[{"level":0,"qty":7.779999999999999,"price":7.03,"pct":0.5299871931115289}],"buyGALATouched":[{"level":0,"qty":14402143.133910945,"price":0.00000379,"pct":0.3154366663597854}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":1594092.1339109447,"price":0.0003941,"pct":12.318775200531306}]},"executionMin":0},{"type":"loop","coin1":"pol","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":2,"trbQty":1011.3000000000001,"trbArrived":1011.3000000000001,"trbSellRevenue":84.53456700000001,"trbTransferCharge":0,"trbTradingCharge":0.084534567,"usdtFromTRB":84.450032433,"galaBuySpent":84.36566676623377,"galaBuyTradingCharge":0.08436566676623378,"galaQty":22260070.38686907,"galaArrived":22260070.38686907,"galaSellRevenue":8773.9872797651,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":8451.3476,"inrReceived":8773.9872797651,"profit":322.6396797651014,"profitPct":3.817612232220829,"sellTRBTouched":[{"level":0,"qty":1011.3000000000001,"price":0.08359,"pct":68.80059868018232}],"buyGALATouched":[{"level":0,"qty":22260070.38686907,"price":0.00000379,"pct":0.4875414950734079}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":9452019.38686907,"price":0.0003941,"pct":73.04301899554362}]},"executionMin":0},{"type":"loop","coin1":"sol","coin2":"xec","walletEnabled":false,"walked":{"trbLevelUsed":3,"trbQty":0.835,"trbArrived":0.835,"trbSellRevenue":65.0966,"trbTransferCharge":0,"trbTradingCharge":0.06509659999999999,"usdtFromTRB":65.03150339999999,"galaBuySpent":64.96653686313687,"galaBuyTradingCharge":0.06496653686313687,"galaQty":10312148.708434423,"galaArrived":10312148.708434423,"galaSellRevenue":6582.244520593692,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":6349.96387,"inrReceived":6582.244520593692,"profit":232.28065059369237,"profitPct":3.6579838145392847,"sellTRBTouched":[{"level":0,"qty":0.835,"price":77.96,"pct":0.289615799495687}],"buyGALATouched":[{"level":0,"qty":10312148.708434423,"price":0.0000063,"pct":3.513111367504198}],"sellGALATouched":[{"level":0,"qty":10312148.708434423,"price":0.0006383,"pct":85.56996607566894}]},"executionMin":0},{"type":"loop","coin1":"usdc","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":0,"trbQty":100,"trbArrived":98.86,"trbSellRevenue":98.90844140000002,"trbTransferCharge":1.1405586,"trbTradingCharge":0.10004900000000003,"usdtFromTRB":98.80839240000002,"galaBuySpent":98.70968271728275,"galaBuyTradingCharge":0.09870968271728275,"galaQty":26044771.165509958,"galaArrived":26044771.165509958,"galaSellRevenue":10264.352359965436,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":9903,"inrReceived":10264.352359965436,"profit":361.35235996543634,"profitPct":3.648918105275536,"sellTRBTouched":[{"level":0,"qty":98.86,"price":1.00049,"pct":0.0024026993060461935}],"buyGALATouched":[{"level":0,"qty":26044771.165509958,"price":0.00000379,"pct":0.5704342552469125}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":12940346,"price":0.0003941,"pct":100},{"level":3,"qty":296374.1655099578,"price":0.0003901,"pct":3.638907008735216}]},"executionMin":5},{"type":"loop","coin1":"shib","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":3,"trbQty":25084678,"trbArrived":24819079,"trbSellRevenue":105.23289496,"trbTransferCharge":1.12613976,"trbTradingCharge":0.10635903472,"usdtFromTRB":105.12653592528,"galaBuySpent":105.02151441086914,"galaBuyTradingCharge":0.10502151441086914,"galaQty":27710162.11368579,"galaArrived":27710162.11368579,"galaSellRevenue":10914.02136884883,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":10552.703023,"inrReceived":10914.02136884883,"profit":361.31834584882927,"profitPct":3.423941193657424,"sellTRBTouched":[{"level":0,"qty":24819079,"price":0.00000424,"pct":0.321992988327447}],"buyGALATouched":[{"level":0,"qty":27710162.11368579,"price":0.00000379,"pct":0.6069097550384281}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":12940346,"price":0.0003941,"pct":100},{"level":3,"qty":1961765.1136857904,"price":0.0003901,"pct":24.086717576750495}]},"executionMin":5},{"type":"loop","coin1":"xlm","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":1,"trbQty":283.4,"trbArrived":283.29999999999995,"trbSellRevenue":51.90055999999999,"trbTransferCharge":0.01832,"trbTradingCharge":0.051918879999999994,"usdtFromTRB":51.84864111999999,"galaBuySpent":51.79684427572427,"galaBuyTradingCharge":0.05179684427572427,"galaQty":13666713.529214846,"galaArrived":13666713.529214846,"galaSellRevenue":5387.345342163571,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":5245.709,"inrReceived":5387.345342163571,"profit":141.6363421635715,"profitPct":2.7000419230950765,"sellTRBTouched":[{"level":0,"qty":283.29999999999995,"price":0.1832,"pct":2.108357520279824}],"buyGALATouched":[{"level":0,"qty":13666713.529214846,"price":0.00000379,"pct":0.29932923979898324}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":12680699,"price":0.0003942,"pct":100},{"level":2,"qty":858662.529214846,"price":0.0003941,"pct":6.635545364975913}]},"executionMin":0.25},{"type":"loop","coin1":"ctsi","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":1,"trbQty":2005.2,"trbArrived":1955.7,"trbSellRevenue":45.509139,"trbTransferCharge":1.151865,"trbTradingCharge":0.046661004,"usdtFromTRB":45.462477996,"galaBuySpent":45.41706093506494,"galaBuyTradingCharge":0.04541706093506494,"galaQty":11983393.38656067,"galaArrived":11983393.38656067,"galaSellRevenue":4723.866408182216,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":4603.3673,"inrReceived":4723.866408182216,"profit":120.49910818221633,"profitPct":2.617629668226047,"sellTRBTouched":[{"level":0,"qty":1955.7,"price":0.02327,"pct":23.390742734122714}],"buyGALATouched":[{"level":0,"qty":11983393.38656067,"price":0.00000379,"pct":0.2624610536354339}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":11856041.38656067,"price":0.0003942,"pct":93.49674956057761}]},"executionMin":5},{"type":"loop","coin1":"doge","coin2":"xec","walletEnabled":false,"walked":{"trbLevelUsed":0,"trbQty":225,"trbArrived":225,"trbSellRevenue":16.7265,"trbTransferCharge":0,"trbTradingCharge":0.016726500000000002,"usdtFromTRB":16.7097735,"galaBuySpent":16.693080419580422,"galaBuyTradingCharge":0.01669308041958042,"galaQty":2649695.304695305,"galaArrived":2649695.304695305,"galaSellRevenue":1691.300512987013,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":1651.1175,"inrReceived":1691.300512987013,"profit":40.183012987012944,"profitPct":2.433685851371144,"sellTRBTouched":[{"level":0,"qty":225,"price":0.07434,"pct":0.1949334627113945}],"buyGALATouched":[{"level":0,"qty":2649695.304695305,"price":0.0000063,"pct":0.9026901142080995}],"sellGALATouched":[{"level":0,"qty":2649695.304695305,"price":0.0006383,"pct":21.987108966745982}]},"executionMin":0},{"type":"loop","coin1":"sui","coin2":"bonk","walletEnabled":false,"walked":{"trbLevelUsed":0,"trbQty":11.4,"trbArrived":11.4,"trbSellRevenue":8.62068,"trbTransferCharge":0,"trbTradingCharge":0.00862068,"usdtFromTRB":8.61205932,"galaBuySpent":8.603455864135865,"galaBuyTradingCharge":0.008603455864135865,"galaQty":2270041.1251018113,"galaArrived":2270041.1251018113,"galaSellRevenue":894.862946715134,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":877.8000000000001,"inrReceived":894.862946715134,"profit":17.062946715133876,"profitPct":1.9438307946153879,"sellTRBTouched":[{"level":0,"qty":11.4,"price":0.7562,"pct":0.1943502054315768}],"buyGALATouched":[{"level":0,"qty":2270041.1251018113,"price":0.00000379,"pct":0.04971858690362046}],"sellGALATouched":[{"level":0,"qty":127352,"price":0.0003943,"pct":100},{"level":1,"qty":2142689.1251018113,"price":0.0003942,"pct":16.897247739275343}]},"executionMin":0},{"type":"loop","coin1":"ctsi","coin2":"xec","walletEnabled":false,"walked":{"trbLevelUsed":1,"trbQty":2005.2,"trbArrived":1955.7,"trbSellRevenue":45.509139,"trbTransferCharge":1.151865,"trbTradingCharge":0.046661004,"usdtFromTRB":45.462477996,"galaBuySpent":45.41706093506494,"galaBuyTradingCharge":0.04541706093506494,"galaQty":7209057.2912801495,"galaArrived":7209057.2912801495,"galaSellRevenue":4601.541269024119,"galaTransferCharge":0,"galaTradingCharge":0,"finalCostInr":4603.3673,"inrReceived":4601.541269024119,"profit":-1.8260309758807125,"profitPct":-0.03966728824529627,"sellTRBTouched":[{"level":0,"qty":1955.7,"price":0.02327,"pct":23.390742734122714}],"buyGALATouched":[{"level":0,"qty":7209057.2912801495,"price":0.0000063,"pct":2.455959648668634}],"sellGALATouched":[{"level":0,"qty":7209057.2912801495,"price":0.0006383,"pct":59.820586891638214}]},"executionMin":5},{"type":"loop","coin1":"usdc","coin2":"paxg","walletEnabled":true,"walked":{"trbLevelUsed":3,"trbQty":790.75,"trbArrived":789.61,"trbSellRevenue":789.9969089000001,"trbTransferCharge":1.1405586,"trbTradingCharge":0.7911374675000001,"usdtFromTRB":789.2057714325001,"galaBuySpent":788.4173540784218,"galaBuyTradingCharge":0.7884173540784218,"galaQty":0.19585819078076286,"galaArrived":0.19571819078076286,"galaSellRevenue":78287.27631230514,"galaTransferCharge":55.99999999999999,"galaTradingCharge":0,"finalCostInr":78321.7875,"inrReceived":78287.27631230514,"profit":-34.51118769486493,"profitPct":-0.044063330008734705,"sellTRBTouched":[{"level":0,"qty":789.61,"price":1.00049,"pct":0.019190728293011685}],"buyGALATouched":[{"level":0,"qty":0.19585819078076286,"price":4025.45,"pct":43.39866846460511}],"sellGALATouched":[{"level":0,"qty":0.19571819078076286,"price":400000,"pct":78.28727631230514}]},"executionMin":10},{"type":"loop","coin1":"eth","coin2":"paxg","walletEnabled":true,"walked":{"trbLevelUsed":2,"trbQty":0.1936,"trbArrived":0.1935,"trbSellRevenue":363.131775,"trbTransferCharge":0.18766500000000003,"trbTradingCharge":0.36331944,"usdtFromTRB":362.76845556,"galaBuySpent":362.40604951048954,"galaBuyTradingCharge":0.36240604951048955,"galaQty":0.09002870474369065,"galaArrived":0.08988870474369065,"galaSellRevenue":35955.48189747626,"galaTransferCharge":55.99999999999999,"galaTradingCharge":0,"finalCostInr":36008.49836,"inrReceived":35955.48189747626,"profit":-53.01646252373757,"profitPct":-0.14723319476890726,"sellTRBTouched":[{"level":0,"qty":0.1935,"price":1876.65,"pct":3.100613713205249}],"buyGALATouched":[{"level":0,"qty":0.09002870474369065,"price":4025.45,"pct":19.94874911227358}],"sellGALATouched":[{"level":0,"qty":0.08988870474369065,"price":400000,"pct":35.95548189747626}]},"executionMin":10},{"type":"loop","coin1":"trx","coin2":"paxg","walletEnabled":true,"walked":{"trbLevelUsed":1,"trbQty":1396.4,"trbArrived":1391.4,"trbSellRevenue":455.68350000000004,"trbTransferCharge":1.6375000000000002,"trbTradingCharge":0.45732100000000003,"usdtFromTRB":455.22617900000006,"galaBuySpent":454.7714075924077,"galaBuyTradingCharge":0.4547714075924077,"galaQty":0.11297405447649522,"galaArrived":0.11283405447649522,"galaSellRevenue":45133.62179059809,"galaTransferCharge":55.99999999999999,"galaTradingCharge":0,"finalCostInr":45226.10600000001,"inrReceived":45133.62179059809,"profit":-92.48420940191863,"profitPct":-0.2044929744823015,"sellTRBTouched":[{"level":0,"qty":1391.4,"price":0.3275,"pct":0.4365735284704677}],"buyGALATouched":[{"level":0,"qty":0.11297405447649522,"price":4025.45,"pct":25.033027803344833}],"sellGALATouched":[{"level":0,"qty":0.11283405447649522,"price":400000,"pct":45.13362179059809}]},"executionMin":10}]};
+
+const PAGES = {
+  direct:    { label: 'Direct',     navId: 'nav-direct' },
+  loop:      { label: 'Loop',       navId: 'nav-loop' },
+  intraloop: { label: 'Intra Loop', navId: 'nav-intraloop' },
+  orderbook: { label: 'Orderbook',  navId: 'nav-orderbook' },
+  alerts:    { label: 'Alerts',     navId: 'nav-alerts' }
+};
+
+// Exchange list is derived from live data (plus the two known defaults), so
+// when the backend starts tracking Giottus / CoinSwitch / ZebPay / etc.,
+// every exchange dropdown on this page picks them up automatically — no
+// frontend change needed.
+function knownExchanges() {
+  const s = new Set(['binance', 'wazirx']);
+  for (const o of allOpportunities) {
+    if (o.buyExchange) s.add(o.buyExchange);
+    if (o.sellExchange) s.add(o.sellExchange);
+  }
+  return [...s].sort();
+}
+
+// ================================================================
+// STATE
+// ================================================================
+let currentPage = 'direct';
+let withVolume = true;
+let showDisabledWallets = false; // Direct only. OFF = wallets=enabled only, ON = include disabled too.
+let sortBy = 'percentage';       // 'percentage' | 'profit' — Direct + Intra Loop only
+let sortDir = 'desc';            // 'desc' | 'asc'
+
+// Filters are per-page so switching tabs doesn't carry an unrelated filter over.
+let pageFilters = {
+  direct:    { coin: '', buyExchanges: [] }, // empty = any; multi-select like KoinKnight
+  loop:      { buyCoin: '', sellCoin: '', loopEx: [], viaEx: [] }, // empty arrays = any exchange
+  intraloop: { coin: '', exchange: 'wazirx' }
+};
+let draftFilter = {}; // working copy while the drawer is open, committed on Apply
+
+let allOpportunities = SEED_DATA.opportunities;
+let lastFetchTs = SEED_DATA.ts;
+let usingSeedData = true;
+let lastManualRefreshAt = 0;
+let hasLoadedOnce = true;
+
+let openCard = null; // { type, coin, coin1, coin2, buyExchange }
+let liveBookError = null; // last error from the per-coin live endpoint, shown in the modal
+let directLiveEntry = null; // last SUCCESSFUL live response — kept so one failed refresh doesn't blank the books
+let liveFailStreak = 0;     // consecutive live-fetch failures; the loud banner needs 2+
+const liveCache = {};       // per-coin memory of the last good books, so a
+                            // reopened or reconnecting modal shows the previous
+                            // full 13-level book — never the sparse fallback
+                            // once real depth has been seen this session
+let modalTimer = null;
+let countdown = 10;
+
+// ================================================================
+// FORMATTING
+// ================================================================
+function fmtInr(n, d=2) { return '₹' + Number(n).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}); }
+// Adaptive precision for order books: big numbers get thousands separators
+// with few decimals, tiny prices (SHIB/BONK/PEPE) get enough decimals to
+// actually SHOW their differences instead of flattening to 0.0004.
+function fmtAdaptive(n) {
+  n = Number(n);
+  if (!isFinite(n)) return '—';
+  if (n === 0) return '0';
+  const abs = Math.abs(n);
+  let dec;
+  if (abs >= 1000) dec = 2;
+  else if (abs >= 1) dec = 4;
+  else dec = Math.min(12, Math.ceil(-Math.log10(abs)) + 5); // ~6 significant digits
+  return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dec });
+}
+function fmtNum(n, d=2) { return Number(n).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}); }
+function fmtCoin(n, d=4) { return Number(n).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}); }
+// Compact size formatter for order-book Size cells — large coin sizes (SHIB,
+// BONK, etc. run into billions) overflowed the column on mobile. Abbreviates
+// with K/M/B so every level fits; small sizes keep full adaptive precision.
+function fmtSize(n) {
+  n = Number(n);
+  if (!isFinite(n)) return '—';
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n/1e9).toFixed(2) + 'B';
+  if (abs >= 1e6) return (n/1e6).toFixed(2) + 'M';
+  if (abs >= 1e5) return (n/1e3).toFixed(1) + 'K';
+  return fmtAdaptive(n);
+}
+function fmtTime(t) { return t.toLocaleTimeString('en-US', {hour12:false}); }
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function pctOf(o) { return o.walked ? o.walked.profitPct : o.roughPct; }
+
+// ================================================================
+// FETCH LAYER — always fetches everything (wallets=all); wallet and
+// coin filtering happen client-side per page. This avoids a conflict
+// where a server-side wallets= filter (built for Direct's toggle)
+// would silently also strip loop opportunities, which don't have
+// their own disabled-wallets control.
+// ================================================================
+async function fetchOpportunities() {
+  const url = `${API_BASE}/api/opportunities?volume=${withVolume}&wallets=all&profit=all`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API returned ${res.status}`);
+  return res.json();
+}
+
+async function fetchLiveCoin(coin) {
+  const res = await fetch(`${API_BASE}/api/opportunities/${coin}/live`);
+  if (!res.ok) throw new Error(`API returned ${res.status}`);
+  return res.json();
+}
+
+function findOpportunity(card) {
+  if (!card) return null;
+  if (card.type === 'direct') {
+    return allOpportunities.find(o => o.type === 'direct' && o.coin === card.coin
+      && o.buyExchange === card.buyExchange
+      && (!card.buyMarket || o.buyMarket === card.buyMarket));
+  }
+  return allOpportunities.find(o => o.type === 'loop' && o.coin1 === card.coin1 && o.coin2 === card.coin2);
+}
+
+// ================================================================
+// NAVIGATION
+// ================================================================
+function selectPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+  document.getElementById(PAGES[page].navId).classList.add('active');
+  renderToolbar();
+  renderCards();
+  if (page === 'alerts') loadAlerts();
+  if (page === 'orderbook') {
+    if (!orderbookTimer) orderbookTimer = setInterval(refreshOrderbook, 15000);
+    refreshOrderbook();
+  } else if (orderbookTimer) {
+    clearInterval(orderbookTimer); orderbookTimer = null;
+  }
+}
+
+// ================================================================
+// TOOLBAR — differs per page, matching the reference screenshots
+// ================================================================
+function activeFilterChips() {
+  const f = pageFilters[currentPage];
+  const chips = [];
+  if (f.coin) chips.push(`<span class="active-filter-chip">Coin: ${f.coin.toUpperCase()} <button onclick="clearChip('coin')">×</button></span>`);
+  if (currentPage === 'direct' && f.buyExchanges && f.buyExchanges.length) chips.push(`<span class="active-filter-chip">Buy on: ${f.buyExchanges.map(cap).join(', ')} <button onclick="clearChip('buyExchanges')">×</button></span>`);
+  if (currentPage === 'intraloop' && f.exchange) chips.push(`<span class="active-filter-chip">Exchange: ${cap(f.exchange)} <button onclick="clearChip('exchange')">×</button></span>`);
+  if (currentPage === 'loop') {
+    if (f.buyCoin) chips.push(`<span class="active-filter-chip">Buy: ${f.buyCoin.toUpperCase()} <button onclick="clearChip('buyCoin')">×</button></span>`);
+    if (f.sellCoin) chips.push(`<span class="active-filter-chip">Sell: ${f.sellCoin.toUpperCase()} <button onclick="clearChip('sellCoin')">×</button></span>`);
+    if (f.loopEx && f.loopEx.length) chips.push(`<span class="active-filter-chip">Loop: ${f.loopEx.map(cap).join(', ')} <button onclick="clearChip('loopEx')">×</button></span>`);
+    if (f.viaEx && f.viaEx.length) chips.push(`<span class="active-filter-chip">Via: ${f.viaEx.map(cap).join(', ')} <button onclick="clearChip('viaEx')">×</button></span>`);
+  }
+  return chips.join('');
+}
+
+function clearChip(field) {
+  if (field === 'exchange') pageFilters[currentPage].exchange = 'wazirx';
+  else if (field === 'buyExchanges') pageFilters.direct.buyExchanges = [];
+  else if (field === 'loopEx' || field === 'viaEx') pageFilters.loop[field] = [];
+  else pageFilters[currentPage][field] = '';
+  renderToolbar();
+  renderCards();
+}
+
+function sortControlsHtml() {
+  return `
+    <div class="sort-wrap">
+      <span>Sort by</span>
+      <select class="sort-select" onchange="sortBy=this.value; renderCards();">
+        <option value="percentage" ${sortBy==='percentage'?'selected':''}>Percentage</option>
+        <option value="profit" ${sortBy==='profit'?'selected':''}>Profit</option>
+      </select>
+      <select class="sort-select" onchange="sortDir=this.value; renderCards();">
+        <option value="desc" ${sortDir==='desc'?'selected':''}>Descending</option>
+        <option value="asc" ${sortDir==='asc'?'selected':''}>Ascending</option>
+      </select>
+    </div>`;
+}
+
+function volumeToggleHtml() {
+  return `
+    <label class="toggle-wrap"><span>With volume</span>
+      <label class="switch"><input type="checkbox" id="volumeToggle" ${withVolume?'checked':''} onchange="onVolumeToggle()"><span class="slider"></span></label>
+    </label>`;
+}
+
+function renderToolbar() {
+  const el = document.getElementById('toolbar');
+
+  if (currentPage === 'alerts') {
+    el.innerHTML = `
+      <div class="sort-wrap" style="gap:12px;">
+        <span style="font-weight:700;">Alert type</span>
+        <label class="af-radio" style="display:inline;"><input type="radio" name="alertTypeFilter" value="arbitrage" ${alertTypeFilter==='arbitrage'?'checked':''} onchange="alertTypeFilter=this.value; renderAlertsPage();"> Arbitrage</label>
+        <label class="af-radio" style="display:inline; color:var(--gray-500);"><input type="radio" name="alertTypeFilter" value="price" ${alertTypeFilter==='price'?'checked':''} onchange="alertTypeFilter=this.value; renderAlertsPage();"> Crypto Price</label>
+        <label class="af-radio" style="display:inline; color:var(--gray-500);"><input type="radio" name="alertTypeFilter" value="pump_dump" ${alertTypeFilter==='pump_dump'?'checked':''} onchange="alertTypeFilter=this.value; renderAlertsPage();"> Pump &amp; Dump</label>
+      </div>
+      <div class="create-alert-wrap">
+        <button class="apply-filter-btn" style="margin-left:0; background:var(--accent); color:#fff; border-color:var(--accent);" onclick="toggleCreateMenu()">Create alert ▾</button>
+        <div class="create-alert-menu hidden" id="createAlertMenu">
+          <div class="cam-item" onclick="createAlertOfKind('direct')">Direct</div>
+          <div class="cam-item" onclick="createAlertOfKind('loop')">Loop</div>
+          <div class="cam-item" onclick="createAlertOfKind('intra_loop')">Intra Loop</div>
+          <div class="cam-item cam-disabled">Crypto Price (soon)</div>
+          <div class="cam-item cam-disabled">Pump &amp; Dump (soon)</div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (currentPage === 'orderbook') {
+    const exOpts = knownExchanges().map(e => `<option value="${e}">${cap(e)}</option>`).join('');
+    el.innerHTML = `
+      <div class="sort-wrap" style="flex:1; min-width:260px; flex-wrap:wrap;">
+        <select class="sort-select" id="obExchangeSelect">${exOpts}</select>
+        <input type="text" id="obCoinInput" placeholder="Coin, e.g. BTC"
+               style="flex:1; min-width:110px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; font-family:inherit;">
+        <button class="apply-filter-btn" style="margin-left:0;" onclick="addObSelection()">Compare</button>
+      </div>
+      <div style="flex-basis:100%; display:flex; gap:6px; flex-wrap:wrap;">
+        ${obSelections.map((s,i) => `<span class="ob-chip">${cap(s.exchange)} ${s.coin.toUpperCase()} <button onclick="removeObSelection(${i})">×</button></span>`).join('')}
+      </div>
+    `;
+    return;
+  }
+
+  if (currentPage === 'intraloop') {
+    el.innerHTML = `
+      ${volumeToggleHtml()}
+      ${sortControlsHtml()}
+      <button class="apply-filter-btn" onclick="openDrawer()">Apply Filter</button>
+      ${activeFilterChips()}
+    `;
+    return;
+  }
+
+  if (currentPage === 'loop') {
+    // No sort controls here (loop results are always shown best-first),
+    // but wallet filtering matches Direct: toggle OFF hides loops where
+    // either leg's transfer is blocked.
+    el.innerHTML = `
+      ${volumeToggleHtml()}
+      <label class="toggle-wrap"><span>Disabled Wallets</span>
+        <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
+      </label>
+      <button class="apply-filter-btn" onclick="openDrawer()">Apply Filter</button>
+      ${activeFilterChips()}
+    `;
+    return;
+  }
+
+  // direct
+  el.innerHTML = `
+    ${volumeToggleHtml()}
+    <label class="toggle-wrap"><span>Disabled Wallets</span>
+      <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
+    </label>
+    ${sortControlsHtml()}
+    <button class="apply-filter-btn" onclick="openDrawer()">Apply Filter</button>
+    ${activeFilterChips()}
+  `;
+}
+
+function onVolumeToggle() {
+  withVolume = document.getElementById('volumeToggle').checked;
+  fullRefresh(); // volume changes the query param — needs a fresh fetch
+}
+function onDisabledToggle() {
+  showDisabledWallets = document.getElementById('disabledToggle').checked;
+  renderCards(); // client-side filter only, no refetch needed
+}
+
+// ================================================================
+// FILTER DRAWER
+// ================================================================
+function openDrawer() {
+  draftFilter = { ...pageFilters[currentPage] };
+  document.getElementById('drawerTitle').textContent = `Apply Filter — ${PAGES[currentPage].label}`;
+  document.getElementById('drawerSub').textContent =
+    currentPage === 'direct'    ? 'Filters WazirX ⇄ Binance direct opportunities.' :
+    currentPage === 'loop'      ? 'Filters loop opportunities — matches either leg.' :
+                                   'Filters will take effect once Intra Loop detection is live on the backend.';
+  renderDrawerBody();
+  document.getElementById('drawerOverlay').classList.remove('hidden');
+}
+function closeDrawer() {
+  document.getElementById('drawerOverlay').classList.add('hidden');
+}
+
+function renderDrawerBody() {
+  if (currentPage === 'intraloop') {
+    const exOpts = knownExchanges().map(e => `<option value="${e}" ${draftFilter.exchange===e?'selected':''}>${cap(e)}</option>`).join('');
+    document.getElementById('drawerBody').innerHTML = `
+      <label class="field-label">Exchange</label>
+      <select id="draftExchangeSelect">${exOpts}</select>
+      <label class="field-label">Coin</label>
+      <input type="text" id="draftCoinInput" placeholder="e.g. BTC" value="${draftFilter.coin || ''}">
+    `;
+    return;
+  }
+  if (currentPage === 'direct') {
+    const boxes = knownExchanges().map(e =>
+      `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="draftBuyEx" value="${e}" ${(draftFilter.buyExchanges||[]).includes(e)?'checked':''}> ${cap(e)}</label>`
+    ).join('');
+    document.getElementById('drawerBody').innerHTML = `
+      <div class="drawer-section-label">Primary Filter</div>
+      <label class="field-label">From exchange (buy side) — none checked = any</label>
+      <div>${boxes}</div>
+      <div class="drawer-section-label" style="margin-top:16px;">Secondary Filter</div>
+      <label class="field-label">Coin</label>
+      <input type="text" id="draftCoinInput" placeholder="e.g. BONK" value="${draftFilter.coin || ''}">
+    `;
+    return;
+  }
+  if (currentPage === 'loop') {
+    const exBoxes = (id, selected) => knownExchanges().map(e =>
+      `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="${id}" value="${e}" ${selected.includes(e)?'checked':''}> ${cap(e)}</label>`
+    ).join('');
+    document.getElementById('drawerBody').innerHTML = `
+      <div class="drawer-section-label">Primary Filter</div>
+      <label class="field-label">Loop exchange (buy & sell legs)</label>
+      <div>${exBoxes('draftLoopEx', draftFilter.loopEx || [])}</div>
+      <label class="field-label">Via exchange (bridge)</label>
+      <div>${exBoxes('draftViaEx', draftFilter.viaEx || [])}</div>
+      <div class="drawer-section-label" style="margin-top:16px;">Secondary Filter <span style="font-weight:400; color:var(--gray-500); font-size:11px;">(applied locally on the current list)</span></div>
+      <label class="field-label">Buy coin (leg 1)</label>
+      <input type="text" id="draftBuyCoinInput" placeholder="e.g. TRB" value="${(draftFilter.buyCoin || '').toUpperCase()}">
+      <label class="field-label">Sell coin (leg 2)</label>
+      <input type="text" id="draftSellCoinInput" placeholder="e.g. GALA" value="${(draftFilter.sellCoin || '').toUpperCase()}">
+    `;
+    return;
+  }
+  document.getElementById('drawerBody').innerHTML = `
+    <label class="field-label">Coin</label>
+    <input type="text" id="draftCoinInput" placeholder="e.g. BONK" value="${draftFilter.coin || ''}">
+  `;
+}
+
+function applyDrawerFilter() {
+  if (currentPage === 'loop') {
+    pageFilters.loop.buyCoin = document.getElementById('draftBuyCoinInput').value.trim().toLowerCase();
+    pageFilters.loop.sellCoin = document.getElementById('draftSellCoinInput').value.trim().toLowerCase();
+    pageFilters.loop.loopEx = [...document.querySelectorAll('input.draftLoopEx:checked')].map(el => el.value);
+    pageFilters.loop.viaEx = [...document.querySelectorAll('input.draftViaEx:checked')].map(el => el.value);
+  } else {
+    const coinInput = document.getElementById('draftCoinInput');
+    pageFilters[currentPage].coin = coinInput ? coinInput.value.trim().toLowerCase() : '';
+    if (currentPage === 'intraloop') {
+      const sel = document.getElementById('draftExchangeSelect');
+      pageFilters.intraloop.exchange = sel ? sel.value : 'wazirx';
+    }
+    if (currentPage === 'direct') {
+      pageFilters.direct.buyExchanges = [...document.querySelectorAll('input.draftBuyEx:checked')].map(el => el.value);
+    }
+  }
+  closeDrawer();
+  renderToolbar();
+  renderCards();
+}
+
+function resetDrawerFilter() {
+  pageFilters[currentPage] = currentPage === 'intraloop' ? { coin: '', exchange: 'wazirx' }
+    : currentPage === 'direct' ? { coin: '', buyExchanges: [] }
+    : currentPage === 'loop' ? { buyCoin: '', sellCoin: '', loopEx: [], viaEx: [] }
+    : { coin: '' };
+  closeDrawer();
+  renderToolbar();
+  renderCards();
+}
+
+// ================================================================
+// FILTERING + SORTING
+// ================================================================
+function matchesCoinFilter(o) {
+  const coin = pageFilters[currentPage].coin;
+  if (!coin) return true;
+  return o.coin.includes(coin);
+}
+
+function matchesBuyExchange(o) {
+  const want = pageFilters.direct.buyExchanges;
+  if (!want || !want.length) return true;
+  return want.includes(o.buyExchange);
+}
+
+function sortList(list) {
+  const key = sortBy === 'profit'
+    ? (o => (o.walked ? o.walked.profit : (o.fixed ? o.fixed.profit : pctOf(o))))
+    : (o => (o.fixed ? o.fixed.profitPct : pctOf(o)));
+  const sorted = [...list].sort((a,b) => key(a) - key(b));
+  return sortDir === 'desc' ? sorted.reverse() : sorted;
+}
+
+function filteredOpportunities() {
+  if (currentPage === 'intraloop') return [];
+  if (currentPage === 'loop') {
+    const f = pageFilters.loop;
+    let list = allOpportunities.filter(o => o.type === 'loop');
+    if (f.buyCoin) list = list.filter(o => o.coin1.includes(f.buyCoin));
+    if (f.sellCoin) list = list.filter(o => o.coin2.includes(f.sellCoin));
+    // Loops carry their exchanges implicitly (loop legs on WazirX, bridged
+    // via Binance today); the o.loopExchange/o.viaExchange fallbacks make
+    // this keep working unchanged when the backend adds more exchanges.
+    if (f.loopEx && f.loopEx.length) list = list.filter(o => f.loopEx.includes(o.loopExchange || 'wazirx'));
+    if (f.viaEx && f.viaEx.length) list = list.filter(o => f.viaEx.includes(o.viaExchange || 'binance'));
+    list = showDisabledWallets ? list.filter(o => o.walletEnabled === false)
+                               : list.filter(o => o.walletEnabled !== false);
+    // Volume ON = only valid (non-negative) loops; Volume OFF shows negatives too.
+    if (withVolume) list = list.filter(o => pctOf(o) >= 0);
+    return list.sort((a,b) => pctOf(b) - pctOf(a)); // fixed best-first order, no sort control on this page
+  }
+  const direct = allOpportunities.filter(o => o.type === 'direct' && matchesCoinFilter(o) && matchesBuyExchange(o));
+  // Toggle semantics match KoinKnight: OFF = transferable coins only,
+  // ON = wallet-blocked coins ONLY (a separate view, not a superset).
+  const scoped = showDisabledWallets ? direct.filter(o => o.walletEnabled === false)
+                                     : direct.filter(o => o.walletEnabled !== false);
+  // Volume ON = show only valid (non-negative) opportunities. Volume OFF
+  // (fixed ₹1,00,000 view) shows everything, negatives included.
+  const signed = withVolume ? scoped.filter(o => pctOf(o) >= 0) : scoped;
+  return sortList(signed);
+}
+
+// ================================================================
+// RENDER — card list
+// ================================================================
+function walletBadge(o) {
+  const ok = o.walletEnabled !== false;
+  return `<span class="badge ${ok?'badge-ok':'badge-blocked'}">${ok?'Transferable':'Wallet blocked'}</span>`;
+}
+
+function directCard(o) {
+  const pct = pctOf(o);
+  const d = o.walked;
+  const shownPct = d ? d.profitPct : (o.fixed ? o.fixed.profitPct : pct);
+  const barClass = shownPct < 0 ? 'negative' : '';
+  const coin = o.coin.toUpperCase();
+
+  const rows = (withVolume && d) ? `
+    <details class="kk-row">
+      <summary>
+        <div class="kk-tag buy">Buy<span class="kk-coin">${coin}</span></div>
+        <div class="kk-mid">
+          <div class="kk-qty">${fmtCoin(d.buyQty,5)} ${coin}</div>
+          <div class="kk-price">${fmtInr(d.buyPrice,0)} <span class="kk-caret">▾</span></div>
+        </div>
+        <div class="kk-ex"><div class="ex-name">${cap(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
+      </summary>
+      <div class="kk-body">
+        <div class="leg-line"><span class="k">Buy price:</span><span class="v">${fmtInr(d.buyPrice,4)}</span></div>
+        <div class="leg-line"><span class="k">Trading charges:</span><span class="v">${fmtInr(d.tradingChargeBuy,4)}</span></div>
+        <div class="leg-line"><span class="k">Final buy price:</span><span class="v">${fmtInr(d.finalBuy,4)}</span></div>
+      </div>
+    </details>
+    <details class="kk-row">
+      <summary>
+        <div class="kk-tag sell">Sell<span class="kk-coin">${coin}</span></div>
+        <div class="kk-mid">
+          <div class="kk-qty">${fmtCoin(d.sellQty,5)} ${coin}</div>
+          <div class="kk-price">${fmtInr(d.finalSell,0)} <span class="kk-caret">▾</span></div>
+        </div>
+        <div class="kk-ex"><div class="ex-name">${cap(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
+      </summary>
+      <div class="kk-body">
+        <div class="leg-line"><span class="k">Sell price:</span><span class="v">${fmtInr(d.sellPrice,4)}</span></div>
+        <div class="leg-line"><span class="k">Crypto transfer charges:</span><span class="v">${fmtInr(d.transferCharge,4)}</span></div>
+        <div class="leg-line"><span class="k">Crypto transfer network:</span><span class="v">${o.network}</span></div>
+        <div class="leg-line"><span class="k">Trading charges:</span><span class="v">${fmtInr(d.tradingChargeSell,4)}</span></div>
+        <div class="leg-line"><span class="k">Final sell price:</span><span class="v">${fmtInr(d.finalSell,4)}</span></div>
+      </div>
+    </details>
+    <div class="arb-bar ${barClass}">
+      <div class="arb-label">Arbitrage</div>
+      <div class="arb-mid">
+        <div class="arb-main">${pct.toFixed(2)}% (${fmtInr(d.profit,3)})</div>
+        <div class="arb-sub">${o.executionMin.toFixed(2)} mins</div>
+      </div>
+      <button class="track-live-btn" onclick="openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')">◉ Track Live</button>
+    </div>`
+  : (o.fixed ? `
+    <details class="kk-row">
+      <summary>
+        <div class="kk-tag buy">Buy<span class="kk-coin">${coin}</span></div>
+        <div class="kk-mid">
+          <div class="kk-qty">${fmtAdaptive(o.fixed.buyQty)} ${coin}</div>
+          <div class="kk-price">₹1,00,000 @ ${fmtAdaptive(o.fixed.buyPrice)} <span class="kk-caret">▾</span></div>
+        </div>
+        <div class="kk-ex"><div class="ex-name">${cap(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
+      </summary>
+      <div class="kk-body">
+        <div class="leg-line"><span class="k">First ask price:</span><span class="v">${fmtAdaptive(o.fixed.buyPrice)}</span></div>
+        <div class="leg-line"><span class="k">Cost incl. trading fee:</span><span class="v">${fmtInr(o.fixed.buyCost,2)}</span></div>
+      </div>
+    </details>
+    <details class="kk-row">
+      <summary>
+        <div class="kk-tag sell">Sell<span class="kk-coin">${coin}</span></div>
+        <div class="kk-mid">
+          <div class="kk-qty">${fmtAdaptive(o.fixed.sellQty)} ${coin}</div>
+          <div class="kk-price">${fmtInr(o.fixed.sellRevenue,0)} @ ${fmtAdaptive(o.fixed.sellPrice)} <span class="kk-caret">▾</span></div>
+        </div>
+        <div class="kk-ex"><div class="ex-name">${cap(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
+      </summary>
+      <div class="kk-body">
+        <div class="leg-line"><span class="k">First bid price:</span><span class="v">${fmtAdaptive(o.fixed.sellPrice)}</span></div>
+        <div class="leg-line"><span class="k">Revenue after transfer + fees:</span><span class="v">${fmtInr(o.fixed.sellRevenue,2)}</span></div>
+      </div>
+    </details>
+    <div class="arb-bar ${o.fixed.profit < 0 ? 'negative' : ''}">
+      <div class="arb-label">Arbitrage</div>
+      <div class="arb-mid">
+        <div class="arb-main">${o.fixed.profitPct.toFixed(2)}% (${fmtInr(o.fixed.profit,3)})</div>
+        <div class="arb-sub">on ₹1,00,000 at first ask/bid · ${o.executionMin.toFixed(2)} mins</div>
+      </div>
+      <button class="track-live-btn" onclick="openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')">◉ Track Live</button>
+    </div>`
+  : `
+    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+      <div class="kk-tag buy">Buy<span class="kk-coin">${coin}</span></div>
+      <div class="kk-mid"><div class="kk-price">${cap(o.buyExchange)} · ${o.buyMarket}</div></div>
+    </div>
+    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+      <div class="kk-tag sell">Sell<span class="kk-coin">${coin}</span></div>
+      <div class="kk-mid"><div class="kk-price">${cap(o.sellExchange)} · ${o.sellMarket}</div></div>
+    </div>
+    <div class="arb-bar ${pct < 0 ? 'negative' : ''}">
+      <div class="arb-label">Arbitrage</div>
+      <div class="arb-mid">
+        <div class="arb-main">${pct.toFixed(2)}%</div>
+        <div class="arb-sub">top-of-book spread only — depth not walkable this instant</div>
+      </div>
+      <button class="track-live-btn" onclick="openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')">◉ Track Live</button>
+    </div>`);
+
+  return `
+    <div class="card">
+      <div class="card-top">
+        <span class="coin-pair">${coin} / ${o.quote || 'INR'}</span>
+        <div class="badge-row"><span class="badge badge-direct">Direct</span>${walletBadge(o)}</div>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function loopCard(o) {
+  const pct = pctOf(o);
+  const c1 = o.coin1.toUpperCase(), c2 = o.coin2.toUpperCase();
+  const l = o.walked;
+  const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
+
+  const rows = (withVolume && l) ? `
+    <details class="kk-row">
+      <summary>
+        <div class="kk-tag buy">Buy<span class="kk-coin">${c1}</span></div>
+        <div class="kk-mid">
+          <div class="kk-qty">${fmtCoin(l.trbQty,4)} ${c1}</div>
+          <div class="kk-price">${fmtInr(l.finalCostInr,0)} <span class="kk-caret">▾</span></div>
+        </div>
+        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">INR Market</div></div>
+      </summary>
+      <div class="kk-body">
+        <div class="leg-line"><span class="k">Final cost (incl. trading):</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
+        <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
+      </div>
+    </details>
+    <details class="kk-row">
+      <summary>
+        <div class="kk-tag convert">Convert</div>
+        <div class="kk-mid">
+          <div class="kk-qty">${c1} ▶ ${c2}</div>
+          <div class="kk-price">${fmtNum(l.usdtFromTRB,3)} USDT <span class="kk-caret">▾</span></div>
+        </div>
+        <div class="kk-ex"><div class="ex-name">Binance</div><div class="ex-market">USDT Market</div></div>
+      </summary>
+      <div class="kk-body">
+        <div class="leg-line"><span class="k">${c1} arrived (after transfer fee):</span><span class="v">${fmtCoin(l.trbArrived,4)} ${c1}</span></div>
+        <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">Sell ${c1} → USDT:</span><span class="v">${fmtNum(l.usdtFromTRB,4)} USDT</span></div>
+        <div class="leg-line"><span class="k">Buy ${c2} with USDT:</span><span class="v">${fmtCoin(l.galaQty,4)} ${c2}</span></div>
+        <div class="leg-line"><span class="k">${c2} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.galaTransferCharge,2)}</span></div>
+      </div>
+    </details>
+    <details class="kk-row">
+      <summary>
+        <div class="kk-tag sell">Sell<span class="kk-coin">${c2}</span></div>
+        <div class="kk-mid">
+          <div class="kk-qty">${fmtCoin(l.galaArrived,4)} ${c2}</div>
+          <div class="kk-price">${fmtInr(l.inrReceived,0)} <span class="kk-caret">▾</span></div>
+        </div>
+        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">INR Market</div></div>
+      </summary>
+      <div class="kk-body">
+        <div class="leg-line"><span class="k">INR received (net):</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
+      </div>
+    </details>
+    <div class="arb-bar ${barClass}">
+      <div class="arb-label">Arbitrage</div>
+      <div class="arb-mid">
+        <div class="arb-main">${pct.toFixed(2)}% (${fmtInr(l.profit,3)})</div>
+        <div class="arb-sub">${o.executionMin.toFixed(2)} mins</div>
+      </div>
+      <button class="track-live-btn" onclick="openCardModal('loop','','${o.coin1}','${o.coin2}','')">◉ Track Live</button>
+    </div>`
+  : `
+    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+      <div class="kk-tag buy">Buy<span class="kk-coin">${c1}</span></div>
+      <div class="kk-mid"><div class="kk-price">Wazirx ${c1}/INR → Binance ${c1}/USDT</div></div>
+    </div>
+    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+      <div class="kk-tag sell">Sell<span class="kk-coin">${c2}</span></div>
+      <div class="kk-mid"><div class="kk-price">Binance ${c2}/USDT → Wazirx ${c2}/INR</div></div>
+    </div>
+    <div class="arb-bar ${pct < 0 ? 'negative' : ''}">
+      <div class="arb-label">Arbitrage</div>
+      <div class="arb-mid">
+        <div class="arb-main">${pct.toFixed(2)}%</div>
+        <div class="arb-sub">top-of-book only, no depth walked</div>
+      </div>
+      <button class="track-live-btn" onclick="openCardModal('loop','','${o.coin1}','${o.coin2}','')">◉ Track Live</button>
+    </div>`;
+
+  return `
+    <div class="card">
+      <div class="card-top">
+        <span class="coin-pair">${c1} → ${c2}</span>
+        <div class="badge-row"><span class="badge badge-loop">Loop</span>${walletBadge(o)}</div>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function intraLoopCard(o) {
+  const pct = pctOf(o);
+  const l = o.walked;
+  const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
+  const rows = (l ? l.legs : []).map(leg => `
+    <div class="kk-row" style="padding:10px 14px; display:flex; gap:10px; align-items:center;">
+      <div class="kk-tag ${leg.action === 'Buy' ? 'buy' : leg.action === 'Sell' ? 'sell' : 'convert'}">${leg.action}<span class="kk-coin">${leg.action === 'Convert' ? '' : leg.asset.toUpperCase()}</span></div>
+      <div class="kk-mid">
+        <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtCoin(leg.qty, 4) + ' ' + leg.asset.toUpperCase()}</div>
+        <div class="kk-price">${fmtInr(leg.valueInr, 0)} · @ ${fmtNum(leg.price, 6)}</div>
+      </div>
+      <div class="kk-ex"><div class="ex-name">${cap(o.exchange || 'wazirx')}</div><div class="ex-market">${leg.market}</div></div>
+    </div>`).join('');
+  return `
+    <div class="card">
+      <div class="card-top">
+        <span class="coin-pair">${o.pathLabel || o.coin.toUpperCase()}</span>
+        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span></div>
+      </div>
+      ${rows || `<div class="kk-row" style="padding:12px 14px;"><div class="kk-mid"><div class="kk-price">${o.pathLabel || ''}</div></div></div>`}
+      <div class="arb-bar ${barClass}">
+        <div class="arb-label">Arbitrage</div>
+        <div class="arb-mid">
+          <div class="arb-main">${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}</div>
+          <div class="arb-sub">${l ? `max ${fmtCoin(l.qty,2)} ${o.coin.toUpperCase()} at top-of-book · instant, no transfer` : 'top-of-book spread'}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderCards() {
+  const list0 = document.getElementById('cardList');
+
+  if (currentPage === 'alerts') { renderAlertsPage(); return; }
+  if (currentPage === 'orderbook') { renderOrderbookPage(); return; }
+
+  if (currentPage === 'intraloop') {
+    const f = pageFilters.intraloop;
+    let list = allOpportunities.filter(o => o.type === 'intraloop');
+    if (!list.length) {
+      list0.innerHTML = `<div class="empty-state"><span class="emoji">🔄</span>No intra-loop data yet. If the backend hasn't been redeployed with the intra-loop engine, deploy the updated compute.js first — otherwise there may just be no computable triangles right now.</div>`;
+      return;
+    }
+    if (f.exchange) list = list.filter(o => (o.exchange || 'wazirx') === f.exchange);
+    if (f.coin) list = list.filter(o => o.coin.includes(f.coin));
+    list = sortList(list);
+    if (!list.length) {
+      list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No intra-loop opportunities match the current filters.</div>`;
+      return;
+    }
+    list0.innerHTML = list.map(intraLoopCard).join('');
+    return;
+  }
+  if (!hasLoadedOnce) {
+    list0.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading opportunities…</div>`;
+    return;
+  }
+  if (allOpportunities.length === 0) {
+    list0.innerHTML = `<div class="empty-state"><span class="emoji">⚠️</span>No data from the scanner yet. It may still be starting up — try Refresh in a moment.</div>`;
+    return;
+  }
+  const list = filteredOpportunities();
+  if (list.length === 0) {
+    list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No arbitrage was found for the selected filters. Try changing them.</div>`;
+    return;
+  }
+  list0.innerHTML = list.map(o => o.type === 'direct' ? directCard(o) : loopCard(o)).join('');
+}
+
+// ================================================================
+// RENDER — depth bar cell + dual order-book table (DIRECT modal).
+// Side-by-side layout matching the reference. Note: this only shows
+// the side of each book that's actually walked (Binance asks since
+// we're buying there, WazirX bids since we're selling there) — the
+// API doesn't expose the opposite/unused side of either book, so a
+// full two-sided view per exchange isn't possible without a backend
+// change.
+// ================================================================
+function kkBar(l, colorVar) {
+  if (!l || !(l.consumedQty > 0)) return '';
+  const pct = Math.min(l.consumedPct || 0, 100);
+  return `
+    <div class="kk-ob-bar">
+      <div class="kk-ob-track"><div class="kk-ob-fill" style="width:${pct}%; background:var(${colorVar});"></div></div>
+      <span class="kk-ob-pct" style="color:var(${colorVar});">${(l.consumedPct||0).toFixed(2)}%</span>
+    </div>
+    <div class="kk-ob-consumed" style="color:var(${colorVar});">(${fmtSize(l.consumedQty)})</div>`;
+}
+
+function kkObCellPair(l, colorVar, currency) {
+  if (!l) return '<td class="ob-size-cell"></td><td class="ob-price-cell"></td>';
+  return `<td class="ob-size-cell"><div class="kk-ob-size">${fmtSize(l.size)}</div>${kkBar(l, colorVar)}</td><td class="ob-price-cell">${fmtAdaptive(l.price)}</td>`;
+}
+
+// KoinKnight layout: one continuous table — asks section (pink) on top with
+// best ask nearest the middle, a yellow Spread row, then bids (green) with
+// best bid first. Left column pair = buy exchange (its asks are what we
+// buy into); right pair = sell exchange (its bids are what we sell into).
+// The buy exchange has no rows in the bids section and vice versa, because
+// the backend only streams the walked side of each book.
+function dualOrderBookTable(buy, sell) {
+  buy = { ...buy, levels: (buy.levels || []).slice(0, 13) };
+  sell = { ...sell, levels: (sell.levels || []).slice(0, 13) };
+  const asksReversed = [...buy.levels].reverse(); // best ask ends up adjacent to the spread row
+  const askRows = asksReversed.map(l =>
+    `<tr class="kk-ask-row">${kkObCellPair(l, '--danger', buy.currency)}<td></td><td></td></tr>`
+  ).join('');
+  const bidRows = sell.levels.map(l =>
+    `<tr class="kk-bid-row"><td></td><td></td>${kkObCellPair(l, '--success', sell.currency)}</tr>`
+  ).join('');
+  return `
+    <div class="loop-scroll">
+    <table class="ob-table dual">
+      <thead>
+        <tr>
+          <th colspan="2" class="ob-group">${cap(buy.exchange)}<div class="ob-sub">${buy.market}</div></th>
+          <th colspan="2" class="ob-group">${cap(sell.exchange)}<div class="ob-sub">${sell.market}</div></th>
+        </tr>
+        <tr><th>Size</th><th>Price</th><th>Size</th><th>Price</th></tr>
+      </thead>
+      <tbody>
+        ${askRows}
+        <tr class="kk-spread-row"><td class="kk-spread-label">Spread</td><td>—</td><td class="kk-spread-label">Spread</td><td>—</td></tr>
+        ${bidRows}
+      </tbody>
+    </table>
+    </div>`;
+}
+
+// ================================================================
+// RENDER — DIRECT modal
+// ================================================================
+function renderDirectModal(entry) {
+  if (!entry) {
+    document.getElementById('modalBody').innerHTML = `<div class="modal-note">Loading…</div>`;
+    return;
+  }
+  document.getElementById('modalTitle').textContent = `${entry.coin.toUpperCase()} — Direct Arbitrage`;
+  document.getElementById('modalStatus').innerHTML = withVolume
+    ? `refreshes every 15s while open · <a href="#" onclick="refreshDirectModalLive(); return false;" style="color:var(--primary);">refresh now</a>`
+    : 'Volume is OFF — showing top-of-book only';
+
+  // Volume OFF (or the walk not loaded yet): show the rough spread box but
+  // STILL render the live order book below — same normal book view, just
+  // without the fee/leg breakdowns that need a walk.
+  if (!withVolume || !entry.walked) {
+    const legsEarly = entry.liveBooks && entry.liveBooks.legs;
+    const obEarly = legsEarly
+      ? `${entry.partial ? `<div class="modal-note">${entry.partialReason}</div>` : ''}
+         <div class="ob-section-title" style="margin-top:10px;">Order Book</div>${loopOrderBookTable(legsEarly)}`
+      : (liveBookError
+          ? `<div class="banner-error">Couldn't load the order book (${liveBookError}). Retrying every 15s.</div>`
+          : `<div class="modal-note">Loading live order book depth…</div>`);
+    document.getElementById('modalBody').innerHTML = `
+      ${!withVolume ? '<div class="note-box">Volume is OFF — figures priced on a fixed ₹1,00,000 at the first ask/bid.</div>' : ''}
+      ${entry.fixed ? `
+        <div class="profit-box ${entry.fixed.profit < 0 ? 'negative' : ''}">
+          <div>
+            <div class="profit-pct">${entry.fixed.profitPct.toFixed(2)}% (${fmtInr(entry.fixed.profit,2)})</div>
+            <div class="profit-sub">buy ${fmtAdaptive(entry.fixed.buyQty)} ${entry.coin.toUpperCase()} @ ${fmtAdaptive(entry.fixed.buyPrice)} → sell @ ${fmtAdaptive(entry.fixed.sellPrice)}</div>
+          </div>
+          <div class="profit-sub">on ₹1,00,000</div>
+        </div>`
+      : `
+        <div class="profit-box ${(entry.roughPct ?? 0) < 0 ? 'negative' : ''}">
+          <div class="profit-pct">${entry.roughPct != null ? entry.roughPct.toFixed(2) + '%' : '—'}</div>
+          <div class="profit-sub">${entry.roughPct != null ? 'raw spread, fees not applied' : 'spread not computable this instant'}</div>
+        </div>`}
+      ${obEarly}`;
+    return;
+  }
+
+  const d = entry.walked;
+  const legs = entry.liveBooks && entry.liveBooks.legs;
+  let buy = entry.liveBooks && entry.liveBooks.buy;   // legacy shape (seed data / older backend)
+  let sell = entry.liveBooks && entry.liveBooks.sell;
+  let usingFallbackBooks = false;
+  if (!legs && (!buy || !sell)) {
+    const fb = fallbackBooksFromRows(entry);
+    if (fb) { buy = fb.buy; sell = fb.sell; usingFallbackBooks = true; }
+  }
+
+  const obLegend = `
+    <div class="ob-legend">
+      <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--ask-bg); border:1px solid #f4c2c2;"></span><span class="ob-bar-icon" style="background:var(--danger);"></span>Asks — % consumed by this trade</div>
+      <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--bid-bg); border:1px solid #b7e6da;"></span><span class="ob-bar-icon" style="background:var(--success);"></span>Bids — % consumed by this trade</div>
+    </div>`;
+
+  const obSection = legs ? `
+    ${obLegend}
+    <div class="ob-section-title">Order Book</div>
+    ${liveBookError ? `<div class="modal-note" style="color:var(--danger);">Last refresh failed (${liveBookError}) — showing the previous snapshot, retrying every 15s.</div>` : ''}
+    ${loopOrderBookTable(legs)}
+    <div class="note-box">Both sides of both books, 15 levels each. Bars mark the levels this trade consumes: ${cap(entry.buyExchange)}'s asks (buying) and ${cap(entry.sellExchange)}'s bids (selling).</div>`
+  : (buy && sell && liveFailStreak >= 2) ? `
+    ${obLegend}
+    <div class="ob-section-title">Order Book</div>
+    <div class="banner-error">Live order-book feed unreachable${liveBookError ? ` — reason: ${liveBookError}` : ''} — showing only the levels this trade touched meanwhile.</div>
+    ${dualOrderBookTable(buy, sell)}`
+  : (liveBookError && liveFailStreak >= 2
+      ? `${obLegend}<div class="ob-section-title">Order Book</div><div class="banner-error">Couldn't load the order book (${liveBookError}). Retrying automatically every 15s — or tap "refresh now" above.</div>`
+      : `${obLegend}<div class="ob-section-title">Order Book</div><div class="modal-note">Updating live order book depth…</div>`);
+
+  document.getElementById('modalBody').innerHTML = `
+    <details class="leg-detail" open>
+      <summary>
+        <div class="leg-summary-left">
+          <div class="leg-tag buy">Buy</div>
+          <div class="leg-amount">${fmtAdaptive(d.buyQty)} ${entry.coin.toUpperCase()}</div>
+          <div class="leg-sub">${fmtInr(d.buyPrice,0)}</div>
+        </div>
+        <div class="leg-summary-right">
+          <div class="ex-name">${cap(entry.buyExchange)}</div>
+          <div class="ex-market">${entry.buyMarket}</div>
+        </div>
+      </summary>
+      <div class="leg-detail-body">
+        <div class="leg-line"><span class="k">Buy price</span><span class="v">${fmtInr(d.buyPrice,4)}</span></div>
+        <div class="leg-line"><span class="k">Trading charges</span><span class="v">${fmtInr(d.tradingChargeBuy,4)}</span></div>
+        <div class="leg-line"><span class="k">Final buy price</span><span class="v">${fmtInr(d.finalBuy,4)}</span></div>
+      </div>
+    </details>
+
+    <details class="leg-detail" open>
+      <summary>
+        <div class="leg-summary-left">
+          <div class="leg-tag sell">Sell</div>
+          <div class="leg-amount">${fmtAdaptive(d.sellQty)} ${entry.coin.toUpperCase()}</div>
+          <div class="leg-sub">${fmtInr(d.finalSell,0)}</div>
+        </div>
+        <div class="leg-summary-right">
+          <div class="ex-name">${cap(entry.sellExchange)}</div>
+          <div class="ex-market">${entry.sellMarket}</div>
+        </div>
+      </summary>
+      <div class="leg-detail-body">
+        <div class="leg-line"><span class="k">Sell price</span><span class="v">${fmtInr(d.sellPrice,4)}</span></div>
+        <div class="leg-line"><span class="k">Crypto transfer charge</span><span class="v">${fmtInr(d.transferCharge,4)}</span></div>
+        <div class="leg-line"><span class="k">Network</span><span class="v">${entry.network}</span></div>
+        <div class="leg-line"><span class="k">Trading charges</span><span class="v">${fmtInr(d.tradingChargeSell,4)}</span></div>
+        <div class="leg-line"><span class="k">Final sell price</span><span class="v">${fmtInr(d.finalSell,4)}</span></div>
+      </div>
+    </details>
+
+    <details class="arb-detail" open>
+      <summary>
+        <div class="arb-box">
+          <div class="arb-pct">${d.profitPct.toFixed(2)}% (${fmtInr(d.profit,2)})</div>
+          <div class="arb-time">${entry.executionMin.toFixed(2)} mins <span class="arb-caret">▾</span></div>
+        </div>
+      </summary>
+      <div class="leg-detail-body">
+        <div class="leg-line"><span class="k">Transfer + confirmation time</span><span class="v">${entry.executionMin.toFixed(2)} mins</span></div>
+        <div class="leg-line"><span class="k">Network</span><span class="v">${entry.network}</span></div>
+        <div class="leg-line"><span class="k">Rate source</span><span class="v">${entry.rateSource}</span></div>
+      </div>
+    </details>
+
+    ${obSection}
+  `;
+}
+
+async function refreshDirectModalLive() {
+  if (!openCard || openCard.type !== 'direct') return;
+  renderDirectModal(directLiveEntry || findOpportunity(openCard)); // show what we have immediately
+  try {
+    const data = await fetchLiveCoin(openCard.coin);
+    const list = data.opportunities || [];
+    // Prefer the exact combo (exchange + market); then same buy exchange;
+    // then anything — never flash the sparse fallback over a technicality.
+    const match = list.find(o => o.buyExchange === openCard.buyExchange && o.buyMarket === openCard.buyMarket)
+      || list.find(o => o.buyExchange === openCard.buyExchange)
+      || list[0];
+    if (match) {
+      directLiveEntry = match; liveBookError = null; liveFailStreak = 0;
+      liveCache[`${openCard.coin}:${openCard.buyExchange}:${openCard.buyMarket}`] = match;
+    }
+    if (openCard) renderDirectModal(directLiveEntry || findOpportunity(openCard));
+  } catch (err) {
+    liveFailStreak++;
+    liveBookError = err.message;
+    // Keep showing the last good live books; only fall back to the sparse
+    // touched-levels view if we never got a live response at all.
+    if (openCard) renderDirectModal(directLiveEntry || findOpportunity(openCard));
+  }
+}
+
+// Fallback order book when the live per-coin endpoint isn't reachable:
+// rebuilt from the walked rows already in the list data. Only the levels
+// the trade actually touched are known (level index, price, qty consumed)
+// — not the full 20-level depth — so it's clearly labeled as such.
+function fallbackBooksFromRows(entry) {
+  const rows = entry.walked && entry.walked.rows;
+  if (!rows || !rows.length) return null;
+  const asks = {}, bids = {};
+  for (const r of rows) {
+    if (r.askLevel !== undefined) {
+      const p = r.priceAsk !== undefined ? r.priceAsk : r.price;
+      if (!asks[r.askLevel]) asks[r.askLevel] = { price: p, size: 0, consumedQty: 0, consumedPct: 100 };
+      asks[r.askLevel].size += r.qty; asks[r.askLevel].consumedQty += r.qty;
+    }
+    if (r.bidLevel !== undefined && r.priceBid !== undefined) {
+      if (!bids[r.bidLevel]) bids[r.bidLevel] = { price: r.priceBid, size: 0, consumedQty: 0, consumedPct: 100 };
+      bids[r.bidLevel].size += r.qty; bids[r.bidLevel].consumedQty += r.qty;
+    }
+  }
+  const toArr = m => Object.keys(m).sort((a,b)=>a-b).map(k => m[k]);
+  return {
+    buy:  { exchange: entry.buyExchange, market: entry.buyMarket, currency: 'INR', levels: toArr(asks) },
+    sell: { exchange: entry.sellExchange, market: entry.sellMarket, currency: 'INR', levels: toArr(bids) }
+  };
+}
+
+// KoinKnight-style multi-market order book for loops: one table, a column
+// pair (Size|Price) per leg, asks section on top aligned so every leg's
+// best ask sits adjacent to the yellow Spread row (shorter books pad at
+// the top), then per-leg Spread values (best ask - best bid — computable
+// now that the backend sends both sides), then bids best-first.
+function loopOrderBookTable(legs) {
+  // Cap at 13 levels a side — deeper reads poorly on screen (user call).
+  legs = legs.map(l => ({ ...l, asks: (l.asks || []).slice(0, 13), bids: (l.bids || []).slice(0, 13) }));
+  const maxAsks = Math.max(...legs.map(l => l.asks.length));
+  const maxBids = Math.max(...legs.map(l => l.bids.length));
+
+  let askRows = '';
+  for (let r = 0; r < maxAsks; r++) {
+    askRows += '<tr class="kk-ask-row">';
+    for (const leg of legs) {
+      // bottom row (r = maxAsks-1) shows each leg's BEST ask (index 0),
+      // rows above walk outward into worse prices; shallow legs pad at top
+      const idx = maxAsks - 1 - r;
+      askRows += idx < leg.asks.length ? kkObCellPair(leg.asks[idx], '--danger', leg.currency) : '<td></td><td></td>';
+    }
+    askRows += '</tr>';
+  }
+
+  let spreadRow = '<tr class="kk-spread-row">';
+  for (const leg of legs) {
+    const bestAsk = leg.asks[0], bestBid = leg.bids[0];
+    const spread = (bestAsk && bestBid) ? (bestAsk.price - bestBid.price) : null;
+    spreadRow += `<td class="kk-spread-label">Spread</td><td class="ob-price-cell">${spread !== null ? fmtAdaptive(spread) : '—'}</td>`;
+  }
+  spreadRow += '</tr>';
+
+  let bidRows = '';
+  for (let r = 0; r < maxBids; r++) {
+    bidRows += '<tr class="kk-bid-row">';
+    for (const leg of legs) {
+      bidRows += leg.bids[r] ? kkObCellPair(leg.bids[r], '--success', leg.currency) : '<td></td><td></td>';
+    }
+    bidRows += '</tr>';
+  }
+
+  const headGroups = legs.map(l => `<th colspan="2" class="ob-group">${cap(l.exchange)}<div class="ob-sub">${l.market}</div></th>`).join('');
+  const headCols = legs.map(() => '<th class="ob-size-cell">Size</th><th class="ob-price-cell">Price</th>').join('');
+
+  // The 1st/2nd Level Arb banner only makes sense for 4-leg loop books —
+  // on a 2-leg direct book it was a floating orphan header.
+  const levelBanner = legs.length >= 4
+    ? `<tr><th class="ob-group" colspan="${legs.length}">1st Level Arb</th><th class="ob-group" colspan="${legs.length}">2nd Level Arb</th></tr>`
+    : '';
+  return `
+    <div class="loop-scroll">
+    <table class="ob-table dual" style="min-width:${legs.length * 150}px;">
+      <thead>
+        ${levelBanner}
+        <tr>${headGroups}</tr>
+        <tr>${headCols}</tr>
+      </thead>
+      <tbody>${askRows}${spreadRow}${bidRows}</tbody>
+    </table>
+    </div>`;
+}
+
+// ================================================================
+// RENDER — LOOP modal
+// ================================================================
+function renderLoopModal() {
+  const entry = loopLiveEntry || findOpportunity(openCard);
+  if (!entry) {
+    document.getElementById('modalBody').innerHTML = loopLiveError
+      ? `<div class="banner-error">Couldn't load this loop (${loopLiveError}). Retrying every 15s.</div>`
+      : `<div class="modal-note">Loading…</div>`;
+    return;
+  }
+  const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
+  document.getElementById('modalTitle').textContent = `${c1} → ${c2} — Loop Arbitrage`;
+  document.getElementById('modalStatus').innerHTML = `refreshes every 15s while open · <a href="#" onclick="refreshLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
+
+  if (!withVolume || !entry.walked) {
+    const legsEarly = entry.liveBooks && entry.liveBooks.legs;
+    document.getElementById('modalBody').innerHTML = `
+      <div class="note-box">Volume is OFF — spread below is top-of-book only, no depth walked.</div>
+      <div class="profit-box ${entry.roughPct < 0 ? 'negative' : ''}">
+        <div class="profit-pct">${entry.roughPct.toFixed(2)}%</div>
+        <div class="profit-sub">raw two-leg spread, fees not applied</div>
+      </div>
+      ${legsEarly ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legsEarly)}` : '<div class="modal-note">Loading order book depth…</div>'}`;
+    return;
+  }
+
+  const l = entry.walked;
+  const touchedRows = (label, arr, unit) => ((arr && arr.length) ? arr.map(t =>
+    `<div class="leg-line"><span class="k">${label} — level ${t.level}</span><span class="v">${fmtCoin(t.qty,2)} ${unit} @ ${fmtNum(t.price,6)} (${t.pct.toFixed(1)}% of level)</span></div>`
+  ).join('') : `<div class="leg-line"><span class="k">—</span><span class="v">no levels touched</span></div>`);
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="summary-box">
+      <div class="title">Loop Arbitrage Summary</div>
+      <div class="summary-grid">
+        <div><div class="lab">Net Profit</div><div class="val" style="color:var(--success);">${fmtInr(l.profit,2)}</div></div>
+        <div><div class="lab">ROI</div><div class="val" style="color:var(--success);">${l.profitPct.toFixed(2)}%</div></div>
+        <div><div class="lab">Exec Time</div><div class="val">${entry.executionMin.toFixed(2)} min</div></div>
+      </div>
+    </div>
+
+    <details class="leg-detail" style="margin-top:12px;" open>
+      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 1 — sell ${c1} on Binance</div></div><div></div></summary>
+      <div class="leg-detail-body">${touchedRows(`Sell ${c1}`, l.sellTRBTouched, c1)}</div>
+    </details>
+    <details class="leg-detail" open>
+      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 2 — buy ${c2} on Binance</div></div><div></div></summary>
+      <div class="leg-detail-body">${touchedRows(`Buy ${c2}`, l.buyGALATouched, c2)}</div>
+    </details>
+    <details class="leg-detail" open>
+      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 3 — sell ${c2} on WazirX</div></div><div></div></summary>
+      <div class="leg-detail-body">${touchedRows(`Sell ${c2}`, l.sellGALATouched, c2)}</div>
+    </details>
+
+    <details class="leg-detail">
+      <summary><div class="leg-summary-left"><div class="leg-amount">Full fee breakdown</div></div><div></div></summary>
+      <div class="leg-detail-body">
+        <div class="leg-line"><span class="k">${c1} bought (WazirX)</span><span class="v">${fmtCoin(l.trbQty,2)} ${c1}</span></div>
+        <div class="leg-line"><span class="k">Final cost</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
+        <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">${c1} → USDT (Binance)</span><span class="v">${fmtNum(l.usdtFromTRB,3)} USDT</span></div>
+        <div class="leg-line"><span class="k">${c2} bought (Binance)</span><span class="v">${fmtCoin(l.galaQty,0)} ${c2}</span></div>
+        <div class="leg-line"><span class="k">${c2} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.galaTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">${c2} → INR (WazirX)</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
+        <div class="leg-line"><span class="k">Total transfer + confirm time</span><span class="v">${entry.executionMin.toFixed(2)} min</span></div>
+      </div>
+    </details>
+
+    ${entry.liveBooks && entry.liveBooks.legs
+      ? `<div class="ob-legend" style="margin-top:14px;">
+           <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--ask-bg); border:1px solid #f4c2c2;"></span><span class="ob-bar-icon" style="background:var(--danger);"></span>Asks — % consumed by this loop</div>
+           <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--bid-bg); border:1px solid #b7e6da;"></span><span class="ob-bar-icon" style="background:var(--success);"></span>Bids — % consumed by this loop</div>
+         </div>
+         <div class="ob-section-title">Order Book</div>
+         ${loopOrderBookTable(entry.liveBooks.legs)}`
+      : (loopLiveError
+          ? `<div class="banner-error">Order book depth unavailable (${loopLiveError}). If the backend hasn't been redeployed with the loop live endpoint yet, deploy the updated server.js and src/compute.js first — depth appears automatically once it's live.</div>`
+          : `<div class="modal-note">Loading order book depth…</div>`)}
+  `;
+}
+
+let loopLiveEntry = null;   // last successful response from the loop live endpoint
+let loopLiveError = null;
+
+async function fetchLoopLive(coin1, coin2) {
+  const res = await fetch(`${API_BASE}/api/opportunities/loop/${coin1}/${coin2}/live`);
+  if (!res.ok) {
+    let reason = `API returned ${res.status}`;
+    try { const body = await res.json(); if (body.error) reason = body.error; } catch (e) {}
+    throw new Error(reason);
+  }
+  return res.json();
+}
+
+async function refreshLoopModalLive() {
+  if (!openCard || openCard.type !== 'loop') return;
+  renderLoopModal(); // show what we have immediately
+  try {
+    const data = await fetchLoopLive(openCard.coin1, openCard.coin2);
+    loopLiveEntry = data.opportunity;
+    loopLiveError = null;
+    liveCache[`loop:${openCard.coin1}:${openCard.coin2}`] = data.opportunity;
+  } catch (err) {
+    loopLiveError = err.message;
+    loopLiveEntry = null;
+  }
+  if (openCard) renderLoopModal();
+}
+
+// ================================================================
+// ALERTS PAGE — list styled like KoinKnight's (name, tags, edit/delete),
+// create/edit form matching their Update Alert modal. Threshold inputs
+// deliberately have no min: negative values are valid (e.g. alert when a
+// spread recovers above -1%).
+// ================================================================
+let alertsList = [];
+let alertsError = null;
+let editingAlert = null; // null = creating
+let alertTypeFilter = 'arbitrage';
+let creatingKind = 'direct'; // which form variant the modal shows
+
+function toggleCreateMenu() {
+  document.getElementById('createAlertMenu').classList.toggle('hidden');
+}
+function createAlertOfKind(kind) {
+  document.getElementById('createAlertMenu').classList.add('hidden');
+  openAlertModal(null, kind);
+}
+document.addEventListener('click', e => {
+  const menu = document.getElementById('createAlertMenu');
+  if (menu && !menu.classList.contains('hidden') && !e.target.closest('.create-alert-wrap')) menu.classList.add('hidden');
+});
+
+async function loadAlerts() {
+  try {
+    const res = await fetch(`${API_BASE}/api/alerts`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    alertsList = await res.json();
+    alertsError = null;
+  } catch (err) {
+    alertsError = err.message;
+  }
+  if (currentPage === 'alerts') renderAlertsPage();
+}
+
+function alertTag(text, bg, fg) {
+  return `<span class="badge" style="background:${bg}; color:${fg};">${text}</span>`;
+}
+
+function renderAlertsPage() {
+  const el = document.getElementById('cardList');
+  if (alertTypeFilter !== 'arbitrage') {
+    el.innerHTML = `<div class="empty-state"><span class="emoji">🚧</span>${alertTypeFilter === 'price' ? 'Crypto Price' : 'Pump & Dump'} alerts aren't supported by the engine yet — Arbitrage alerts are live.</div>`;
+    return;
+  }
+  if (alertsError) {
+    el.innerHTML = `<div class="banner-error">Couldn't load alerts (${alertsError}). If the backend hasn't been redeployed with the updated alert routes yet, deploy server.js, src/db.js and src/alerts.js first.</div>`;
+    return;
+  }
+  if (!alertsList.length) {
+    el.innerHTML = `<div class="empty-state"><span class="emoji">🔔</span>No alerts yet. Create one and it will fire to Telegram once your bot is configured (until then, alerts still evaluate and log).</div>`;
+    return;
+  }
+  el.innerHTML = alertsList.map(a => `
+    <div class="card" style="padding:12px 14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <div style="font-weight:700; color:var(--accent); font-size:14px;">${a.name}${a.enabled === false ? ' <span style="color:var(--gray-500); font-weight:400; font-size:11px;">(disabled)</span>' : ''}</div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button onclick="openAlertModal(${a.id})" style="background:none; border:none; cursor:pointer; font-size:15px;">✏️</button>
+          <button onclick="deleteAlert(${a.id})" style="background:none; border:none; cursor:pointer; font-size:15px;">🗑️</button>
+        </div>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+        ${alertTag(a.frequency || 'recurring', '#ece5f9', '#5b3e96')}
+        ${alertTag(a.kind && a.kind !== 'any' ? a.kind : 'any type', a.kind === 'loop' ? '#dff3ef' : '#eef3d8', a.kind === 'loop' ? '#0d7a6a' : '#6b7a12')}
+        ${a.wallets && a.wallets !== 'any' ? alertTag(`wallets: ${a.wallets}`, '#e6f0f8', '#2176ae') : ''}
+        ${a.coin ? alertTag(a.coin.toUpperCase(), '#fdf2e3', '#b5750e') : ''}
+        ${a.threshold_pct != null ? alertTag(`≥ ${a.threshold_pct}%`, '#e6f6ec', '#21a05f') : ''}
+        ${a.threshold_inr != null ? alertTag(`≥ ₹${a.threshold_inr}`, '#e6f6ec', '#21a05f') : ''}
+      </div>
+    </div>`).join('');
+}
+
+function openAlertModal(id, presetKind) {
+  editingAlert = id ? alertsList.find(a => a.id === id) : null;
+  const a = editingAlert || {};
+  creatingKind = editingAlert ? (a.kind && a.kind !== 'any' ? a.kind : 'direct') : (presetKind || 'direct');
+  const exchanges = knownExchanges();
+  const exOpts = (sel) => exchanges.map(e => `<option value="${e}" ${sel===e?'selected':''}>${cap(e)}</option>`).join('');
+
+  // direction field varies by kind
+  let dirSection = '';
+  if (creatingKind === 'direct') {
+    const [curFrom, curTo] = (a.direction || '').includes('_to_') ? a.direction.split('_to_') : ['', ''];
+    dirSection = `
+      <div>
+        <label class="field-label">From exchange</label>
+        <select id="afFrom"><option value="">Any</option>${exOpts(curFrom)}</select>
+      </div>
+      <div>
+        <label class="field-label">To exchange</label>
+        <select id="afTo"><option value="">Any</option>${exOpts(curTo)}</select>
+      </div>`;
+  } else if (creatingKind === 'loop') {
+    const [curLoop, curVia] = (a.direction || '').includes('_via_') ? a.direction.split('_via_') : ['wazirx', 'binance'];
+    dirSection = `
+      <div>
+        <label class="field-label">Loop exchange</label>
+        <select id="afLoopEx">${exOpts(curLoop)}</select>
+      </div>
+      <div>
+        <label class="field-label">Via exchange</label>
+        <select id="afViaEx">${exOpts(curVia)}</select>
+      </div>`;
+  } else { // intra_loop
+    const curEx = (a.direction || '').startsWith('intra_') ? a.direction.slice(6) : 'wazirx';
+    dirSection = `
+      <div>
+        <label class="field-label">Exchange</label>
+        <select id="afIntraEx">${exOpts(curEx)}</select>
+      </div>
+      <div></div>`;
+  }
+
+  const isProfit = a.threshold_inr != null && a.threshold_pct == null;
+  const kindLabel = creatingKind === 'intra_loop' ? 'Intra Loop' : cap(creatingKind);
+  document.getElementById('modalTitle').textContent = (editingAlert ? 'Update alert' : 'Create alert') + ` — ${kindLabel}`;
+  document.getElementById('modalStatus').textContent = creatingKind === 'intra_loop'
+    ? 'Note: Intra Loop detection is not live on the engine yet — this alert will be saved but cannot fire until it is.'
+    : '';
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert-form">
+      <div class="af-grid">
+        <div>
+          <div class="af-label">Frequency</div>
+          <label class="af-radio"><input type="radio" name="afFreq" value="once" ${a.frequency==='once'?'checked':''}> Once</label>
+          <label class="af-radio"><input type="radio" name="afFreq" value="recurring" ${a.frequency!=='once'?'checked':''}> Recurring</label>
+        </div>
+        <div>
+          <div class="af-label">Trigger by</div>
+          <label class="af-radio"><input type="radio" name="afTrig" value="percentage" ${!isProfit?'checked':''}> Percentage</label>
+          <label class="af-radio"><input type="radio" name="afTrig" value="profit" ${isProfit?'checked':''}> Profit (₹)</label>
+        </div>
+        <div>
+          <div class="af-label">Wallets</div>
+          <label class="af-radio"><input type="radio" name="afWal" value="any" ${!a.wallets||a.wallets==='any'?'checked':''}> Any</label>
+          <label class="af-radio"><input type="radio" name="afWal" value="enabled" ${a.wallets==='enabled'?'checked':''}> Enabled</label>
+          <label class="af-radio"><input type="radio" name="afWal" value="disabled" ${a.wallets==='disabled'?'checked':''}> Disabled</label>
+        </div>
+        <div></div>
+      </div>
+      <label class="field-label">Alert name *</label>
+      <input type="text" id="afName" value="${a.name || ''}" placeholder="e.g. Bin to waz">
+      <div class="af-grid2">
+        ${dirSection}
+        <div>
+          <label class="field-label">Coin (blank = any)</label>
+          <input type="text" id="afCoin" value="${a.coin ? a.coin.toUpperCase() : ''}" placeholder="e.g. GALA">
+        </div>
+        <div>
+          <label class="field-label">Cooling period (minutes)</label>
+          <input type="number" id="afCooldown" value="${a.cooldown_min ?? 5}" min="1" step="1">
+        </div>
+        <div>
+          <label class="field-label">Threshold ≥ * <span style="font-weight:400; color:var(--gray-500);">(negatives allowed)</span></label>
+          <input type="number" id="afThreshold" value="${a.threshold_pct ?? a.threshold_inr ?? 0.7}" step="any">
+        </div>
+        <div></div>
+      </div>
+      ${editingAlert ? `<label class="af-radio" style="margin-top:12px; display:block;"><input type="checkbox" id="afEnabled" ${a.enabled !== false ? 'checked' : ''}> Enabled</label>` : ''}
+      <div class="drawer-actions">
+        <button class="btn-apply" onclick="saveAlert()">Save</button>
+        <button class="btn-reset" onclick="closeModal()">Cancel</button>
+      </div>
+      <div id="afError" style="color:var(--danger); font-size:12px; margin-top:8px;"></div>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.remove('hidden');
+}
+
+async function saveAlert() {
+  const name = document.getElementById('afName').value.trim();
+  if (!name) { document.getElementById('afError').textContent = 'Alert name is required.'; return; }
+  const trig = document.querySelector('input[name=afTrig]:checked').value;
+  const threshold = parseFloat(document.getElementById('afThreshold').value);
+  if (isNaN(threshold)) { document.getElementById('afError').textContent = 'Threshold must be a number (negative is fine).'; return; }
+  const enabledEl = document.getElementById('afEnabled');
+  const body = {
+    name,
+    type: 'arbitrage',
+    kind: creatingKind,
+    wallets: document.querySelector('input[name=afWal]:checked').value,
+    frequency: document.querySelector('input[name=afFreq]:checked').value,
+    direction: (() => {
+      if (creatingKind === 'direct') {
+        const from = document.getElementById('afFrom').value, to = document.getElementById('afTo').value;
+        return (from && to && from !== to) ? `${from}_to_${to}` : null;
+      }
+      if (creatingKind === 'loop') {
+        return `${document.getElementById('afLoopEx').value}_via_${document.getElementById('afViaEx').value}`;
+      }
+      return `intra_${document.getElementById('afIntraEx').value}`;
+    })(),
+    coin: document.getElementById('afCoin').value.trim().toLowerCase() || null,
+    cooldown_min: parseInt(document.getElementById('afCooldown').value) || 5,
+    threshold_pct: trig === 'percentage' ? threshold : null,
+    threshold_inr: trig === 'profit' ? threshold : null,
+    enabled: enabledEl ? enabledEl.checked : true
+  };
+  try {
+    const url = editingAlert ? `${API_BASE}/api/alerts/${editingAlert.id}` : `${API_BASE}/api/alerts`;
+    const res = await fetch(url, {
+      method: editingAlert ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    closeModal();
+    await loadAlerts();
+  } catch (err) {
+    document.getElementById('afError').textContent = `Couldn't save (${err.message}).`;
+  }
+}
+
+async function deleteAlert(id) {
+  const a = alertsList.find(x => x.id === id);
+  if (!confirm(`Delete alert "${a ? a.name : id}"? This can't be undone.`)) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/alerts/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    await loadAlerts();
+  } catch (err) {
+    setBanner(`Couldn't delete alert (${err.message}).`);
+  }
+}
+
+// ================================================================
+// ORDERBOOK PAGE — pick a coin, see its live books (both direct combos)
+// with the same KoinKnight asks/spread/bids layout, refreshed every 15s
+// while the page is open.
+// ================================================================
+let obSelections = [];      // [{exchange, coin}]
+let obBooks = {};           // key 'exchange:coin' -> book | {error}
+let orderbookTimer = null;
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'obCoinInput') addObSelection();
+});
+
+function addObSelection() {
+  const exchange = document.getElementById('obExchangeSelect').value;
+  const coin = document.getElementById('obCoinInput').value.trim().toLowerCase();
+  if (!coin) return;
+  if (obSelections.some(s => s.exchange === exchange && s.coin === coin)) return; // no dupes
+  obSelections.push({ exchange, coin });
+  renderToolbar();
+  renderOrderbookPage();
+  refreshOrderbook();
+}
+
+function removeObSelection(i) {
+  const s = obSelections.splice(i, 1)[0];
+  if (s) delete obBooks[`${s.exchange}:${s.coin}`];
+  renderToolbar();
+  renderOrderbookPage();
+}
+
+async function refreshOrderbook() {
+  if (currentPage !== 'orderbook' || !obSelections.length) return;
+  await Promise.all(obSelections.map(async s => {
+    const key = `${s.exchange}:${s.coin}`;
+    try {
+      const res = await fetch(`${API_BASE}/api/orderbook/${s.exchange}/${s.coin}`);
+      if (!res.ok) {
+        let reason = `API returned ${res.status}`;
+        try { const b = await res.json(); if (b.error) reason = b.error; } catch (e) {}
+        throw new Error(reason);
+      }
+      obBooks[key] = await res.json();
+    } catch (err) {
+      obBooks[key] = { error: err.message };
+    }
+  }));
+  if (currentPage === 'orderbook') renderOrderbookPage();
+}
+
+// Single-market two-sided table: asks (worst→best) on top, real spread row,
+// bids (best→worst) below — the per-market view from KoinKnight's
+// Orderbook page.
+function singleMarketBookTable(b) {
+  b = { ...b, asks: (b.asks || []).slice(0, 13), bids: (b.bids || []).slice(0, 13) };
+  const askRows = [...b.asks].reverse().map(l => `<tr class="kk-ask-row">${kkObCellPair(l, '--danger', b.currency)}</tr>`).join('');
+  const bidRows = b.bids.map(l => `<tr class="kk-bid-row">${kkObCellPair(l, '--success', b.currency)}</tr>`).join('');
+  const spread = (b.asks[0] && b.bids[0]) ? fmtAdaptive(b.asks[0].price - b.bids[0].price) : '—';
+  return `
+    <table class="ob-table">
+      <thead><tr><th>Size</th><th>Price (${b.currency})</th></tr></thead>
+      <tbody>
+        ${askRows}
+        <tr class="kk-spread-row"><td class="kk-spread-label">Spread</td><td>${spread}</td></tr>
+        ${bidRows}
+      </tbody>
+    </table>`;
+}
+
+function renderOrderbookPage() {
+  const el = document.getElementById('cardList');
+  if (!obSelections.length) {
+    el.innerHTML = `<div class="empty-state"><span class="emoji">📖</span>Pick an exchange, type a coin, and press Compare — each selection renders its live two-sided book below. Add several to compare side by side.</div>`;
+    return;
+  }
+  el.innerHTML = obSelections.map(s => {
+    const b = obBooks[`${s.exchange}:${s.coin}`];
+    let body;
+    if (!b) body = `<div class="modal-note">Loading…</div>`;
+    else if (b.error) body = `<div class="banner-error">${b.error}${b.error.includes('404') || b.error.includes('not tracked') ? '' : ' — if the backend hasn\'t been redeployed with the orderbook endpoint, deploy the updated server.js first.'}</div>`;
+    else body = `
+      ${b.fresh === false ? `<div class="banner-error">This feed looks stale — prices may be out of date.</div>` : ''}
+      ${singleMarketBookTable(b)}`;
+    return `
+      <div class="card" style="padding:14px;">
+        <div class="ob-section-title" style="margin-bottom:8px;">${cap(s.exchange)} — ${s.coin.toUpperCase()}${b && b.market ? ` <span style="font-weight:400; color:var(--gray-500);">(${b.market})</span>` : ''}</div>
+        ${body}
+      </div>`;
+  }).join('');
+}
+
+// ================================================================
+// MODAL open/close// ================================================================
+// MODAL open/close
+// ================================================================
+function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket) {
+  openCard = { type, coin, coin1, coin2, buyExchange, buyMarket: buyMarket || '' };
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  if (type === 'direct') {
+    directLiveEntry = liveCache[`${coin}:${buyExchange}:${buyMarket || ''}`] || null;
+    liveBookError = null; liveFailStreak = 0;
+    renderDirectModal(directLiveEntry || findOpportunity(openCard));
+    refreshDirectModalLive();
+    modalTimer = setInterval(refreshDirectModalLive, 15000);
+  } else {
+    loopLiveEntry = liveCache[`loop:${coin1}:${coin2}`] || null;
+    loopLiveError = null;
+    renderLoopModal();
+    refreshLoopModalLive();
+    modalTimer = setInterval(refreshLoopModalLive, 15000);
+  }
+}
+function closeModal() {
+  openCard = null;
+  loopLiveEntry = null; loopLiveError = null;
+  directLiveEntry = null; liveBookError = null;
+  document.getElementById('modalOverlay').classList.add('hidden');
+  if (modalTimer) { clearInterval(modalTimer); modalTimer = null; }
+}
+
+// ================================================================
+// TOP-LEVEL REFRESH / INTERACTION
+// ================================================================
+function setBanner(msg) {
+  document.getElementById('bannerSlot').innerHTML = msg ? `<div class="banner-error">${msg}</div>` : '';
+}
+
+async function fullRefresh() {
+  let ok = true, errMsg = null;
+  try {
+    const data = await fetchOpportunities();
+    allOpportunities = data.opportunities;
+    lastFetchTs = data.ts;
+    usingSeedData = false;
+  } catch (err) {
+    ok = false;
+    errMsg = err.message;
+  }
+  hasLoadedOnce = true;
+
+  setBanner(ok ? null : (usingSeedData
+    ? `Couldn't reach the scanner (${errMsg}). Showing a saved snapshot — prices and profits are NOT live.`
+    : `Couldn't reach the scanner (${errMsg}).${allOpportunities.length ? ' Showing the last data we have.' : ''}`));
+
+  // Keep the sidebar highlight and active page in sync so a manual refresh
+  // never bounces the user off Loop/Intra Loop back to Direct.
+  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+  const navEl = PAGES[currentPage] && document.getElementById(PAGES[currentPage].navId);
+  if (navEl) navEl.classList.add('active');
+  renderToolbar();
+  renderCards();
+  document.getElementById('lastRefreshed').innerHTML = lastFetchTs
+    ? `Last refreshed: <strong>${fmtTime(new Date(lastFetchTs))}</strong>` : 'Last refreshed: —';
+  countdown = 10;
+  if (openCard && openCard.type === 'loop') renderLoopModal();
+  // Render the open book from the last-good LIVE entry (which holds the full
+  // two-sided book), NOT the list entry — the list entry has no order book, so
+  // rendering it here made the open Track Live book collapse to the sparse
+  // "Connecting…" fallback every 10s and then repopulate (the "vanishing").
+  if (openCard && openCard.type === 'direct') renderDirectModal(directLiveEntry || findOpportunity(openCard));
+}
+
+function manualRefresh() {
+  const now = Date.now();
+  if (now - lastManualRefreshAt < 2000) return; // rate-limited to once per 2s
+  lastManualRefreshAt = now;
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  fullRefresh();
+  setTimeout(() => { btn.disabled = false; }, 2000);
+}
+
+document.getElementById('noteBox').innerHTML =
+  'Live from the Swenik backend — every number is walked against real order book depth, not estimated. Loop opportunities keep their own wallet-status badge per card (unlike KoinKnight, our Loop results can include wallet-blocked coins, so it\'s shown rather than hidden). Track Live (2s refresh) is Direct-only for now — Loop syncs with the 10s list refresh.';
+
+// Pull-to-refresh: on touch devices, dragging down >70px from the very top
+// of the page triggers the same refresh as the ↻ button (rate-limited the
+// same way).
+let ptrStartY = null;
+document.addEventListener('touchstart', e => {
+  ptrStartY = (window.scrollY === 0) ? e.touches[0].clientY : null;
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (ptrStartY === null) return;
+  if (e.touches[0].clientY - ptrStartY > 70) {
+    ptrStartY = null;
+    setBanner('↻ Refreshing…');
+    manualRefresh();
+    setTimeout(() => { if (document.getElementById('bannerSlot').textContent.includes('Refreshing')) setBanner(null); }, 1500);
+  }
+}, { passive: true });
+
+// PWA disabled: actively unregister any previously-installed service worker
+// and clear its caches. A stale SW was serving old cached builds on some
+// devices, so deploys appeared "not to land" (fixes present in the code but
+// not visible). This guarantees every visit loads the freshly deployed file.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+}
+if (window.caches && caches.keys) {
+  caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+}
+
+if (location.protocol === 'file:') {
+  setBanner('You are running this page from a local file (Downloads). Live refresh is less reliable here and errors like "feed unreachable" are often the file, not the scanner — judge everything on the deployed site instead.');
+}
+
+selectPage('direct');
+fullRefresh();
+setInterval(fullRefresh, 10000);
+setInterval(() => {
+  countdown = Math.max(0, countdown - 1);
+  document.getElementById('nextRefresh').textContent = `Next auto-refresh in ${countdown}s`;
+}, 1000);
+</script>
+</body>
+</html>
