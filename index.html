@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 38</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 39</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -2288,10 +2288,12 @@ function gMaps() {
     const coin = String(t.base_unit).toLowerCase(), quote = String(t.quote_unit).toLowerCase();
     if (!maps[quote]) continue;
     const ask = parseFloat(t.sell), bid = parseFloat(t.buy);
-    // Glitch guard: a crossed ticker (bid ≥ ask, i.e. negative spread) is a
-    // data error, not free money — routes built on it are fake arbitrage.
-    // Skip the whole market until Giottus reports a sane book again.
-    if (isFinite(ask) && ask > 0 && isFinite(bid) && bid > 0 && bid >= ask) { gBadMkts.push(sym.toLowerCase()); continue; }
+    // Glitch guard: a NEGATIVE spread (bid strictly above ask) is a data
+    // error, not free money — routes built on it are fake arbitrage. Zero
+    // spread (bid == ask, a briefly locked market) is legitimate and kept.
+    // No memory here: this re-evaluates from the live ticker every cycle,
+    // so a market returns automatically the moment its glitch clears.
+    if (isFinite(ask) && ask > 0 && isFinite(bid) && bid > 0 && bid > ask) { gBadMkts.push(sym.toLowerCase()); continue; }
     maps[quote].set(coin, { sym: sym.toLowerCase(), ask: isFinite(ask) && ask > 0 ? ask : null, bid: isFinite(bid) && bid > 0 ? bid : null });
   }
   const ui = maps.inr.get('usdt');
