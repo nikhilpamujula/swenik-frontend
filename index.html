@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 36</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 37</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -2278,15 +2278,20 @@ function gVerdict(legs, legsSpec, mins) {
   return { walk: 'none', forced: true };
 }
 
+let gBadMkts = []; // markets with a crossed/glitched ticker (bid ≥ ask) — untrustworthy, skipped
 function gMaps() {
   const maps = { inr: new Map(), usdt: new Map(), btc: new Map() };
-  gMkts = 0;
+  gMkts = 0; gBadMkts = [];
   for (const [sym, t] of Object.entries(gTicker || {})) {
     if (!t || !t.base_unit || !t.quote_unit) continue;
     gMkts++;
     const coin = String(t.base_unit).toLowerCase(), quote = String(t.quote_unit).toLowerCase();
     if (!maps[quote]) continue;
     const ask = parseFloat(t.sell), bid = parseFloat(t.buy);
+    // Glitch guard: a crossed ticker (bid ≥ ask, i.e. negative spread) is a
+    // data error, not free money — routes built on it are fake arbitrage.
+    // Skip the whole market until Giottus reports a sane book again.
+    if (isFinite(ask) && ask > 0 && isFinite(bid) && bid > 0 && bid >= ask) { gBadMkts.push(sym.toLowerCase()); continue; }
     maps[quote].set(coin, { sym: sym.toLowerCase(), ask: isFinite(ask) && ask > 0 ? ask : null, bid: isFinite(bid) && bid > 0 ? bid : null });
   }
   const ui = maps.inr.get('usdt');
@@ -2311,12 +2316,17 @@ function gScreen(maps) {
     if (bInr && bInr.ask && bInr.bid) {
       for (const { coin, ci, cb } of elig) {
         const C = coin.toUpperCase();
-        if (ci.ask && cb.bid) routes.push({ label: `INR → ${C} → ${BU} → INR`,
+        // Triangles get the same viability gate as cross halves: a coin whose
+        // books can't hold the exchange minimum (e.g. STO's empty INR bids)
+        // is excluded until a 5-min re-probe shows liquidity returned.
+        const okOut = gHalfViable({ ci, cb }, true), okRet = gHalfViable({ ci, cb }, false);
+        if ((ci.ask && cb.bid && !okOut) || (ci.bid && cb.ask && !okRet)) gExclHalves.push({ coin: C, side: 'triangle' });
+        if (okOut && ci.ask && cb.bid) routes.push({ label: `INR → ${C} → ${BU} → INR`,
           pct: (1 / (ci.ask * (1 + IF))) * (cb.bid * (1 - BF)) * (bInr.bid * (1 - IF)) * 100 - 100,
           legsSpec: [ { side:'buy', market: ci.sym, fee: IF, quote:'inr', label:`Buy ${C} · ${ci.sym}` },
                       { side:'sell', market: cb.sym, fee: BF, quote:bridge, label:`Sell ${C} · ${cb.sym}` },
                       { side:'sell', market: bInr.sym, fee: IF, quote:'inr', label:`Sell ${BU} · ${bInr.sym}` } ] });
-        if (ci.bid && cb.ask) routes.push({ label: `INR → ${BU} → ${C} → INR`,
+        if (okRet && ci.bid && cb.ask) routes.push({ label: `INR → ${BU} → ${C} → INR`,
           pct: (1 / (bInr.ask * (1 + IF))) * (1 / (cb.ask * (1 + BF))) * (ci.bid * (1 - IF)) * 100 - 100,
           legsSpec: [ { side:'buy', market: bInr.sym, fee: IF, quote:'inr', label:`Buy ${BU} · ${bInr.sym}` },
                       { side:'buy', market: cb.sym, fee: BF, quote:bridge, label:`Buy ${C} · ${cb.sym}` },
@@ -2607,12 +2617,15 @@ function renderGiottusPage() {
     <span style="font-size:12px; color:var(--gray-500);">Giottus is fairly priced this minute. This updates every 10s; dislocations appear during volatile stretches.</span></div>`;
 
   const exclNames = [...new Set(gExclHalves.map(x => x.coin))];
-  const exclNote = (gTab === 'cross' && exclNames.length)
+  const exclNote = exclNames.length
     ? ` · <span style="color:var(--danger); font-weight:700;">${exclNames.length} thin ${exclNames.length === 1 ? 'coin' : 'coins'} disqualified</span> (books can't hold the exchange minimum): ${exclNames.slice(0, 5).join(', ')}${exclNames.length > 5 ? '…' : ''} — re-probed every 5 min`
+    : '';
+  const glitchNote = gBadMkts.length
+    ? ` · <span style="color:var(--warning); font-weight:700;">${gBadMkts.length} glitched ${gBadMkts.length === 1 ? 'market' : 'markets'} ignored</span> (crossed bid ≥ ask — fake spread): ${gBadMkts.slice(0, 4).join(', ')}${gBadMkts.length > 4 ? '…' : ''}`
     : '';
   const status = `
     <div class="g-status">
-      ${checked} of ${aboveThr.length} candidates verified · ${dust.length} below min profit${dust.length ? ` (best ${gInrFmt(bestDust)})` : ''} · ${pending} queued (${G_PER_CYCLE}/cycle) · verdicts refresh every 5 min${exclNote}
+      ${checked} of ${aboveThr.length} candidates verified · ${dust.length} below min profit${dust.length ? ` (best ${gInrFmt(bestDust)})` : ''} · ${pending} queued (${G_PER_CYCLE}/cycle) · verdicts refresh every 5 min${exclNote}${glitchNote}
       <div class="g-progress"><div style="width:${prog}%"></div></div>
     </div>`;
 
