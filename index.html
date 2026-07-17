@@ -185,6 +185,15 @@
     padding: 8px 15px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
   }
 
+  /* ---------------- 1st / 2nd Level Arb (loop split) ---------------- */
+  .level-arb { display: flex; background: #fff; border-top: 1px solid var(--border); }
+  .level-arb .lvl { flex: 1; padding: 10px 14px; }
+  .level-arb .lvl:first-child { border-right: 1px solid var(--border); }
+  .level-arb .lvl-label { font-size: 12.5px; font-weight: 700; color: var(--gray-800, #222); }
+  .level-arb .lvl-val { font-size: 13px; font-weight: 600; margin-top: 2px; color: var(--gray-700, #555); }
+  .level-arb .lvl-val.neg { color: var(--danger, #c0392b); }
+  .level-arb .lvl-val.pos { color: var(--success, #0d7a6a); }
+
   /* ---------------- Empty / coming-soon states ---------------- */
   .empty-state {
     text-align: center; color: var(--gray-700); font-size: 12.5px; padding: 40px 16px;
@@ -1153,6 +1162,20 @@ function directCard(o) {
     </div>`;
 }
 
+// 1st / 2nd Level Arb — the loop split into its two coin-halves, so you can
+// see at a glance which leg to grab first. Shows % always, plus ₹ when a depth
+// walk exists (volume ON). Red when a half is negative, green when positive.
+function levelArbHtml(o) {
+  if (!o.levels) return '';
+  const cell = (label, lv) => {
+    if (!lv || !isFinite(lv.pct)) return `<div class="lvl"><div class="lvl-label">${label}</div><div class="lvl-val">—</div></div>`;
+    const inr = (lv.inr != null && isFinite(lv.inr)) ? ` (${fmtInr(lv.inr,3)})` : '';
+    return `<div class="lvl"><div class="lvl-label">${label}</div>`
+      + `<div class="lvl-val ${lv.pct < 0 ? 'neg' : 'pos'}">${lv.pct.toFixed(2)}%${inr}</div></div>`;
+  };
+  return `<div class="level-arb">${cell('1st Level Arb', o.levels.first)}${cell('2nd Level Arb', o.levels.second)}</div>`;
+}
+
 function loopCard(o) {
   const pct = pctOf(o);
   const c1 = o.coin1.toUpperCase(), c2 = o.coin2.toUpperCase();
@@ -1237,6 +1260,7 @@ function loopCard(o) {
         <div class="badge-row"><span class="badge badge-loop">Loop</span>${walletBadge(o)}</div>
       </div>
       ${rows}
+      ${levelArbHtml(o)}
     </div>`;
 }
 
