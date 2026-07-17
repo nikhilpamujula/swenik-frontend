@@ -1691,9 +1691,13 @@ function renderLoopModal() {
   ).join('') : `<div class="leg-line"><span class="k">—</span><span class="v">no levels touched</span></div>`);
 
   const u = entry.usdtInrUsed || {};
+  // Support both shapes: {rate,source} (build 45+) and a bare number (older).
+  const rateVal = x => (x && typeof x === 'object') ? x.rate : x;
+  const rateSrc = x => (x && typeof x === 'object' && x.source) ? x.source : null;
+  const srcTag = x => { const s = rateSrc(x); return s ? ` <span style="opacity:.7;">(${s === 'wazirx' ? 'WazirX book' : s})</span>` : ''; };
   const rateBits = [];
-  if (u.entry != null) rateBits.push(`buying ${c1} via WazirX ${c1}/USDT → USDT/INR <b>₹${fmtNum(u.entry, 2)}</b>`);
-  if (u.exit != null)  rateBits.push(`selling ${c2} via WazirX ${c2}/USDT → USDT/INR <b>₹${fmtNum(u.exit, 2)}</b>`);
+  if (u.entry != null) rateBits.push(`buying ${c1} via WazirX ${c1}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.entry), 2)}</b>${srcTag(u.entry)}`);
+  if (u.exit != null)  rateBits.push(`selling ${c2} via WazirX ${c2}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.exit), 2)}</b>${srcTag(u.exit)}`);
   const usdtRateNote = rateBits.length
     ? `<div style="margin-top:10px; padding:9px 12px; background:#eef6ff; border:1px solid #cfe3f7; border-radius:8px; font-size:12.5px; color:#345;">
          <b>WazirX USDT/INR used:</b> ${rateBits.join(' &nbsp;·&nbsp; ')}
