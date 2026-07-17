@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 35</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 36</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -2297,6 +2297,7 @@ function gMaps() {
 function gScreen(maps) {
   const IF = gSettings.feeInr / 100, BF = gSettings.feeUsdt / 100;
   const routes = [];
+  gExclHalves = [];
   for (const bridge of ['usdt', 'btc']) {
     const bmap = maps[bridge], bInr = maps.inr.get(bridge);
     if (!bmap || !bmap.size) continue;
@@ -2336,15 +2337,29 @@ function gScreen(maps) {
     }
     outs.sort((a, b) => b.rate - a.rate);
     rets.sort((a, b) => b.rate - a.rate);
+    // Take the top-K VIABLE halves per side: walk the ranking and skip any
+    // half whose cached books can't hold the exchange minimums (recording it
+    // for display) — so a great-rate/empty-book half like STO stops
+    // monopolising every pairing and the next real half takes its slot.
+    const K = Math.max(2, Math.min(40, Math.round(gSettings.topK) || 15));
+    const takeViable = (list, isOut) => {
+      const kept = [];
+      for (const h of list) {
+        if (kept.length >= K) break;
+        if (gHalfViable(h, isOut)) kept.push(h);
+        else gExclHalves.push({ coin: h.coin.toUpperCase(), side: (isOut ? 'out via ' : 'return via ') + BU });
+      }
+      return kept;
+    };
+    const outsV = takeViable(outs, true), retsV = takeViable(rets, false);
     // Triangle-equivalent numbers for the derivation display: what each half
     // would earn AS its own triangle (paying the usdtinr toll), and how much
     // of that toll clubbing the two halves recovers.
     const sBid = (bInr && bInr.bid) ? bInr.bid * (1 - IF) : null;              // sell USDT → INR (out-triangle's last leg)
     const bBuy = (bInr && bInr.ask) ? 1 / (bInr.ask * (1 + IF)) : null;        // INR → buy USDT (return-triangle's first leg)
     const spreadPct = (sBid && bBuy) ? (1 / (sBid * bBuy) - 1) * 100 : null;   // usdtinr toll recovered by clubbing
-    const K = Math.max(2, Math.min(40, Math.round(gSettings.topK) || 15));
-    for (const A of outs.slice(0, K)) {
-      for (const B of rets.slice(0, K)) {
+    for (const A of outsV) {
+      for (const B of retsV) {
         if (A.coin === B.coin) continue;
         const pct = A.rate * B.rate * 100 - 100;
         const CA = A.coin.toUpperCase(), CB = B.coin.toUpperCase();
@@ -2360,6 +2375,29 @@ function gScreen(maps) {
   }
   routes.sort((a, b) => b.pct - a.pct);
   return routes;
+}
+
+// ---- half viability: learn from cached depth ----
+// A half whose books can't even hold the exchange minimum order (e.g. STO's
+// entire INR bid side being ~₹65 against a ₹1,000 minimum) is DISQUALIFIED
+// from the top-K ranking, so it stops monopolising every cross pairing and
+// the next viable half rotates in. Only books fresher than the TTL can
+// disqualify — after that the half re-enters for one re-probe (self-healing
+// if liquidity comes back).
+let gExclHalves = [];
+const gBookVal = lv => lv.reduce((s, l) => s + l.p * l.q, 0);
+function gHalfViable(h, isOut) {
+  const now = Date.now();
+  const dInr = gDepth[h.ci.sym], dBr = gDepth[h.cb.sym];
+  if (dInr && (now - dInr.ts) < G_TTL) {
+    const cap = gBookVal(gLv(isOut ? dInr.asks : dInr.bids)); // INR-market side this half trades
+    if (cap < gSettings.minInr) return false;
+  }
+  if (dBr && (now - dBr.ts) < G_TTL) {
+    const cap = gBookVal(gLv(isOut ? dBr.bids : dBr.asks));   // bridge-market side (in bridge units)
+    if (cap < gSettings.minUsdt) return false;
+  }
+  return true;
 }
 
 function gCounts() {
@@ -2568,9 +2606,13 @@ function renderGiottusPage() {
     <div class="empty-state"><span class="emoji">🔬</span>No route clears ${gInrFmt(minP)} at real depth right now${pending ? ' — still checking the queue below' : ''}.<br>
     <span style="font-size:12px; color:var(--gray-500);">Giottus is fairly priced this minute. This updates every 10s; dislocations appear during volatile stretches.</span></div>`;
 
+  const exclNames = [...new Set(gExclHalves.map(x => x.coin))];
+  const exclNote = (gTab === 'cross' && exclNames.length)
+    ? ` · <span style="color:var(--danger); font-weight:700;">${exclNames.length} thin ${exclNames.length === 1 ? 'coin' : 'coins'} disqualified</span> (books can't hold the exchange minimum): ${exclNames.slice(0, 5).join(', ')}${exclNames.length > 5 ? '…' : ''} — re-probed every 5 min`
+    : '';
   const status = `
     <div class="g-status">
-      ${checked} of ${aboveThr.length} candidates verified · ${dust.length} below min profit${dust.length ? ` (best ${gInrFmt(bestDust)})` : ''} · ${pending} queued (${G_PER_CYCLE}/cycle) · verdicts refresh every 5 min
+      ${checked} of ${aboveThr.length} candidates verified · ${dust.length} below min profit${dust.length ? ` (best ${gInrFmt(bestDust)})` : ''} · ${pending} queued (${G_PER_CYCLE}/cycle) · verdicts refresh every 5 min${exclNote}
       <div class="g-progress"><div style="width:${prog}%"></div></div>
     </div>`;
 
