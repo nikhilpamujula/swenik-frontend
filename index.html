@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 37</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 38</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -2319,7 +2319,7 @@ function gScreen(maps) {
         // Triangles get the same viability gate as cross halves: a coin whose
         // books can't hold the exchange minimum (e.g. STO's empty INR bids)
         // is excluded until a 5-min re-probe shows liquidity returned.
-        const okOut = gHalfViable({ ci, cb }, true), okRet = gHalfViable({ ci, cb }, false);
+        const okOut = gHalfViable({ coin, ci, cb }, true, bridge), okRet = gHalfViable({ coin, ci, cb }, false, bridge);
         if ((ci.ask && cb.bid && !okOut) || (ci.bid && cb.ask && !okRet)) gExclHalves.push({ coin: C, side: 'triangle' });
         if (okOut && ci.ask && cb.bid) routes.push({ label: `INR → ${C} → ${BU} → INR`,
           pct: (1 / (ci.ask * (1 + IF))) * (cb.bid * (1 - BF)) * (bInr.bid * (1 - IF)) * 100 - 100,
@@ -2356,7 +2356,7 @@ function gScreen(maps) {
       const kept = [];
       for (const h of list) {
         if (kept.length >= K) break;
-        if (gHalfViable(h, isOut)) kept.push(h);
+        if (gHalfViable(h, isOut, bridge)) kept.push(h);
         else gExclHalves.push({ coin: h.coin.toUpperCase(), side: (isOut ? 'out via ' : 'return via ') + BU });
       }
       return kept;
@@ -2396,18 +2396,24 @@ function gScreen(maps) {
 // if liquidity comes back).
 let gExclHalves = [];
 const gBookVal = lv => lv.reduce((s, l) => s + l.p * l.q, 0);
-function gHalfViable(h, isOut) {
+// Persistent blacklist: once a half is PROVEN too thin, it stays excluded even
+// after its cached books expire — no more "popping back up every 5 minutes as
+// checking depth…". Its markets are silently re-probed in the background each
+// cycle, and only fresh books proving real liquidity delete the entry.
+const gBadHalves = new Map(); // key `${bridge}:${coin}:${out|ret}` -> { ts, mkts }
+function gHalfViable(h, isOut, bridge) {
+  const key = `${bridge}:${h.coin}:${isOut ? 'out' : 'ret'}`;
   const now = Date.now();
   const dInr = gDepth[h.ci.sym], dBr = gDepth[h.cb.sym];
-  if (dInr && (now - dInr.ts) < G_TTL) {
-    const cap = gBookVal(gLv(isOut ? dInr.asks : dInr.bids)); // INR-market side this half trades
-    if (cap < gSettings.minInr) return false;
-  }
-  if (dBr && (now - dBr.ts) < G_TTL) {
-    const cap = gBookVal(gLv(isOut ? dBr.bids : dBr.asks));   // bridge-market side (in bridge units)
-    if (cap < gSettings.minUsdt) return false;
-  }
-  return true;
+  const freshInr = dInr && (now - dInr.ts) < G_TTL;
+  const freshBr = dBr && (now - dBr.ts) < G_TTL;
+  let bad = false;
+  if (freshInr && gBookVal(gLv(isOut ? dInr.asks : dInr.bids)) < gSettings.minInr) bad = true;   // INR-market side
+  if (!bad && freshBr && gBookVal(gLv(isOut ? dBr.bids : dBr.asks)) < gSettings.minUsdt) bad = true; // bridge side
+  if (bad) { gBadHalves.set(key, { ts: now, mkts: [h.ci.sym, h.cb.sym] }); return false; }
+  if (freshInr && freshBr) { gBadHalves.delete(key); return true; } // fully re-verified good
+  if (gBadHalves.has(key)) return false; // proven bad before; books stale — stay out, re-probe runs in background
+  return true; // genuinely unknown — innocent until probed
 }
 
 function gCounts() {
@@ -2479,11 +2485,23 @@ async function gRefresh() {
       if (toCheck.length >= G_PER_CYCLE) break;
     }
     gCalls = 0;
-    if (Date.now() >= gBackoffUntil && toCheck.length) {
+    // Background re-probe: blacklisted halves whose books have gone stale get
+    // their markets silently re-fetched (max 4 halves/cycle) so they can
+    // re-qualify without ever flashing back into the visible lists.
+    const reprobe = new Set();
+    let reprobes = 0;
+    for (const [, info] of gBadHalves) {
+      if (reprobes >= 4) break;
+      if (info.mkts.some(m => { const d = gDepth[m]; return !d || (Date.now() - d.ts) >= G_TTL; })) {
+        info.mkts.forEach(m => reprobe.add(m));
+        reprobes++;
+      }
+    }
+    if (Date.now() >= gBackoffUntil && (toCheck.length || reprobe.size)) {
       const btc = maps.usdt.get('btc');
       const btcPx = btc && (btc.bid || btc.ask);
       const mins = { inr: gSettings.minInr, usdt: gSettings.minUsdt, btc: btcPx ? gSettings.minUsdt / btcPx : 0 };
-      const need = new Set();
+      const need = new Set(reprobe);
       for (const c of toCheck) for (const L of c.legsSpec) need.add(L.market);
       for (const m of need) {
         if (Date.now() < gBackoffUntil) break;
