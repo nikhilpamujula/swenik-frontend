@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 41</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 42</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -1015,7 +1015,8 @@ function filteredOpportunities() {
     list = showDisabledWallets ? list.filter(o => o.walletEnabled === false)
                                : list.filter(o => o.walletEnabled !== false);
     // Volume ON = only valid (non-negative) loops; Volume OFF shows negatives too.
-    if (withVolume) list = list.filter(o => pctOf(o) >= 0);
+    // Loops under ₹100 walked profit are noise — hidden on the page (and in alerts).
+    if (withVolume) list = list.filter(o => pctOf(o) >= 0 && (!o.walked || o.walked.profit >= 100));
     return list.sort((a,b) => pctOf(b) - pctOf(a)); // fixed best-first order, no sort control on this page
   }
   const direct = allOpportunities.filter(o => o.type === 'direct' && matchesCoinFilter(o) && matchesBuyExchange(o));
@@ -1287,6 +1288,8 @@ function renderCards() {
     }
     if (f.exchange) list = list.filter(o => (o.exchange || 'wazirx') === f.exchange);
     if (f.coin) list = list.filter(o => o.coin.includes(f.coin));
+    // Intra-loops under ₹100 walked profit are noise — hidden on the page (and in alerts).
+    list = list.filter(o => !o.walked || o.walked.profit >= 100);
     list = sortList(list);
     if (!list.length) {
       list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No intra-loop opportunities match the current filters.</div>`;
@@ -1773,7 +1776,11 @@ function renderIntraLoopModal() {
   document.getElementById('modalBody').innerHTML = `
     <div class="note-box">Same-exchange WazirX triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
     ${pathHtml}
-    ${legs ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legs)}` : '<div class="modal-note">Loading order book depth…</div>'}
+    ${legs ? `<div class="ob-legend" style="margin-top:14px;">
+         <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--ask-bg); border:1px solid #f4c2c2;"></span><span class="ob-bar-icon" style="background:var(--danger);"></span>Asks — % consumed by this loop</div>
+         <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--bid-bg); border:1px solid #b7e6da;"></span><span class="ob-bar-icon" style="background:var(--success);"></span>Bids — % consumed by this loop</div>
+       </div>
+       <div class="ob-section-title">Order Book</div>${loopOrderBookTable(legs)}` : '<div class="modal-note">Loading order book depth…</div>'}
   `;
 }
 
