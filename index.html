@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 39</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 41</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -394,6 +394,7 @@
     <div class="sidebar-group-label" style="padding-top:14px;">Tools</div>
     <div class="sidebar-item" id="nav-orderbook" onclick="selectPage('orderbook')">Orderbook</div>
     <div class="sidebar-item" id="nav-alerts" onclick="selectPage('alerts')">Alerts</div>
+    <div class="sidebar-item" id="nav-notifications" onclick="selectPage('notifications')">Notifications</div>
   </div>
 
   <div class="main-area">
@@ -457,7 +458,8 @@ const PAGES = {
   intraloop: { label: 'Intra Loop', navId: 'nav-intraloop' },
   giottus:   { label: 'Giottus',    navId: 'nav-giottus' },
   orderbook: { label: 'Orderbook',  navId: 'nav-orderbook' },
-  alerts:    { label: 'Alerts',     navId: 'nav-alerts' }
+  alerts:    { label: 'Alerts',     navId: 'nav-alerts' },
+  notifications: { label: 'Notifications', navId: 'nav-notifications' }
 };
 
 // Exchange list is derived from live data (plus the two known defaults), so
@@ -643,6 +645,56 @@ function selectPage(page) {
   } else if (gTimer) {
     clearInterval(gTimer); gTimer = null;
   }
+  if (page === 'notifications') {
+    if (!notifTimer) notifTimer = setInterval(loadNotifications, 60000);
+    loadNotifications();
+  } else if (notifTimer) {
+    clearInterval(notifTimer); notifTimer = null;
+  }
+}
+
+// ================================================================
+// NOTIFICATIONS page — last 48h of fired alerts (from alert_history)
+// ================================================================
+let notifTimer = null, notifRows = null, notifError = null;
+async function loadNotifications() {
+  try {
+    const res = await fetch(`${API_BASE}/api/alerts/history`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    notifRows = await res.json();
+    notifError = null;
+  } catch (err) { notifError = err.message; }
+  if (currentPage === 'notifications') renderNotificationsPage();
+}
+function timeAgo(ts) {
+  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
+  if (s < 90) return `${Math.round(s)}s ago`;
+  if (s < 5400) return `${Math.round(s / 60)}m ago`;
+  return `${(s / 3600).toFixed(1)}h ago`;
+}
+function renderNotificationsPage() {
+  const el = document.getElementById('cardList');
+  if (notifError) { el.innerHTML = `<div class="banner-error">Couldn't load notifications (${notifError}). If the backend hasn't been redeployed with the 48h history route yet, deploy server.js first.</div>`; return; }
+  if (!notifRows) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading notifications…</div>`; return; }
+  if (!notifRows.length) { el.innerHTML = `<div class="empty-state"><span class="emoji">📭</span>No alerts fired in the last 48 hours.</div>`; return; }
+  el.innerHTML = notifRows.map(r => {
+    const d = (typeof r.detail === 'string' ? (() => { try { return JSON.parse(r.detail); } catch (e) { return {}; } })() : r.detail) || {};
+    const src = d.source === 'giottus' ? 'Giottus' : 'Scanner';
+    const body = d.message
+      ? `<div style="white-space:pre-line; font-size:12.5px; line-height:1.55; margin-top:8px;">${d.message}</div>`
+      : `<div style="font-size:12.5px; margin-top:8px;">Profit ${r.profit_inr != null ? '₹' + Math.round(r.profit_inr).toLocaleString('en-IN') : ''} (${r.profit_pct != null ? Number(r.profit_pct).toFixed(2) + '%' : '—'})</div>`;
+    return `
+    <div class="card" style="padding:12px 14px;">
+      <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center;">
+        <div style="font-weight:800; color:var(--accent);">${r.alert_name || 'Alert #' + r.alert_id}</div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="badge" style="background:${src === 'Giottus' ? '#e6f6ec' : '#e6f0f8'}; color:${src === 'Giottus' ? '#21a05f' : '#2176ae'};">${src}</span>
+          <span style="font-size:11px; color:var(--gray-500);">${timeAgo(r.triggered_at)}</span>
+        </div>
+      </div>
+      ${body}
+    </div>`;
+  }).join('');
 }
 
 // ================================================================
@@ -697,6 +749,11 @@ function volumeToggleHtml() {
 function renderToolbar() {
   const el = document.getElementById('toolbar');
 
+  if (currentPage === 'notifications') {
+    el.innerHTML = `<span class="g-status" style="margin:0;">Every fired alert from the last 48 hours — auto-cleans after that. Refreshes every 60s while open.</span>`;
+    return;
+  }
+
   if (currentPage === 'giottus') {
     const c = gCounts();
     el.innerHTML = `
@@ -724,6 +781,7 @@ function renderToolbar() {
           <div class="cam-item" onclick="createAlertOfKind('direct')">Direct</div>
           <div class="cam-item" onclick="createAlertOfKind('loop')">Loop</div>
           <div class="cam-item" onclick="createAlertOfKind('intra_loop')">Intra Loop</div>
+          <div class="cam-item" onclick="createAlertOfKind('giottus')">Giottus</div>
           <div class="cam-item cam-disabled">Crypto Price (soon)</div>
           <div class="cam-item cam-disabled">Pump &amp; Dump (soon)</div>
         </div>
@@ -1218,6 +1276,7 @@ function renderCards() {
   if (currentPage === 'alerts') { renderAlertsPage(); return; }
   if (currentPage === 'orderbook') { renderOrderbookPage(); return; }
   if (currentPage === 'giottus') { renderGiottusPage(); return; }
+  if (currentPage === 'notifications') { renderNotificationsPage(); return; }
 
   if (currentPage === 'intraloop') {
     const f = pageFilters.intraloop;
@@ -1798,9 +1857,17 @@ function renderAlertsPage() {
       </div>
       <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
         ${alertTag(a.frequency || 'recurring', '#ece5f9', '#5b3e96')}
-        ${alertTag(a.kind && a.kind !== 'any' ? a.kind : 'any type', a.kind === 'loop' ? '#dff3ef' : '#eef3d8', a.kind === 'loop' ? '#0d7a6a' : '#6b7a12')}
+        ${alertTag(a.kind && a.kind !== 'any' ? a.kind : 'any type',
+          a.kind === 'giottus' ? '#e6f6ec' : a.kind === 'loop' ? '#dff3ef' : '#eef3d8',
+          a.kind === 'giottus' ? '#21a05f' : a.kind === 'loop' ? '#0d7a6a' : '#6b7a12')}
+        ${a.kind === 'giottus' && a.config ? alertTag(`${a.config.routeKind || 'any'} routes`, '#e6f0f8', '#2176ae')
+          + alertTag(`stable ${a.config.persistChecks || 2}✓`, '#fdf2e3', '#b5750e')
+          + alertTag(`≤ ${a.config.maxPerHour || 6}/hr`, '#f2e8fb', '#6b3fa0') : ''}
         ${a.wallets && a.wallets !== 'any' ? alertTag(`wallets: ${a.wallets}`, '#e6f0f8', '#2176ae') : ''}
-        ${a.coin ? alertTag(a.coin.toUpperCase(), '#fdf2e3', '#b5750e') : ''}
+        ${a.config && a.config.volumeMode === 'off' ? alertTag('vol OFF (₹1L)', '#fdf2e3', '#b5750e') : ''}
+        ${a.config && a.config.market && a.config.market !== 'any' ? alertTag(`${a.config.market.toUpperCase()} pairs`, '#e0edf9', '#2b6ea3') : ''}
+        ${(Array.isArray(a.config && a.config.coins) && a.config.coins.length ? a.config.coins : (a.coin ? [a.coin] : [])).map(c => alertTag(c.toUpperCase(), '#fdf2e3', '#b5750e')).join('')}
+        ${Array.isArray(a.config && a.config.excludeCoins) ? a.config.excludeCoins.map(c => alertTag('✕ ' + c.toUpperCase(), '#fdecea', '#a33')).join('') : ''}
         ${a.threshold_pct != null ? alertTag(`≥ ${a.threshold_pct}%`, '#e6f6ec', '#21a05f') : ''}
         ${a.threshold_inr != null ? alertTag(`≥ ₹${a.threshold_inr}`, '#e6f6ec', '#21a05f') : ''}
       </div>
@@ -1811,6 +1878,74 @@ function openAlertModal(id, presetKind) {
   editingAlert = id ? alertsList.find(a => a.id === id) : null;
   const a = editingAlert || {};
   creatingKind = editingAlert ? (a.kind && a.kind !== 'any' ? a.kind : 'direct') : (presetKind || 'direct');
+
+  // ---- Giottus alerts: their own form, built around noise control ----
+  if (creatingKind === 'giottus') {
+    const cfg = a.config || {};
+    document.getElementById('modalTitle').textContent = (editingAlert ? 'Update alert' : 'Create alert') + ' — Giottus';
+    document.getElementById('modalStatus').textContent =
+      'Fires from the server 24/7 (no page needed). Every trigger is depth-walked, fee-inclusive, and sized to exchange minimums — never a raw ticker spread.';
+    document.getElementById('modalBody').innerHTML = `
+      <div class="alert-form">
+        <label class="field-label">Alert name *</label>
+        <input type="text" id="gafName" value="${a.name || ''}" placeholder="e.g. Giottus ₹200+">
+        <div class="af-grid" style="margin-top:12px;">
+          <div>
+            <div class="af-label">Route type</div>
+            <label class="af-radio"><input type="radio" name="gafKind" value="any" ${!cfg.routeKind || cfg.routeKind === 'any' ? 'checked' : ''}> Any</label>
+            <label class="af-radio"><input type="radio" name="gafKind" value="intra" ${cfg.routeKind === 'intra' ? 'checked' : ''}> Intra Loop</label>
+            <label class="af-radio"><input type="radio" name="gafKind" value="cross" ${cfg.routeKind === 'cross' ? 'checked' : ''}> Cross-Pair</label>
+          </div>
+          <div>
+            <div class="af-label">Frequency</div>
+            <label class="af-radio"><input type="radio" name="gafFreq" value="recurring" ${a.frequency !== 'once' ? 'checked' : ''}> Recurring</label>
+            <label class="af-radio"><input type="radio" name="gafFreq" value="once" ${a.frequency === 'once' ? 'checked' : ''}> Once</label>
+          </div>
+        </div>
+        <div class="af-grid2">
+          <div>
+            <label class="field-label">Min profit ₹ *</label>
+            <input type="number" id="gafMinProfit" value="${a.threshold_inr ?? 100}" step="10">
+          </div>
+          <div>
+            <label class="field-label">Min net % (blank = ignore)</label>
+            <input type="number" id="gafMinPct" value="${a.threshold_pct ?? ''}" step="0.1" placeholder="e.g. 1.5">
+          </div>
+          <div>
+            <label class="field-label">Must stay tradeable for (checks)</label>
+            <input type="number" id="gafPersist" value="${cfg.persistChecks ?? 2}" min="1" step="1">
+          </div>
+          <div>
+            <label class="field-label">Cooling period (minutes)</label>
+            <input type="number" id="gafCooldown" value="${a.cooldown_min ?? 30}" min="1" step="1">
+          </div>
+          <div>
+            <label class="field-label">Max alerts per hour</label>
+            <input type="number" id="gafMaxHour" value="${cfg.maxPerHour ?? 6}" min="1" step="1">
+          </div>
+          <div>
+            <label class="field-label">Coins (comma = multi, blank = any)</label>
+            <input type="text" id="gafCoins" value="${(Array.isArray(cfg.coins) && cfg.coins.length ? cfg.coins : (a.coin ? [a.coin] : [])).map(c => c.toUpperCase()).join(', ')}" placeholder="e.g. BONK, ETH">
+          </div>
+          <div>
+            <label class="field-label">Exclude coins (comma = multi)</label>
+            <input type="text" id="gafExclude" value="${(Array.isArray(cfg.excludeCoins) ? cfg.excludeCoins : []).map(c => c.toUpperCase()).join(', ')}" placeholder="e.g. STO">
+          </div>
+        </div>
+        <div class="note" style="font-size:11.5px; color:var(--gray-500); margin-top:8px; line-height:1.5;">
+          "Checks" are ~15s apart — 2 checks means the route must hold for ~30s before firing, which filters one-tick blips and feed glitches.
+        </div>
+        ${editingAlert ? `<label class="af-radio" style="margin-top:12px; display:block;"><input type="checkbox" id="gafEnabled" ${a.enabled !== false ? 'checked' : ''}> Enabled</label>` : ''}
+        <div class="drawer-actions">
+          <button class="btn-apply" onclick="saveGiottusAlert()">Save</button>
+          <button class="btn-reset" onclick="closeModal()">Cancel</button>
+        </div>
+        <div id="gafError" style="color:var(--danger); font-size:12px; margin-top:8px;"></div>
+      </div>`;
+    document.getElementById('modalOverlay').classList.remove('hidden');
+    return;
+  }
+
   const exchanges = knownExchanges();
   const exOpts = (sel) => exchanges.map(e => `<option value="${e}" ${sel===e?'selected':''}>${cap(e)}</option>`).join('');
 
@@ -1851,9 +1986,8 @@ function openAlertModal(id, presetKind) {
   const isProfit = a.threshold_inr != null && a.threshold_pct == null;
   const kindLabel = creatingKind === 'intra_loop' ? 'Intra Loop' : cap(creatingKind);
   document.getElementById('modalTitle').textContent = (editingAlert ? 'Update alert' : 'Create alert') + ` — ${kindLabel}`;
-  document.getElementById('modalStatus').textContent = creatingKind === 'intra_loop'
-    ? 'Note: Intra Loop detection is not live on the engine yet — this alert will be saved but cannot fire until it is.'
-    : '';
+  document.getElementById('modalStatus').textContent = '';
+  const cfg = a.config || {};
   document.getElementById('modalBody').innerHTML = `
     <div class="alert-form">
       <div class="af-grid">
@@ -1873,15 +2007,31 @@ function openAlertModal(id, presetKind) {
           <label class="af-radio"><input type="radio" name="afWal" value="enabled" ${a.wallets==='enabled'?'checked':''}> Enabled</label>
           <label class="af-radio"><input type="radio" name="afWal" value="disabled" ${a.wallets==='disabled'?'checked':''}> Disabled</label>
         </div>
-        <div></div>
+        <div>
+          <div class="af-label">Evaluate on</div>
+          <label class="af-radio"><input type="radio" name="afVol" value="on" ${cfg.volumeMode !== 'off' ? 'checked' : ''}> Volume ON (depth-walked)</label>
+          <label class="af-radio"><input type="radio" name="afVol" value="off" ${cfg.volumeMode === 'off' ? 'checked' : ''}> Volume OFF (₹1L fixed)</label>
+          ${creatingKind === 'loop' ? '<div style="font-size:10.5px; color:var(--gray-500); margin-top:2px;">Volume OFF loops are %-only (no ₹ figure exists).</div>' : ''}
+        </div>
+        ${creatingKind === 'direct' ? `
+        <div>
+          <div class="af-label">Market (USDT avoids forex distortion)</div>
+          <label class="af-radio"><input type="radio" name="afMkt" value="any" ${!cfg.market || cfg.market === 'any' ? 'checked' : ''}> Any</label>
+          <label class="af-radio"><input type="radio" name="afMkt" value="usdt" ${cfg.market === 'usdt' ? 'checked' : ''}> USDT pairs only</label>
+          <label class="af-radio"><input type="radio" name="afMkt" value="inr" ${cfg.market === 'inr' ? 'checked' : ''}> INR pairs only</label>
+        </div>` : ''}
       </div>
       <label class="field-label">Alert name *</label>
       <input type="text" id="afName" value="${a.name || ''}" placeholder="e.g. Bin to waz">
       <div class="af-grid2">
         ${dirSection}
         <div>
-          <label class="field-label">Coin (blank = any)</label>
-          <input type="text" id="afCoin" value="${a.coin ? a.coin.toUpperCase() : ''}" placeholder="e.g. GALA">
+          <label class="field-label">Coins (comma = multi, blank = any)</label>
+          <input type="text" id="afCoins" value="${(Array.isArray(cfg.coins) && cfg.coins.length ? cfg.coins : (a.coin ? [a.coin] : [])).map(c => c.toUpperCase()).join(', ')}" placeholder="e.g. GALA, TRX, SHIB">
+        </div>
+        <div>
+          <label class="field-label">Exclude coins (comma = multi)</label>
+          <input type="text" id="afExclude" value="${(Array.isArray(cfg.excludeCoins) ? cfg.excludeCoins : []).map(c => c.toUpperCase()).join(', ')}" placeholder="e.g. STO, 1000SATS">
         </div>
         <div>
           <label class="field-label">Cooling period (minutes)</label>
@@ -1902,6 +2052,45 @@ function openAlertModal(id, presetKind) {
     </div>
   `;
   document.getElementById('modalOverlay').classList.remove('hidden');
+}
+
+function parseCoinList(v) {
+  return String(v || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+async function saveGiottusAlert() {
+  const name = document.getElementById('gafName').value.trim();
+  if (!name) { document.getElementById('gafError').textContent = 'Alert name is required.'; return; }
+  const minProfit = parseFloat(document.getElementById('gafMinProfit').value);
+  if (isNaN(minProfit)) { document.getElementById('gafError').textContent = 'Min profit ₹ must be a number.'; return; }
+  const minPctRaw = document.getElementById('gafMinPct').value.trim();
+  const minPct = minPctRaw === '' ? null : parseFloat(minPctRaw);
+  const enabledEl = document.getElementById('gafEnabled');
+  const body = {
+    name, type: 'arbitrage', kind: 'giottus', direction: null, wallets: 'any',
+    frequency: document.querySelector('input[name=gafFreq]:checked').value,
+    coin: null,
+    cooldown_min: parseInt(document.getElementById('gafCooldown').value) || 30,
+    threshold_inr: minProfit,
+    threshold_pct: (minPct != null && !isNaN(minPct)) ? minPct : null,
+    enabled: enabledEl ? enabledEl.checked : true,
+    config: {
+      routeKind: document.querySelector('input[name=gafKind]:checked').value,
+      persistChecks: parseInt(document.getElementById('gafPersist').value) || 2,
+      maxPerHour: parseInt(document.getElementById('gafMaxHour').value) || 6,
+      coins: parseCoinList(document.getElementById('gafCoins').value),
+      excludeCoins: parseCoinList(document.getElementById('gafExclude').value)
+    }
+  };
+  try {
+    const url = editingAlert ? `${API_BASE}/api/alerts/${editingAlert.id}` : `${API_BASE}/api/alerts`;
+    const res = await fetch(url, { method: editingAlert ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    closeModal();
+    await loadAlerts();
+  } catch (err) {
+    document.getElementById('gafError').textContent = `Couldn't save (${err.message}).`;
+  }
 }
 
 async function saveAlert() {
@@ -1927,11 +2116,17 @@ async function saveAlert() {
       }
       return `intra_${document.getElementById('afIntraEx').value}`;
     })(),
-    coin: document.getElementById('afCoin').value.trim().toLowerCase() || null,
+    coin: null, // superseded by config.coins (multi); kept for API compatibility
     cooldown_min: parseInt(document.getElementById('afCooldown').value) || 5,
     threshold_pct: trig === 'percentage' ? threshold : null,
     threshold_inr: trig === 'profit' ? threshold : null,
-    enabled: enabledEl ? enabledEl.checked : true
+    enabled: enabledEl ? enabledEl.checked : true,
+    config: {
+      coins: parseCoinList(document.getElementById('afCoins').value),
+      excludeCoins: parseCoinList(document.getElementById('afExclude').value),
+      volumeMode: document.querySelector('input[name=afVol]:checked').value,
+      market: creatingKind === 'direct' ? document.querySelector('input[name=afMkt]:checked').value : 'any'
+    }
   };
   try {
     const url = editingAlert ? `${API_BASE}/api/alerts/${editingAlert.id}` : `${API_BASE}/api/alerts`;
