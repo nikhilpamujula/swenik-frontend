@@ -622,7 +622,9 @@ function findOpportunity(card) {
       && o.buyExchange === card.buyExchange
       && (!card.buyMarket || o.buyMarket === card.buyMarket));
   }
-  return allOpportunities.find(o => o.type === 'loop' && o.coin1 === card.coin1 && o.coin2 === card.coin2);
+  return allOpportunities.find(o => o.type === 'loop' && o.coin1 === card.coin1 && o.coin2 === card.coin2
+    && (!card.entryVenue || o.entryVenue === card.entryVenue)
+    && (!card.exitVenue || o.exitVenue === card.exitVenue));
 }
 
 // ================================================================
@@ -1239,7 +1241,7 @@ function loopCard(o) {
         <div class="arb-main">${pct.toFixed(2)}% (${fmtInr(l.profit,3)})</div>
         <div class="arb-sub">${o.executionMin.toFixed(2)} mins</div>
       </div>
-      <button class="track-live-btn" onclick="openCardModal('loop','','${o.coin1}','${o.coin2}','')">◉ Track Live</button>
+      <button class="track-live-btn" onclick="openCardModal('loop','','${o.coin1}','${o.coin2}','','','${o.entryVenue||''}','${o.exitVenue||''}')">◉ Track Live</button>
     </div>`
   : `
     <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
@@ -1256,7 +1258,7 @@ function loopCard(o) {
         <div class="arb-main">${pct.toFixed(2)}%</div>
         <div class="arb-sub">top-of-book only, no depth walked</div>
       </div>
-      <button class="track-live-btn" onclick="openCardModal('loop','','${o.coin1}','${o.coin2}','')">◉ Track Live</button>
+      <button class="track-live-btn" onclick="openCardModal('loop','','${o.coin1}','${o.coin2}','','','${o.entryVenue||''}','${o.exitVenue||''}')">◉ Track Live</button>
     </div>`;
 
   return `
@@ -1688,6 +1690,16 @@ function renderLoopModal() {
     `<div class="leg-line"><span class="k">${label} — level ${t.level}</span><span class="v">${fmtCoin(t.qty,2)} ${unit} @ ${fmtNum(t.price,6)} (${t.pct.toFixed(1)}% of level)</span></div>`
   ).join('') : `<div class="leg-line"><span class="k">—</span><span class="v">no levels touched</span></div>`);
 
+  const u = entry.usdtInrUsed || {};
+  const rateBits = [];
+  if (u.entry != null) rateBits.push(`buying ${c1} via WazirX ${c1}/USDT → USDT/INR <b>₹${fmtNum(u.entry, 2)}</b>`);
+  if (u.exit != null)  rateBits.push(`selling ${c2} via WazirX ${c2}/USDT → USDT/INR <b>₹${fmtNum(u.exit, 2)}</b>`);
+  const usdtRateNote = rateBits.length
+    ? `<div style="margin-top:10px; padding:9px 12px; background:#eef6ff; border:1px solid #cfe3f7; border-radius:8px; font-size:12.5px; color:#345;">
+         <b>WazirX USDT/INR used:</b> ${rateBits.join(' &nbsp;·&nbsp; ')}
+       </div>`
+    : '';
+
   document.getElementById('modalBody').innerHTML = `
     <div class="summary-box">
       <div class="title">Loop Arbitrage Summary</div>
@@ -1697,6 +1709,7 @@ function renderLoopModal() {
         <div><div class="lab">Exec Time</div><div class="val">${entry.executionMin.toFixed(2)} min</div></div>
       </div>
     </div>
+    ${usdtRateNote}
 
     <details class="leg-detail" style="margin-top:12px;" open>
       <summary><div class="leg-summary-left"><div class="leg-amount">Leg 1 — sell ${c1} on Binance</div></div><div></div></summary>
@@ -1741,8 +1754,12 @@ function renderLoopModal() {
 let loopLiveEntry = null;   // last successful response from the loop live endpoint
 let loopLiveError = null;
 
-async function fetchLoopLive(coin1, coin2) {
-  const res = await fetch(`${API_BASE}/api/opportunities/loop/${coin1}/${coin2}/live`);
+async function fetchLoopLive(coin1, coin2, entryVenue, exitVenue) {
+  const qs = new URLSearchParams();
+  if (entryVenue) qs.set('entry', entryVenue);
+  if (exitVenue) qs.set('exit', exitVenue);
+  const q = qs.toString();
+  const res = await fetch(`${API_BASE}/api/opportunities/loop/${coin1}/${coin2}/live${q ? '?' + q : ''}`);
   if (!res.ok) {
     let reason = `API returned ${res.status}`;
     try { const body = await res.json(); if (body.error) reason = body.error; } catch (e) {}
@@ -1755,10 +1772,10 @@ async function refreshLoopModalLive() {
   if (!openCard || openCard.type !== 'loop') return;
   renderLoopModal(); // show what we have immediately
   try {
-    const data = await fetchLoopLive(openCard.coin1, openCard.coin2);
+    const data = await fetchLoopLive(openCard.coin1, openCard.coin2, openCard.entryVenue, openCard.exitVenue);
     loopLiveEntry = data.opportunity;
     loopLiveError = null;
-    liveCache[`loop:${openCard.coin1}:${openCard.coin2}`] = data.opportunity;
+    liveCache[`loop:${openCard.coin1}:${openCard.coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] = data.opportunity;
   } catch (err) {
     loopLiveError = err.message;
     loopLiveEntry = null;
@@ -2287,8 +2304,8 @@ function renderOrderbookPage() {
 // MODAL open/close// ================================================================
 // MODAL open/close
 // ================================================================
-function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket) {
-  openCard = { type, coin, coin1, coin2, buyExchange, buyMarket: buyMarket || '' };
+function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVenue, exitVenue) {
+  openCard = { type, coin, coin1, coin2, buyExchange, buyMarket: buyMarket || '', entryVenue: entryVenue || '', exitVenue: exitVenue || '' };
   document.getElementById('modalOverlay').classList.remove('hidden');
   if (type === 'direct') {
     directLiveEntry = liveCache[`${coin}:${buyExchange}:${buyMarket || ''}`] || null;
@@ -2303,7 +2320,7 @@ function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket) {
     refreshIntraLoopModalLive();
     modalTimer = setInterval(refreshIntraLoopModalLive, 15000);
   } else {
-    loopLiveEntry = liveCache[`loop:${coin1}:${coin2}`] || null;
+    loopLiveEntry = liveCache[`loop:${coin1}:${coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] || null;
     loopLiveError = null;
     renderLoopModal();
     refreshLoopModalLive();
