@@ -1181,6 +1181,12 @@ function loopCard(o) {
   const c1 = o.coin1.toUpperCase(), c2 = o.coin2.toUpperCase();
   const l = o.walked;
   const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
+  // Which WazirX market(s) each leg used: INR directly, the USDT market bridged
+  // through usdtinr, or BOTH books at once (liquidity merged across them).
+  const mkt = v => v === 'both' ? 'INR + USDT' : v === 'usdt' ? 'USDT Market' : 'INR Market';
+  const qq  = v => v === 'both' ? 'INR/USDT'   : v === 'usdt' ? 'USDT'        : 'INR';
+  const entryMkt = mkt(o.entryVenue), exitMkt = mkt(o.exitVenue);
+  const entryQ   = qq(o.entryVenue),  exitQ   = qq(o.exitVenue);
 
   const rows = (withVolume && l) ? `
     <details class="kk-row">
@@ -1190,7 +1196,7 @@ function loopCard(o) {
           <div class="kk-qty">${fmtCoin(l.trbQty,4)} ${c1}</div>
           <div class="kk-price">${fmtInr(l.finalCostInr,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">INR Market</div></div>
+        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">${entryMkt}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Final cost (incl. trading):</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
@@ -1221,7 +1227,7 @@ function loopCard(o) {
           <div class="kk-qty">${fmtCoin(l.galaArrived,4)} ${c2}</div>
           <div class="kk-price">${fmtInr(l.inrReceived,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">INR Market</div></div>
+        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">${exitMkt}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">INR received (net):</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
@@ -1238,11 +1244,11 @@ function loopCard(o) {
   : `
     <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag buy">Buy<span class="kk-coin">${c1}</span></div>
-      <div class="kk-mid"><div class="kk-price">Wazirx ${c1}/INR → Binance ${c1}/USDT</div></div>
+      <div class="kk-mid"><div class="kk-price">Wazirx ${c1}/${entryQ} → Binance ${c1}/USDT</div></div>
     </div>
     <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag sell">Sell<span class="kk-coin">${c2}</span></div>
-      <div class="kk-mid"><div class="kk-price">Binance ${c2}/USDT → Wazirx ${c2}/INR</div></div>
+      <div class="kk-mid"><div class="kk-price">Binance ${c2}/USDT → Wazirx ${c2}/${exitQ}</div></div>
     </div>
     <div class="arb-bar ${pct < 0 ? 'negative' : ''}">
       <div class="arb-label">Arbitrage</div>
