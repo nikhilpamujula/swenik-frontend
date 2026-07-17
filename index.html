@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 32</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 35</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -523,7 +523,7 @@ function loadUiState() {
     if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
     if (s.gTab === 'intra' || s.gTab === 'cross') gTab = s.gTab;
     if (s.gSettings && typeof s.gSettings === 'object') {
-      for (const k of ['feeInr','feeUsdt','thr','minP','minInr','minUsdt']) {
+      for (const k of ['feeInr','feeUsdt','thr','minP','minInr','minUsdt','topK']) {
         if (typeof s.gSettings[k] === 'number' && isFinite(s.gSettings[k])) gSettings[k] = s.gSettings[k];
       }
     }
@@ -2188,12 +2188,21 @@ if (location.protocol === 'file:') {
 // minimum profit survive, best rupee-profit first.
 // ================================================================
 let gTimer = null, gTab = 'intra', gSettingsOpen = false;
-let gSettings = { feeInr: 0.4, feeUsdt: 0.3, thr: 1.0, minP: 100, minInr: 1000, minUsdt: 10 };
+let gSettings = { feeInr: 0.4, feeUsdt: 0.3, thr: 1.0, minP: 100, minInr: 1000, minUsdt: 10, topK: 15 };
 let gTicker = null, gLastRoutes = null, gCandidates = [], gMkts = 0, gUiRate = '—';
 const gDepth = {}, gChecked = new Map(), gOpenBooks = new Set();
 let gRlHits = 0, gCalls = 0, gBackoffUntil = 0, gBackoffMs = 15000, gLastTs = '—', gErr = null, gRefreshing = false;
 const G_TTL = 5 * 60 * 1000, G_PER_CYCLE = 8, G_SPACING = 300;
-const gFreshCheck = e => e && (Date.now() - e.ts) < G_TTL;
+// Cross routes pair only the TOP-K triangles per direction (gSettings.topK,
+// default 15): the out-triangle ranking and the out-half ranking are the same
+// order (each triangle = its half × the same usdtinr constant), so the best
+// cross pairings are guaranteed to come from the top triangles of each side.
+const G_SPIKE_PCT = 0.35;    // re-verify immediately if a route's screen % rises this much past its verdict
+// A verdict is trusted only while (a) it's within the TTL AND (b) the route's
+// live screen % hasn't spiked past what it was when the verdict was recorded —
+// a stale "worthless" verdict must not hide a route that just turned juicy.
+const gFreshCheck = (e, curPct) => e && (Date.now() - e.ts) < G_TTL
+  && !(curPct !== undefined && isFinite(e.scrPct) && curPct - e.scrPct > G_SPIKE_PCT);
 const gLv = raw => (raw || []).map(([p, q]) => ({ p: parseFloat(p), q: parseFloat(q) })).filter(l => l.p > 0 && l.q > 0);
 const gInrFmt = n => '₹' + Math.round(n).toLocaleString('en-IN');
 const gInTab = r => gTab === 'intra' ? r.legsSpec.length === 3 : r.legsSpec.length === 4;
@@ -2313,15 +2322,35 @@ function gScreen(maps) {
                       { side:'sell', market: ci.sym, fee: IF, quote:'inr', label:`Sell ${C} · ${ci.sym}` } ] });
       }
     }
+    // Cross-pair routes by HALF-DECOMPOSITION instead of brute force.
+    // A cross route's profit = (out-half: INR → coinA → bridge) ×
+    // (return-half: bridge → coinB → INR), and the halves are independent
+    // (no shared books). So rank every out-half and every return-half from
+    // the ticker, then pair only the TOP K of each — that tiny set is
+    // mathematically guaranteed to contain the best possible combination,
+    // instead of queueing thousands of near-clones of one dislocated leg.
+    const outs = [], rets = [];
     for (const A of elig) {
-      if (!A.ci.ask || !A.cb.bid) continue;
-      const inrToBridge = (1 / (A.ci.ask * (1 + IF))) * (A.cb.bid * (1 - BF));
-      for (const B of elig) {
-        if (A.coin === B.coin || !B.cb.ask || !B.ci.bid) continue;
-        const pct = inrToBridge * (1 / (B.cb.ask * (1 + BF))) * (B.ci.bid * (1 - IF)) * 100 - 100;
-        if (pct < -2) continue;
+      if (A.ci.ask && A.cb.bid) outs.push({ ...A, rate: (1 / (A.ci.ask * (1 + IF))) * (A.cb.bid * (1 - BF)) });
+      if (A.cb.ask && A.ci.bid) rets.push({ ...A, rate: (A.ci.bid * (1 - IF)) / (A.cb.ask * (1 + BF)) });
+    }
+    outs.sort((a, b) => b.rate - a.rate);
+    rets.sort((a, b) => b.rate - a.rate);
+    // Triangle-equivalent numbers for the derivation display: what each half
+    // would earn AS its own triangle (paying the usdtinr toll), and how much
+    // of that toll clubbing the two halves recovers.
+    const sBid = (bInr && bInr.bid) ? bInr.bid * (1 - IF) : null;              // sell USDT → INR (out-triangle's last leg)
+    const bBuy = (bInr && bInr.ask) ? 1 / (bInr.ask * (1 + IF)) : null;        // INR → buy USDT (return-triangle's first leg)
+    const spreadPct = (sBid && bBuy) ? (1 / (sBid * bBuy) - 1) * 100 : null;   // usdtinr toll recovered by clubbing
+    const K = Math.max(2, Math.min(40, Math.round(gSettings.topK) || 15));
+    for (const A of outs.slice(0, K)) {
+      for (const B of rets.slice(0, K)) {
+        if (A.coin === B.coin) continue;
+        const pct = A.rate * B.rate * 100 - 100;
         const CA = A.coin.toUpperCase(), CB = B.coin.toUpperCase();
         routes.push({ label: `INR → ${CA} → ${BU} → ${CB} → INR`, pct,
+          deriv: (sBid && bBuy) ? { outCoin: CA, retCoin: CB,
+            outTri: (A.rate * sBid - 1) * 100, retTri: (bBuy * B.rate - 1) * 100, spread: spreadPct } : null,
           legsSpec: [ { side:'buy', market: A.ci.sym, fee: IF, quote:'inr', label:`Buy ${CA} · ${A.ci.sym}` },
                       { side:'sell', market: A.cb.sym, fee: BF, quote:bridge, label:`Sell ${CA} · ${A.cb.sym}` },
                       { side:'buy', market: B.cb.sym, fee: BF, quote:bridge, label:`Buy ${CB} · ${B.cb.sym}` },
@@ -2345,13 +2374,16 @@ function gApplySettings() {
   const read = (id, cur) => { const v = parseFloat(document.getElementById(id)?.value); return isFinite(v) ? v : cur; };
   gSettings = { feeInr: read('gFeeInr', gSettings.feeInr), feeUsdt: read('gFeeUsdt', gSettings.feeUsdt),
                 thr: read('gThr', gSettings.thr), minP: read('gMinP', gSettings.minP),
-                minInr: read('gMinInr', gSettings.minInr), minUsdt: read('gMinUsdt', gSettings.minUsdt) };
+                minInr: read('gMinInr', gSettings.minInr), minUsdt: read('gMinUsdt', gSettings.minUsdt),
+                topK: read('gTopK', gSettings.topK) };
   gChecked.clear(); saveUiState(); gRefresh();
 }
-function gToggleBooksIdx(i) {
-  const c = gCandidates[i];
+let gWatch = []; // top-5 by screen % for the active tab, shown regardless of threshold/profit
+function gToggleBooksL(which, i) {
+  const c = (which === 'c' ? gCandidates : gWatch)[i];
   if (!c) return;
-  if (gOpenBooks.has(c.label)) gOpenBooks.delete(c.label); else gOpenBooks.add(c.label);
+  const key = which + ':' + c.label;
+  if (gOpenBooks.has(key)) gOpenBooks.delete(key); else gOpenBooks.add(key);
   renderGiottusPage();
 }
 
@@ -2382,11 +2414,20 @@ async function gRefresh() {
     renderToolbar(); renderGiottusPage();
 
     const thr = gSettings.thr;
-    const queue = [...gLastRoutes.filter(r => r.pct >= thr && gInTab(r)),
-                   ...gLastRoutes.filter(r => r.pct >= thr && !gInTab(r))];
+    // Verify: above-threshold candidates PLUS the top-5 watchlist of each tab
+    // (watchlist is depth-checked regardless of threshold). Active tab first.
+    const seenQ = new Set();
+    const queue = [];
+    for (const c of [...gLastRoutes.filter(r => r.pct >= thr && gInTab(r)),
+                     ...gLastRoutes.filter(r => gInTab(r)).slice(0, 5),
+                     ...gLastRoutes.filter(r => r.pct >= thr && !gInTab(r)),
+                     ...gLastRoutes.filter(r => !gInTab(r)).slice(0, 5)]) {
+      if (seenQ.has(c.label)) continue;
+      seenQ.add(c.label); queue.push(c);
+    }
     const toCheck = [];
     for (const c of queue) {
-      if (!gFreshCheck(gChecked.get(c.label))) toCheck.push(c);
+      if (!gFreshCheck(gChecked.get(c.label), c.pct)) toCheck.push(c);
       if (toCheck.length >= G_PER_CYCLE) break;
     }
     gCalls = 0;
@@ -2412,7 +2453,7 @@ async function gRefresh() {
         }
         if (!ok) continue;
         const v = gVerdict(legs, c.legsSpec, mins);
-        gChecked.set(c.label, { ts: Date.now(), walk: v.walk, forced: v.forced });
+        gChecked.set(c.label, { ts: Date.now(), walk: v.walk, forced: v.forced, scrPct: c.pct });
       }
       if (currentPage === 'giottus') { renderToolbar(); renderGiottusPage(); }
     }
@@ -2460,7 +2501,7 @@ function renderGiottusPage() {
   const tradeable = [], dust = []; let pending = 0;
   for (const c of aboveThr) {
     const e = gChecked.get(c.label);
-    if (!gFreshCheck(e)) { pending++; continue; }
+    if (!gFreshCheck(e, c.pct)) { pending++; continue; }
     if (e.walk && e.walk !== 'none' && e.walk.profit >= minP) { c.walk = e.walk; c.walkUsed = e.walk.used; c.forced = e.forced; tradeable.push(c); }
     else dust.push(e.walk && e.walk !== 'none' ? e.walk.profit : 0);
   }
@@ -2487,11 +2528,12 @@ function renderGiottusPage() {
       <label>Min profit ₹<input id="gMinP" type="number" step="10" value="${gSettings.minP}" onchange="gApplySettings()"></label>
       <label>Exchange min (INR mkt) ₹<input id="gMinInr" type="number" step="100" value="${gSettings.minInr}" onchange="gApplySettings()"></label>
       <label>Exchange min (crypto mkt) USDT<input id="gMinUsdt" type="number" step="1" value="${gSettings.minUsdt}" onchange="gApplySettings()"></label>
+      <label>Top triangles per side (cross pairing)<input id="gTopK" type="number" step="1" value="${gSettings.topK}" onchange="gApplySettings()"></label>
     </div>` : '';
 
   const cards = gCandidates.length ? gCandidates.map((c, i) => {
     const w = c.walk;
-    const open = gOpenBooks.has(c.label);
+    const open = gOpenBooks.has('c:' + c.label);
     const tags = `${i === 0 ? '<span class="g-tag gold">highest profit</span>' : ''}
                   ${i === bestPctIdx ? '<span class="g-tag blue">best %</span>' : ''}
                   ${c.forced ? '<span class="g-tag purple">sized to exchange min</span>' : ''}`;
@@ -2507,13 +2549,18 @@ function renderGiottusPage() {
         <div class="g-fact"><div class="k">Net return</div><div class="v" style="color:var(--success);">${w.pct.toFixed(2)}%</div></div>
         <div class="g-fact"><div class="k">Legs</div><div class="v">${c.legsSpec.length} trades</div></div>
       </div>
+      ${c.deriv ? `<div class="g-facts" style="padding-top:0;">
+        <div class="g-fact"><div class="k">${c.deriv.outCoin} triangle alone</div><div class="v" style="color:${c.deriv.outTri >= 0 ? 'var(--success)' : 'var(--danger)'};">${c.deriv.outTri.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">${c.deriv.retCoin} triangle alone</div><div class="v" style="color:${c.deriv.retTri >= 0 ? 'var(--success)' : 'var(--danger)'};">${c.deriv.retTri.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">USDT/INR toll recovered</div><div class="v" style="color:var(--accent);">+${c.deriv.spread.toFixed(2)}%</div></div>
+      </div>` : ''}
       <div class="arb-bar">
         <div class="arb-label">Profit</div>
         <div class="arb-mid">
           <div class="arb-main">${gInrFmt(w.profit)} (${w.pct.toFixed(2)}%)</div>
           <div class="arb-sub">on ${gInrFmt(w.inrIn)} · after all fees & exchange minimums</div>
         </div>
-        <button class="track-live-btn" onclick="gToggleBooksIdx(${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
+        <button class="track-live-btn" onclick="gToggleBooksL('c',${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
       </div>
       ${open ? gBooksHtml(c) : ''}
     </div>`;
@@ -2527,14 +2574,42 @@ function renderGiottusPage() {
       <div class="g-progress"><div style="width:${prog}%"></div></div>
     </div>`;
 
-  const misses = routesAll.filter(r => r.pct < thr && gInTab(r)).slice(0, 6);
-  const missCard = `
+  // Top-5 watchlist: the best 5 routes of this tab by screen %, shown ALWAYS
+  // (regardless of threshold or min profit), depth-checked with books — so
+  // the best of the market is inspectable even when nothing is tradeable.
+  gWatch = routesAll.filter(r => gInTab(r)).slice(0, 5);
+  const watchHeader = `<div style="grid-column:1/-1;"><div class="sect" style="margin:4px 2px 8px;">Top 5 by screen % — always shown</div></div>`;
+  const watchCards = gWatch.map((c, i) => {
+    const e = gChecked.get(c.label);
+    const fresh = gFreshCheck(e, c.pct);
+    const w = fresh && e.walk && e.walk !== 'none' ? e.walk : null;
+    const none = fresh && e.walk === 'none';
+    if (w) { c.walkUsed = e.walk.used; }
+    const open = gOpenBooks.has('w:' + c.label);
+    const good = w && w.profit > 0;
+    return `
     <div class="card">
-      <div class="card-top"><span class="coin-pair">Nearest misses</span><span class="badge" style="background:var(--gray-100); color:var(--gray-700);">below ${thr}% · ticker only</span></div>
-      <table class="g-mini">${misses.length ? misses.map(m =>
-        `<tr><td><div class="g-route">${gRouteChips(m.label)}</div></td><td class="${m.pct >= 0 ? '' : ''}" style="color:${m.pct >= 0 ? 'var(--success)' : 'var(--danger)'};">${m.pct.toFixed(3)}%</td></tr>`).join('')
-        : '<tr><td style="color:var(--gray-500);">—</td><td></td></tr>'}</table>
+      <div class="card-top" style="flex-wrap:wrap; gap:6px;">
+        <div class="g-route">${gRouteChips(c.label)}</div>
+        <span class="badge" style="background:var(--gray-100); color:var(--gray-700);">#${i + 1} · screen ${c.pct.toFixed(2)}%</span>
+      </div>
+      ${c.deriv ? `<div class="g-facts">
+        <div class="g-fact"><div class="k">${c.deriv.outCoin} triangle</div><div class="v" style="color:${c.deriv.outTri >= 0 ? 'var(--success)' : 'var(--danger)'};">${c.deriv.outTri.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">${c.deriv.retCoin} triangle</div><div class="v" style="color:${c.deriv.retTri >= 0 ? 'var(--success)' : 'var(--danger)'};">${c.deriv.retTri.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">Toll recovered</div><div class="v" style="color:var(--accent);">+${c.deriv.spread.toFixed(2)}%</div></div>
+      </div>` : ''}
+      <div class="arb-bar ${good ? '' : 'negative'}">
+        <div class="arb-label">Depth</div>
+        <div class="arb-mid">
+          <div class="arb-main">${w ? `${gInrFmt(w.profit)} (${w.pct.toFixed(2)}%)` : none ? 'No profitable size' : 'checking depth…'}</div>
+          <div class="arb-sub">${w ? `max profitable ${gInrFmt(w.inrIn)} · after fees & minimums` : none ? 'walked the real books — nothing placeable pays' : 'queued for verification'}</div>
+        </div>
+        <button class="track-live-btn" onclick="gToggleBooksL('w',${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
+      </div>
+      ${open ? gBooksHtml(c) : ''}
     </div>`;
+  }).join('');
+  const missCard = gWatch.length ? watchHeader + watchCards : '';
 
   list0.innerHTML = `
     ${gErr ? `<div class="banner-error">Couldn't reach Giottus (${gErr}) — showing the last data.</div>` : ''}
