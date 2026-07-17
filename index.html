@@ -210,14 +210,60 @@
   .drawer .btn-apply { flex:1; background: var(--primary); color:#fff; border:none; border-radius:6px; padding:9px; font-weight:700; font-size:13px; cursor:pointer; }
   .drawer .btn-reset { background:#fff; color: var(--gray-700); border:1px solid var(--border); border-radius:6px; padding:9px 14px; font-weight:600; font-size:13px; cursor:pointer; }
 
+  /* ---------------- Giottus page ---------------- */
+  .g-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:12px; }
+  .g-stat { background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; }
+  .g-stat .k { font-size:10.5px; color:var(--gray-700); font-weight:700; text-transform:uppercase; letter-spacing:.4px; }
+  .g-stat .v { font-size:21px; font-weight:800; margin-top:3px; color:var(--primary); }
+  .g-stat .v.mid { font-size:15px; margin-top:7px; }
+  .g-stat .v.good { color:var(--success); }
+  .g-stat .sub { font-size:10.5px; color:var(--gray-500); margin-top:2px; }
+  .g-seg { display:flex; background:var(--gray-100); border-radius:9px; padding:3px; gap:3px; }
+  .g-seg button { border:none; background:transparent; font-family:inherit; font-size:12.5px; font-weight:700; color:var(--gray-700); padding:7px 16px; border-radius:7px; cursor:pointer; white-space:nowrap; }
+  .g-seg button.on { background:#fff; color:var(--primary); box-shadow:0 1px 3px rgba(16,42,67,.18); }
+  .g-settings { background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:12px;
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px 14px; }
+  .g-settings label { font-size:11px; font-weight:700; color:var(--gray-700); display:block; }
+  .g-settings input { width:100%; margin-top:4px; padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; font-family:inherit; }
+  .g-route { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
+  .g-chip { background:var(--gray-100); border-radius:6px; padding:2px 9px; font-size:11.5px; font-weight:800; color:var(--primary); }
+  .g-chip.inr { background:#e6f0f8; color:var(--accent); }
+  .g-arrow { color:var(--gray-500); font-size:10px; }
+  .g-facts { display:flex; gap:20px; flex-wrap:wrap; padding:10px 14px; background:#fcfcfc; }
+  .g-fact .k { font-size:10px; color:var(--gray-500); font-weight:700; text-transform:uppercase; }
+  .g-fact .v { font-size:13.5px; font-weight:800; }
+  .g-progress { height:4px; border-radius:2px; background:var(--gray-200); overflow:hidden; margin-top:6px; }
+  .g-progress > div { height:100%; background:var(--accent); border-radius:2px; transition:width .4s; }
+  .g-mini { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .g-mini td { padding:7px 10px; border-bottom:1px solid var(--gray-100); }
+  .g-mini tr:last-child td { border-bottom:none; }
+  .g-mini td:last-child { text-align:right; font-variant-numeric:tabular-nums; font-weight:800; white-space:nowrap; }
+  .g-books { display:flex; gap:12px; overflow-x:auto; padding:12px 14px; background:#fbfcfe; border-top:1px solid var(--gray-100); -webkit-overflow-scrolling:touch; }
+  .g-book { border:1px solid var(--border); border-radius:8px; overflow:hidden; flex:0 0 auto; background:#fff; }
+  .g-book .bt { font-size:10.5px; font-weight:800; padding:5px 10px; background:var(--primary); color:#fff; white-space:nowrap; }
+  .g-book table { border-collapse:collapse; font-size:11px; }
+  .g-book td { padding:3px 9px; text-align:right; font-variant-numeric:tabular-nums; border-bottom:1px solid #f0f3f7; white-space:nowrap; }
+  .g-book td.h { color:var(--gray-500); font-weight:700; font-size:10px; }
+  .g-book tr.ask td { background:var(--ask-bg); } .g-book tr.bid td { background:var(--bid-bg); }
+  .g-book tr.used td { font-weight:800; }
+  .g-book td.take { color:var(--success); font-weight:800; }
+  .g-tag { display:inline-block; font-size:9.5px; font-weight:800; border-radius:6px; padding:2px 8px; white-space:nowrap; }
+  .g-tag.gold { background:#f5edd4; color:#8a6d1a; }
+  .g-tag.blue { background:#e0edf9; color:#2b6ea3; }
+  .g-tag.purple { background:#f2e8fb; color:#6b3fa0; }
+  .g-status { font-size:11.5px; color:var(--gray-500); margin:2px 2px 12px; line-height:1.5; }
+
   /* ---------------- Track Live modal (unchanged from before) ---------------- */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: flex-end; justify-content: center; z-index: 100; }
   .modal-overlay.hidden { display: none; }
-  .modal { background: #fff; width: 100%; max-width: 760px; max-height: 94vh; overflow-y: auto; border-radius: 14px 14px 0 0; padding: 10px 12px; }
+  .modal { background: #fff; width: 100%; max-width: 760px; max-height: 90vh; overflow-y: auto; border-radius: 14px 14px 0 0; padding: 0 14px 16px; }
   @media (min-width: 760px) { .modal-overlay { align-items: center; } .modal { border-radius: 12px; } }
-  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  /* Sticky header with extra top padding so the × close button sits clear of
+     the phone's browser bar / notch and stays reachable while scrolling. */
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;
+    position: sticky; top: 0; background: #fff; z-index: 3; padding: 16px 0 8px; }
   .modal-header span { font-size: 15px; font-weight: 700; color: var(--primary); }
-  .modal-header button { background: none; border: none; font-size: 22px; line-height: 1; color: var(--gray-700); cursor: pointer; }
+  .modal-header button { background: none; border: none; font-size: 26px; line-height: 1; color: var(--gray-700); cursor: pointer; padding: 6px 10px; margin-right: -6px; -webkit-tap-highlight-color: rgba(0,0,0,0.08); }
   .modal-status { font-size: 10.5px; color: var(--danger); margin-bottom: 6px; }
   .ob-chip { display:inline-flex; align-items:center; gap:6px; background: var(--danger); color:#fff; font-size:12px; font-weight:700; padding:5px 10px; border-radius: 6px; }
   .ob-chip button { background:none; border:none; color:#fff; font-size:14px; cursor:pointer; line-height:1; padding:0; }
@@ -324,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 29</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 32</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -340,6 +386,10 @@
     <div class="sidebar-item" id="nav-loop" onclick="selectPage('loop')">Loop</div>
     <div class="sidebar-item" id="nav-intraloop" onclick="selectPage('intraloop')">
       Intra Loop <span class="new-badge">New</span>
+    </div>
+    <div class="sidebar-group-label" style="padding-top:14px;">Exchanges</div>
+    <div class="sidebar-item" id="nav-giottus" onclick="selectPage('giottus')">
+      Giottus <span class="new-badge" style="background:var(--success);">Lab</span>
     </div>
     <div class="sidebar-group-label" style="padding-top:14px;">Tools</div>
     <div class="sidebar-item" id="nav-orderbook" onclick="selectPage('orderbook')">Orderbook</div>
@@ -405,6 +455,7 @@ const PAGES = {
   direct:    { label: 'Direct',     navId: 'nav-direct' },
   loop:      { label: 'Loop',       navId: 'nav-loop' },
   intraloop: { label: 'Intra Loop', navId: 'nav-intraloop' },
+  giottus:   { label: 'Giottus',    navId: 'nav-giottus' },
   orderbook: { label: 'Orderbook',  navId: 'nav-orderbook' },
   alerts:    { label: 'Alerts',     navId: 'nav-alerts' }
 };
@@ -418,6 +469,7 @@ function knownExchanges() {
   for (const o of allOpportunities) {
     if (o.buyExchange) s.add(o.buyExchange);
     if (o.sellExchange) s.add(o.sellExchange);
+    if (o.exchange) s.add(o.exchange); // intra-loop opps carry a single `exchange`
   }
   return [...s].sort();
 }
@@ -436,7 +488,7 @@ let sortDir = 'desc';            // 'desc' | 'asc'
 let pageFilters = {
   direct:    { coin: '', buyExchanges: [] }, // empty = any; multi-select like KoinKnight
   loop:      { buyCoin: '', sellCoin: '', loopEx: [], viaEx: [] }, // empty arrays = any exchange
-  intraloop: { coin: '', exchange: 'wazirx' }
+  intraloop: { coin: '', exchange: '' }
 };
 let draftFilter = {}; // working copy while the drawer is open, committed on Apply
 
@@ -452,7 +504,7 @@ let draftFilter = {}; // working copy while the drawer is open, committed on App
 function saveUiState() {
   try {
     localStorage.setItem('swenikUi', JSON.stringify({
-      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir
+      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings
     }));
   } catch (e) {}
 }
@@ -469,6 +521,12 @@ function loadUiState() {
     if (typeof s.showUsdtPairs === 'boolean') showUsdtPairs = s.showUsdtPairs;
     if (s.sortBy === 'percentage' || s.sortBy === 'profit') sortBy = s.sortBy;
     if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
+    if (s.gTab === 'intra' || s.gTab === 'cross') gTab = s.gTab;
+    if (s.gSettings && typeof s.gSettings === 'object') {
+      for (const k of ['feeInr','feeUsdt','thr','minP','minInr','minUsdt']) {
+        if (typeof s.gSettings[k] === 'number' && isFinite(s.gSettings[k])) gSettings[k] = s.gSettings[k];
+      }
+    }
     return (s.page && PAGES[s.page]) ? s.page : null;
   } catch (e) { return null; }
 }
@@ -573,6 +631,18 @@ function selectPage(page) {
   } else if (orderbookTimer) {
     clearInterval(orderbookTimer); orderbookTimer = null;
   }
+  // Giottus polls its own APIs — only while its page is open. The Swenik
+  // backend note/error banner is about the scanner, not Giottus, so hide
+  // both on this page (it has its own status + error handling).
+  const nb = document.getElementById('noteBox'), bs = document.getElementById('bannerSlot');
+  if (nb) nb.style.display = page === 'giottus' ? 'none' : '';
+  if (bs) bs.style.display = page === 'giottus' ? 'none' : '';
+  if (page === 'giottus') {
+    if (!gTimer) gTimer = setInterval(gRefresh, 10000);
+    gRefresh();
+  } else if (gTimer) {
+    clearInterval(gTimer); gTimer = null;
+  }
 }
 
 // ================================================================
@@ -626,6 +696,19 @@ function volumeToggleHtml() {
 
 function renderToolbar() {
   const el = document.getElementById('toolbar');
+
+  if (currentPage === 'giottus') {
+    const c = gCounts();
+    el.innerHTML = `
+      <div class="g-seg">
+        <button class="${gTab==='intra'?'on':''}" onclick="gSetTab('intra')">Intra Loop${c.intra?` (${c.intra})`:''}</button>
+        <button class="${gTab==='cross'?'on':''}" onclick="gSetTab('cross')">Cross-Pair${c.cross?` (${c.cross})`:''}</button>
+      </div>
+      <span class="g-status" style="margin:0;">${gLastTs !== '—' ? `updated ${gLastTs} · ${gCalls} depth calls · ${gRlHits} limit hits` : 'connecting to Giottus…'}</span>
+      <button class="apply-filter-btn" onclick="gToggleSettings()">⚙ Settings</button>
+    `;
+    return;
+  }
 
   if (currentPage === 'alerts') {
     el.innerHTML = `
@@ -754,7 +837,8 @@ function closeDrawer() {
 
 function renderDrawerBody() {
   if (currentPage === 'intraloop') {
-    const exOpts = knownExchanges().map(e => `<option value="${e}" ${draftFilter.exchange===e?'selected':''}>${cap(e)}</option>`).join('');
+    const exOpts = `<option value="" ${!draftFilter.exchange?'selected':''}>All exchanges</option>`
+      + knownExchanges().map(e => `<option value="${e}" ${draftFilter.exchange===e?'selected':''}>${cap(e)}</option>`).join('');
     document.getElementById('drawerBody').innerHTML = `
       <label class="field-label">Exchange</label>
       <select id="draftExchangeSelect">${exOpts}</select>
@@ -812,7 +896,7 @@ function applyDrawerFilter() {
     pageFilters[currentPage].coin = coinInput ? coinInput.value.trim().toLowerCase() : '';
     if (currentPage === 'intraloop') {
       const sel = document.getElementById('draftExchangeSelect');
-      pageFilters.intraloop.exchange = sel ? sel.value : 'wazirx';
+      pageFilters.intraloop.exchange = sel ? sel.value : '';
     }
     if (currentPage === 'direct') {
       pageFilters.direct.buyExchanges = [...document.querySelectorAll('input.draftBuyEx:checked')].map(el => el.value);
@@ -825,7 +909,7 @@ function applyDrawerFilter() {
 }
 
 function resetDrawerFilter() {
-  pageFilters[currentPage] = currentPage === 'intraloop' ? { coin: '', exchange: 'wazirx' }
+  pageFilters[currentPage] = currentPage === 'intraloop' ? { coin: '', exchange: '' }
     : currentPage === 'direct' ? { coin: '', buyExchanges: [] }
     : currentPage === 'loop' ? { buyCoin: '', sellCoin: '', loopEx: [], viaEx: [] }
     : { coin: '' };
@@ -1114,7 +1198,7 @@ function intraLoopCard(o) {
     <div class="card">
       <div class="card-top">
         <span class="coin-pair">${o.pathLabel || o.coin.toUpperCase()}</span>
-        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span></div>
+        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${cap(o.exchange || 'wazirx')}</span></div>
       </div>
       ${rows || `<div class="kk-row" style="padding:12px 14px;"><div class="kk-mid"><div class="kk-price">${o.pathLabel || ''}</div></div></div>`}
       <div class="arb-bar ${barClass}">
@@ -1133,6 +1217,7 @@ function renderCards() {
 
   if (currentPage === 'alerts') { renderAlertsPage(); return; }
   if (currentPage === 'orderbook') { renderOrderbookPage(); return; }
+  if (currentPage === 'giottus') { renderGiottusPage(); return; }
 
   if (currentPage === 'intraloop') {
     const f = pageFilters.intraloop;
@@ -2089,6 +2174,375 @@ if (window.caches && caches.keys) {
 
 if (location.protocol === 'file:') {
   setBanner('You are running this page from a local file (Downloads). Live refresh is less reliable here and errors like "feed unreachable" are often the file, not the scanner — judge everything on the deployed site instead.');
+}
+
+// ================================================================
+// GIOTTUS page — self-contained intra-exchange route scanner.
+// Data comes from /api/giottus/* (Vercel serverless proxies living in
+// the same frontend repo) — the Swenik backend is NOT involved at all.
+// Pipeline: 1 ticker call screens every route (triangles + cross-pair,
+// USDT & BTC bridges, fees included) → routes above the threshold get
+// real order-book depth (a few per cycle, spaced, cached, auto-backoff)
+// → each is walked to its MAX profitable size, force-sized up to
+// Giottus's minimum order values when needed → only routes clearing the
+// minimum profit survive, best rupee-profit first.
+// ================================================================
+let gTimer = null, gTab = 'intra', gSettingsOpen = false;
+let gSettings = { feeInr: 0.4, feeUsdt: 0.3, thr: 1.0, minP: 100, minInr: 1000, minUsdt: 10 };
+let gTicker = null, gLastRoutes = null, gCandidates = [], gMkts = 0, gUiRate = '—';
+const gDepth = {}, gChecked = new Map(), gOpenBooks = new Set();
+let gRlHits = 0, gCalls = 0, gBackoffUntil = 0, gBackoffMs = 15000, gLastTs = '—', gErr = null, gRefreshing = false;
+const G_TTL = 5 * 60 * 1000, G_PER_CYCLE = 8, G_SPACING = 300;
+const gFreshCheck = e => e && (Date.now() - e.ts) < G_TTL;
+const gLv = raw => (raw || []).map(([p, q]) => ({ p: parseFloat(p), q: parseFloat(q) })).filter(l => l.p > 0 && l.q > 0);
+const gInrFmt = n => '₹' + Math.round(n).toLocaleString('en-IN');
+const gInTab = r => gTab === 'intra' ? r.legsSpec.length === 3 : r.legsSpec.length === 4;
+
+function gWalk(legs, { stopWhenUnprofitable = true, targetIn = Infinity } = {}) {
+  const idx = legs.map(() => 0);
+  const rem = legs.map(l => (l.levels[0] ? l.levels[0].q : 0));
+  const used = legs.map(l => l.levels.map(() => 0));
+  const notion = legs.map(() => 0);
+  let inrIn = 0, inrOut = 0, guard = 0, bookEnded = false;
+  while (guard++ < 4000 && inrIn < targetIn - 1e-9) {
+    let ratio = 1;
+    const factorTo = [1];
+    for (let j = 0; j < legs.length; j++) {
+      const L = legs[j], lv = L.levels[idx[j]];
+      if (!lv || rem[j] <= 1e-12) { ratio = -1; break; }
+      ratio *= L.side === 'buy' ? 1 / (lv.p * (1 + L.fee)) : lv.p * (1 - L.fee);
+      factorTo.push(ratio);
+    }
+    if (ratio === -1) { bookEnded = true; break; }
+    if (stopWhenUnprofitable && ratio <= 1) break;
+    let slice = targetIn - inrIn;
+    for (let j = 0; j < legs.length; j++) {
+      const limitFlow = legs[j].side === 'buy' ? factorTo[j + 1] : factorTo[j];
+      if (limitFlow > 0) slice = Math.min(slice, rem[j] / limitFlow);
+    }
+    if (!isFinite(slice) || slice <= 1e-9) break;
+    inrIn += slice; inrOut += slice * ratio;
+    for (let j = 0; j < legs.length; j++) {
+      const L = legs[j];
+      const limitFlow = L.side === 'buy' ? factorTo[j + 1] : factorTo[j];
+      rem[j] -= slice * limitFlow; used[j][idx[j]] += slice * limitFlow;
+      notion[j] += L.side === 'buy' ? slice * factorTo[j] / (1 + L.fee) : slice * factorTo[j + 1] / (1 - L.fee);
+      if (rem[j] <= 1e-9) { idx[j]++; rem[j] = L.levels[idx[j]] ? L.levels[idx[j]].q : 0; }
+    }
+  }
+  if (inrIn <= 0) return null;
+  const complete = !isFinite(targetIn) || inrIn >= targetIn - 1e-6 || !bookEnded;
+  return { inrIn, inrOut, profit: inrOut - inrIn, pct: (inrOut / inrIn - 1) * 100, used, notion, complete };
+}
+
+function gVerdict(legs, legsSpec, mins) {
+  const minFor = q => q === 'inr' ? mins.inr : q === 'usdt' ? mins.usdt : mins.btc;
+  const meets = w => w && w.notion.every((n, j) => n + 1e-6 >= minFor(legsSpec[j].quote));
+  const w = gWalk(legs);
+  if (meets(w)) return { walk: w, forced: false };
+  let ratio = 1; const factorTo = [1];
+  for (const L of legs) {
+    const lv = L.levels[0];
+    if (!lv) return { walk: 'none', forced: false };
+    ratio *= L.side === 'buy' ? 1 / (lv.p * (1 + L.fee)) : lv.p * (1 - L.fee);
+    factorTo.push(ratio);
+  }
+  let S = 0;
+  for (let j = 0; j < legs.length; j++) {
+    const m = minFor(legsSpec[j].quote);
+    if (!m) continue;
+    const flow = legs[j].side === 'buy' ? factorTo[j] / (1 + legs[j].fee) : factorTo[j + 1] / (1 - legs[j].fee);
+    if (flow > 0) S = Math.max(S, m / flow);
+  }
+  if (!isFinite(S) || S <= 0) return { walk: 'none', forced: false };
+  for (let iter = 0; iter < 4; iter++) {
+    const f = gWalk(legs, { stopWhenUnprofitable: false, targetIn: S * 1.001 });
+    if (!f || !f.complete) return { walk: 'none', forced: true };
+    if (meets(f)) return { walk: f, forced: true };
+    let bump = 1;
+    for (let j = 0; j < legs.length; j++) {
+      const m = minFor(legsSpec[j].quote);
+      if (m && f.notion[j] < m) bump = Math.max(bump, m / f.notion[j]);
+    }
+    S *= bump * 1.02;
+  }
+  return { walk: 'none', forced: true };
+}
+
+function gMaps() {
+  const maps = { inr: new Map(), usdt: new Map(), btc: new Map() };
+  gMkts = 0;
+  for (const [sym, t] of Object.entries(gTicker || {})) {
+    if (!t || !t.base_unit || !t.quote_unit) continue;
+    gMkts++;
+    const coin = String(t.base_unit).toLowerCase(), quote = String(t.quote_unit).toLowerCase();
+    if (!maps[quote]) continue;
+    const ask = parseFloat(t.sell), bid = parseFloat(t.buy);
+    maps[quote].set(coin, { sym: sym.toLowerCase(), ask: isFinite(ask) && ask > 0 ? ask : null, bid: isFinite(bid) && bid > 0 ? bid : null });
+  }
+  const ui = maps.inr.get('usdt');
+  gUiRate = ui && ui.bid ? `${ui.bid} / ${ui.ask}` : '—';
+  return maps;
+}
+
+function gScreen(maps) {
+  const IF = gSettings.feeInr / 100, BF = gSettings.feeUsdt / 100;
+  const routes = [];
+  for (const bridge of ['usdt', 'btc']) {
+    const bmap = maps[bridge], bInr = maps.inr.get(bridge);
+    if (!bmap || !bmap.size) continue;
+    const elig = [];
+    for (const [coin, ci] of maps.inr) {
+      if (coin === bridge || coin === 'usdt' || coin === 'btc') continue;
+      const cb = bmap.get(coin);
+      if (cb) elig.push({ coin, ci, cb });
+    }
+    const BU = bridge.toUpperCase();
+    if (bInr && bInr.ask && bInr.bid) {
+      for (const { coin, ci, cb } of elig) {
+        const C = coin.toUpperCase();
+        if (ci.ask && cb.bid) routes.push({ label: `INR → ${C} → ${BU} → INR`,
+          pct: (1 / (ci.ask * (1 + IF))) * (cb.bid * (1 - BF)) * (bInr.bid * (1 - IF)) * 100 - 100,
+          legsSpec: [ { side:'buy', market: ci.sym, fee: IF, quote:'inr', label:`Buy ${C} · ${ci.sym}` },
+                      { side:'sell', market: cb.sym, fee: BF, quote:bridge, label:`Sell ${C} · ${cb.sym}` },
+                      { side:'sell', market: bInr.sym, fee: IF, quote:'inr', label:`Sell ${BU} · ${bInr.sym}` } ] });
+        if (ci.bid && cb.ask) routes.push({ label: `INR → ${BU} → ${C} → INR`,
+          pct: (1 / (bInr.ask * (1 + IF))) * (1 / (cb.ask * (1 + BF))) * (ci.bid * (1 - IF)) * 100 - 100,
+          legsSpec: [ { side:'buy', market: bInr.sym, fee: IF, quote:'inr', label:`Buy ${BU} · ${bInr.sym}` },
+                      { side:'buy', market: cb.sym, fee: BF, quote:bridge, label:`Buy ${C} · ${cb.sym}` },
+                      { side:'sell', market: ci.sym, fee: IF, quote:'inr', label:`Sell ${C} · ${ci.sym}` } ] });
+      }
+    }
+    for (const A of elig) {
+      if (!A.ci.ask || !A.cb.bid) continue;
+      const inrToBridge = (1 / (A.ci.ask * (1 + IF))) * (A.cb.bid * (1 - BF));
+      for (const B of elig) {
+        if (A.coin === B.coin || !B.cb.ask || !B.ci.bid) continue;
+        const pct = inrToBridge * (1 / (B.cb.ask * (1 + BF))) * (B.ci.bid * (1 - IF)) * 100 - 100;
+        if (pct < -2) continue;
+        const CA = A.coin.toUpperCase(), CB = B.coin.toUpperCase();
+        routes.push({ label: `INR → ${CA} → ${BU} → ${CB} → INR`, pct,
+          legsSpec: [ { side:'buy', market: A.ci.sym, fee: IF, quote:'inr', label:`Buy ${CA} · ${A.ci.sym}` },
+                      { side:'sell', market: A.cb.sym, fee: BF, quote:bridge, label:`Sell ${CA} · ${A.cb.sym}` },
+                      { side:'buy', market: B.cb.sym, fee: BF, quote:bridge, label:`Buy ${CB} · ${B.cb.sym}` },
+                      { side:'sell', market: B.ci.sym, fee: IF, quote:'inr', label:`Sell ${CB} · ${B.ci.sym}` } ] });
+      }
+    }
+  }
+  routes.sort((a, b) => b.pct - a.pct);
+  return routes;
+}
+
+function gCounts() {
+  if (!gLastRoutes) return { intra: 0, cross: 0 };
+  const t = gSettings.thr;
+  return { intra: gLastRoutes.filter(r => r.pct >= t && r.legsSpec.length === 3).length,
+           cross: gLastRoutes.filter(r => r.pct >= t && r.legsSpec.length === 4).length };
+}
+function gSetTab(t) { gTab = t; saveUiState(); renderToolbar(); renderGiottusPage(); }
+function gToggleSettings() { gSettingsOpen = !gSettingsOpen; renderGiottusPage(); }
+function gApplySettings() {
+  const read = (id, cur) => { const v = parseFloat(document.getElementById(id)?.value); return isFinite(v) ? v : cur; };
+  gSettings = { feeInr: read('gFeeInr', gSettings.feeInr), feeUsdt: read('gFeeUsdt', gSettings.feeUsdt),
+                thr: read('gThr', gSettings.thr), minP: read('gMinP', gSettings.minP),
+                minInr: read('gMinInr', gSettings.minInr), minUsdt: read('gMinUsdt', gSettings.minUsdt) };
+  gChecked.clear(); saveUiState(); gRefresh();
+}
+function gToggleBooksIdx(i) {
+  const c = gCandidates[i];
+  if (!c) return;
+  if (gOpenBooks.has(c.label)) gOpenBooks.delete(c.label); else gOpenBooks.add(c.label);
+  renderGiottusPage();
+}
+
+async function gFetchDepth(m) {
+  try {
+    const res = await fetch(`/api/giottus/depth?market=${m}`);
+    gCalls++;
+    if (res.status === 429 || res.status >= 500) {
+      gRlHits++; gBackoffUntil = Date.now() + gBackoffMs; gBackoffMs = Math.min(gBackoffMs * 2, 240000); return;
+    }
+    if (!res.ok) return;
+    gBackoffMs = 15000;
+    const d = await res.json();
+    if (d && (d.asks || d.bids)) gDepth[m] = { asks: d.asks || [], bids: d.bids || [], ts: Date.now() };
+  } catch (e) {}
+}
+
+async function gRefresh() {
+  if (currentPage !== 'giottus' || gRefreshing) return;
+  gRefreshing = true;
+  try {
+    const res = await fetch('/api/giottus/ticker');
+    if (!res.ok) { let m = `API returned ${res.status}`; try { const b = await res.json(); if (b.error) m = b.error; } catch (e) {} throw new Error(m); }
+    gTicker = await res.json(); gErr = null;
+    gLastTs = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const maps = gMaps();
+    gLastRoutes = gScreen(maps);
+    renderToolbar(); renderGiottusPage();
+
+    const thr = gSettings.thr;
+    const queue = [...gLastRoutes.filter(r => r.pct >= thr && gInTab(r)),
+                   ...gLastRoutes.filter(r => r.pct >= thr && !gInTab(r))];
+    const toCheck = [];
+    for (const c of queue) {
+      if (!gFreshCheck(gChecked.get(c.label))) toCheck.push(c);
+      if (toCheck.length >= G_PER_CYCLE) break;
+    }
+    gCalls = 0;
+    if (Date.now() >= gBackoffUntil && toCheck.length) {
+      const btc = maps.usdt.get('btc');
+      const btcPx = btc && (btc.bid || btc.ask);
+      const mins = { inr: gSettings.minInr, usdt: gSettings.minUsdt, btc: btcPx ? gSettings.minUsdt / btcPx : 0 };
+      const need = new Set();
+      for (const c of toCheck) for (const L of c.legsSpec) need.add(L.market);
+      for (const m of need) {
+        if (Date.now() < gBackoffUntil) break;
+        const cc = gDepth[m];
+        if (cc && Date.now() - cc.ts < 30000) continue;
+        await gFetchDepth(m);
+        await new Promise(r => setTimeout(r, G_SPACING));
+      }
+      for (const c of toCheck) {
+        const legs = []; let ok = true;
+        for (const L of c.legsSpec) {
+          const d = gDepth[L.market];
+          if (!d) { ok = false; break; }
+          legs.push({ side: L.side, fee: L.fee, levels: gLv(L.side === 'buy' ? d.asks : d.bids) });
+        }
+        if (!ok) continue;
+        const v = gVerdict(legs, c.legsSpec, mins);
+        gChecked.set(c.label, { ts: Date.now(), walk: v.walk, forced: v.forced });
+      }
+      if (currentPage === 'giottus') { renderToolbar(); renderGiottusPage(); }
+    }
+  } catch (e) {
+    gErr = e.message;
+    if (currentPage === 'giottus') renderGiottusPage();
+  } finally { gRefreshing = false; }
+}
+
+function gRouteChips(label) {
+  return label.split(' → ').map((s, i, arr) =>
+    `<span class="g-chip ${s === 'INR' ? 'inr' : ''}">${s}</span>${i < arr.length - 1 ? '<span class="g-arrow">▸</span>' : ''}`).join('');
+}
+
+function gBooksHtml(c) {
+  return '<div class="g-books">' + c.legsSpec.map((L, j) => {
+    const d = gDepth[L.market];
+    if (!d) return `<div class="g-book"><div class="bt">${L.label}</div><table><tr><td class="h">no depth</td></tr></table></div>`;
+    const side = L.side === 'buy' ? gLv(d.asks).slice(0, 8) : gLv(d.bids).slice(0, 8);
+    const cls = L.side === 'buy' ? 'ask' : 'bid';
+    const usedArr = (c.walkUsed && c.walkUsed[j]) || [];
+    const rows = side.map((l, i) =>
+      `<tr class="${cls} ${usedArr[i] > 1e-9 ? 'used' : ''}"><td>${l.p}</td><td>${l.q}</td><td class="take">${usedArr[i] > 1e-9 ? '← ' + (+usedArr[i].toPrecision(4)) : ''}</td></tr>`).join('');
+    return `<div class="g-book"><div class="bt">${L.label} — ${L.side === 'buy' ? 'asks' : 'bids'}</div>
+      <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${rows}</table></div>`;
+  }).join('') + '</div>';
+}
+
+function renderGiottusPage() {
+  const list0 = document.getElementById('cardList');
+  if (!list0 || currentPage !== 'giottus') return;
+  // don't clobber the settings form while the user is typing in it
+  if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#gSettingsCard')) return;
+
+  if (!gTicker) {
+    list0.innerHTML = gErr
+      ? `<div class="banner-error">Couldn't reach Giottus (${gErr}). Retrying every 10s. Note: this page only works on the deployed site, not from a local file.</div>`
+      : `<div class="empty-state"><span class="emoji">📡</span>Connecting to Giottus…</div>`;
+    return;
+  }
+
+  const thr = gSettings.thr, minP = gSettings.minP;
+  const routesAll = gLastRoutes || [];
+  const aboveThr = routesAll.filter(r => r.pct >= thr && gInTab(r));
+  const tradeable = [], dust = []; let pending = 0;
+  for (const c of aboveThr) {
+    const e = gChecked.get(c.label);
+    if (!gFreshCheck(e)) { pending++; continue; }
+    if (e.walk && e.walk !== 'none' && e.walk.profit >= minP) { c.walk = e.walk; c.walkUsed = e.walk.used; c.forced = e.forced; tradeable.push(c); }
+    else dust.push(e.walk && e.walk !== 'none' ? e.walk.profit : 0);
+  }
+  tradeable.sort((a, b) => b.walk.profit - a.walk.profit);
+  gCandidates = tradeable.slice(0, 20);
+  const bestPctIdx = gCandidates.reduce((bi, c, i) => (c.walk.pct > (gCandidates[bi] ? gCandidates[bi].walk.pct : -Infinity) ? i : bi), 0);
+  const checked = dust.length + tradeable.length;
+  const prog = aboveThr.length ? Math.round(checked / aboveThr.length * 100) : 100;
+  const bestDust = dust.reduce((m, p) => Math.max(m, p), 0);
+
+  const stats = `
+    <div class="g-stats">
+      <div class="g-stat"><div class="k">Tradeable now</div><div class="v ${tradeable.length ? 'good' : ''}">${tradeable.length}</div><div class="sub">≥ ${gInrFmt(minP)} after fees & minimums</div></div>
+      <div class="g-stat"><div class="k">Above threshold</div><div class="v">${aboveThr.length}</div><div class="sub">of ${routesAll.length.toLocaleString('en-IN')} routes screened</div></div>
+      <div class="g-stat"><div class="k">USDT/INR on Giottus</div><div class="v mid">${gUiRate}</div><div class="sub">bid / ask</div></div>
+      <div class="g-stat"><div class="k">Markets</div><div class="v">${gMkts}</div><div class="sub">one ticker call each cycle</div></div>
+    </div>`;
+
+  const settings = gSettingsOpen ? `
+    <div class="g-settings" id="gSettingsCard">
+      <label>INR-market fee %<input id="gFeeInr" type="number" step="0.05" value="${gSettings.feeInr}" onchange="gApplySettings()"></label>
+      <label>Crypto-market fee %<input id="gFeeUsdt" type="number" step="0.05" value="${gSettings.feeUsdt}" onchange="gApplySettings()"></label>
+      <label>Screen threshold %<input id="gThr" type="number" step="0.1" value="${gSettings.thr}" onchange="gApplySettings()"></label>
+      <label>Min profit ₹<input id="gMinP" type="number" step="10" value="${gSettings.minP}" onchange="gApplySettings()"></label>
+      <label>Exchange min (INR mkt) ₹<input id="gMinInr" type="number" step="100" value="${gSettings.minInr}" onchange="gApplySettings()"></label>
+      <label>Exchange min (crypto mkt) USDT<input id="gMinUsdt" type="number" step="1" value="${gSettings.minUsdt}" onchange="gApplySettings()"></label>
+    </div>` : '';
+
+  const cards = gCandidates.length ? gCandidates.map((c, i) => {
+    const w = c.walk;
+    const open = gOpenBooks.has(c.label);
+    const tags = `${i === 0 ? '<span class="g-tag gold">highest profit</span>' : ''}
+                  ${i === bestPctIdx ? '<span class="g-tag blue">best %</span>' : ''}
+                  ${c.forced ? '<span class="g-tag purple">sized to exchange min</span>' : ''}`;
+    return `
+    <div class="card">
+      <div class="card-top" style="flex-wrap:wrap; gap:6px;">
+        <div class="g-route">${gRouteChips(c.label)}</div>
+        <div class="badge-row" style="gap:4px;">${tags}</div>
+      </div>
+      <div class="g-facts">
+        <div class="g-fact"><div class="k">Screen</div><div class="v">${c.pct.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">Trade size</div><div class="v">${gInrFmt(w.inrIn)}</div></div>
+        <div class="g-fact"><div class="k">Net return</div><div class="v" style="color:var(--success);">${w.pct.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">Legs</div><div class="v">${c.legsSpec.length} trades</div></div>
+      </div>
+      <div class="arb-bar">
+        <div class="arb-label">Profit</div>
+        <div class="arb-mid">
+          <div class="arb-main">${gInrFmt(w.profit)} (${w.pct.toFixed(2)}%)</div>
+          <div class="arb-sub">on ${gInrFmt(w.inrIn)} · after all fees & exchange minimums</div>
+        </div>
+        <button class="track-live-btn" onclick="gToggleBooksIdx(${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
+      </div>
+      ${open ? gBooksHtml(c) : ''}
+    </div>`;
+  }).join('') : `
+    <div class="empty-state"><span class="emoji">🔬</span>No route clears ${gInrFmt(minP)} at real depth right now${pending ? ' — still checking the queue below' : ''}.<br>
+    <span style="font-size:12px; color:var(--gray-500);">Giottus is fairly priced this minute. This updates every 10s; dislocations appear during volatile stretches.</span></div>`;
+
+  const status = `
+    <div class="g-status">
+      ${checked} of ${aboveThr.length} candidates verified · ${dust.length} below min profit${dust.length ? ` (best ${gInrFmt(bestDust)})` : ''} · ${pending} queued (${G_PER_CYCLE}/cycle) · verdicts refresh every 5 min
+      <div class="g-progress"><div style="width:${prog}%"></div></div>
+    </div>`;
+
+  const misses = routesAll.filter(r => r.pct < thr && gInTab(r)).slice(0, 6);
+  const missCard = `
+    <div class="card">
+      <div class="card-top"><span class="coin-pair">Nearest misses</span><span class="badge" style="background:var(--gray-100); color:var(--gray-700);">below ${thr}% · ticker only</span></div>
+      <table class="g-mini">${misses.length ? misses.map(m =>
+        `<tr><td><div class="g-route">${gRouteChips(m.label)}</div></td><td class="${m.pct >= 0 ? '' : ''}" style="color:${m.pct >= 0 ? 'var(--success)' : 'var(--danger)'};">${m.pct.toFixed(3)}%</td></tr>`).join('')
+        : '<tr><td style="color:var(--gray-500);">—</td><td></td></tr>'}</table>
+    </div>`;
+
+  list0.innerHTML = `
+    ${gErr ? `<div class="banner-error">Couldn't reach Giottus (${gErr}) — showing the last data.</div>` : ''}
+    ${stats}
+    ${settings}
+    ${cards}
+    ${status}
+    ${missCard}`;
 }
 
 // Restore the page + filters the user last had, so a full page reload
