@@ -370,7 +370,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 42</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 44</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -761,7 +761,7 @@ function renderToolbar() {
         <button class="${gTab==='intra'?'on':''}" onclick="gSetTab('intra')">Intra Loop${c.intra?` (${c.intra})`:''}</button>
         <button class="${gTab==='cross'?'on':''}" onclick="gSetTab('cross')">Cross-Pair${c.cross?` (${c.cross})`:''}</button>
       </div>
-      <span class="g-status" style="margin:0;">${gLastTs !== '—' ? `updated ${gLastTs} · ${gCalls} depth calls · ${gRlHits} limit hits` : 'connecting to Giottus…'}</span>
+      <span class="g-status" style="margin:0;">${gSnapLive() ? `⚡ 24/7 engine · updated ${Math.max(0, Math.round((Date.now() - gServerSnap.ts) / 1000))}s ago` : gLastTs !== '—' ? `updated ${gLastTs} · ${gCalls} depth calls · ${gRlHits} limit hits` : 'connecting…'}</span>
       <button class="apply-filter-btn" onclick="gToggleSettings()">⚙ Settings</button>
     `;
     return;
@@ -2394,6 +2394,7 @@ let gSettings = { feeInr: 0.4, feeUsdt: 0.3, thr: 1.0, minP: 100, minInr: 1000, 
 let gTicker = null, gLastRoutes = null, gCandidates = [], gMkts = 0, gUiRate = '—';
 const gDepth = {}, gChecked = new Map(), gOpenBooks = new Set();
 let gRlHits = 0, gCalls = 0, gBackoffUntil = 0, gBackoffMs = 15000, gLastTs = '—', gErr = null, gRefreshing = false;
+let gServerSnap = null; // /api/giottus/snapshot — what the 24/7 alert engine sees
 const G_TTL = 5 * 60 * 1000, G_PER_CYCLE = 8, G_SPACING = 300;
 // Cross routes pair only the TOP-K triangles per direction (gSettings.topK,
 // default 15): the out-triangle ranking and the out-half ranking are the same
@@ -2621,6 +2622,7 @@ function gHalfViable(h, isOut, bridge) {
 }
 
 function gCounts() {
+  if (gSnapLive()) return { intra: gServerSnap.aboveIntra || 0, cross: gServerSnap.aboveCross || 0 };
   if (!gLastRoutes) return { intra: 0, cross: 0 };
   const t = gSettings.thr;
   return { intra: gLastRoutes.filter(r => r.pct >= t && r.legsSpec.length === 3).length,
@@ -2659,10 +2661,30 @@ async function gFetchDepth(m) {
   } catch (e) {}
 }
 
+// The server alert engine is the source of truth: it runs 24/7 (while any
+// Giottus alert is enabled), so it has warm, persistence-checked verdicts the
+// moment this page opens — no cold start. Shown at the top so the page can
+// never say "0 tradeable" while an alert just fired.
+async function gFetchSnapshot() {
+  try {
+    const res = await fetch(`${API_BASE}/api/giottus/snapshot`);
+    if (!res.ok) return;
+    gServerSnap = await res.json();
+    if (currentPage === 'giottus') { renderToolbar(); renderGiottusPage(); }
+  } catch (e) {}
+}
+
 async function gRefresh() {
   if (currentPage !== 'giottus' || gRefreshing) return;
   gRefreshing = true;
   try {
+    // The 24/7 server engine is the PRIMARY source: it's already warm, so
+    // results (with order books) show instantly. While its snapshot is live
+    // this page makes ZERO Giottus calls of its own — the in-page scanner
+    // below is only a fallback for when the engine is warming up or down.
+    // (Polling the snapshot also acts as a keepalive that wakes the engine.)
+    await gFetchSnapshot();
+    if (gSnapLive()) { renderToolbar(); renderGiottusPage(); return; }
     const res = await fetch('/api/giottus/ticker');
     if (!res.ok) { let m = `API returned ${res.status}`; try { const b = await res.json(); if (b.error) m = b.error; } catch (e) {} throw new Error(m); }
     gTicker = await res.json(); gErr = null;
@@ -2752,16 +2774,165 @@ function gBooksHtml(c) {
   }).join('') + '</div>';
 }
 
+// True while the server snapshot is usable (engine on + data < 90s old).
+function gSnapLive() {
+  return !!(gServerSnap && gServerSnap.enabled && gServerSnap.ts && (Date.now() - gServerSnap.ts) < 90_000);
+}
+
+// ---- SERVER-ENGINE VIEW (primary) ----
+// The 24/7 alert engine on the backend is always warm, so its results — with
+// order books — show the instant this page opens. No cold start, no minutes
+// of depth-checking in the browser. The in-page scanner further below is only
+// the fallback while the engine is waking up (~15s) or the backend is down.
+let gSrvTradable = [], gSrvWatch = []; // current tab's lists, for Books toggles
+
+function gLegTitle(L) {
+  const base = L.market.endsWith(L.quote) ? L.market.slice(0, L.market.length - L.quote.length) : L.market;
+  return `${base.toUpperCase()}/${L.quote.toUpperCase()}`;
+}
+
+// Order books straight from the engine's snapshot: the side each leg trades,
+// with "you take" amounts from the depth walk (same look as the lab books).
+function gSrvBooksHtml(t) {
+  return '<div class="g-books">' + (t.legs || []).map(L => {
+    const title = `${gLegTitle(L)} — ${L.side === 'buy' ? 'asks' : 'bids'}`;
+    if (!L.levels || !L.levels.length) return `<div class="g-book"><div class="bt">${title}</div><table><tr><td class="h">no depth yet</td></tr></table></div>`;
+    const cls = L.side === 'buy' ? 'ask' : 'bid';
+    const rows = L.levels.map((lv, i) =>
+      `<tr class="${cls} ${L.used && L.used[i] > 1e-9 ? 'used' : ''}"><td>${lv[0]}</td><td>${lv[1]}</td><td class="take">${L.used && L.used[i] > 1e-9 ? '← ' + (+L.used[i].toPrecision(4)) : ''}</td></tr>`).join('');
+    return `<div class="g-book"><div class="bt">${title}</div>
+      <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${rows}</table></div>`;
+  }).join('') + '</div>';
+}
+
+function gToggleBooksSrv(which, i) {
+  const t = (which === 'st' ? gSrvTradable : gSrvWatch)[i];
+  if (!t) return;
+  const key = which + ':' + t.label;
+  if (gOpenBooks.has(key)) gOpenBooks.delete(key); else gOpenBooks.add(key);
+  renderGiottusPage();
+}
+
+function renderGiottusServerView(list0) {
+  const snap = gServerSnap;
+  const minP = gSettings.minP;
+  const wantKind = gTab === 'intra' ? 'intra' : 'cross';
+  const ago = Math.max(0, Math.round((Date.now() - snap.ts) / 1000));
+
+  gSrvTradable = (snap.tradable || []).filter(t => t.kind === wantKind && t.profit >= minP);
+  const dust = (snap.tradable || []).filter(t => t.kind === wantKind && t.profit < minP);
+  gSrvWatch = (snap.watch || []).filter(t => t.kind === wantKind);
+  const above = wantKind === 'intra' ? (snap.aboveIntra ?? snap.above) : (snap.aboveCross ?? snap.above);
+  const screened = wantKind === 'intra' ? (snap.screenedIntra ?? snap.screened) : (snap.screenedCross ?? snap.screened);
+  const bestPctIdx = gSrvTradable.reduce((bi, t, i) => (t.pct > (gSrvTradable[bi] ? gSrvTradable[bi].pct : -Infinity) ? i : bi), 0);
+
+  const stats = `
+    <div class="g-stats">
+      <div class="g-stat"><div class="k">Tradeable now</div><div class="v ${gSrvTradable.length ? 'good' : ''}">${gSrvTradable.length}</div><div class="sub">≥ ${gInrFmt(minP)} after fees & minimums</div></div>
+      <div class="g-stat"><div class="k">Above threshold</div><div class="v">${above}</div><div class="sub">of ${Number(screened).toLocaleString('en-IN')} routes screened</div></div>
+      <div class="g-stat"><div class="k">USDT/INR on Giottus</div><div class="v mid">${snap.uiBid && snap.uiAsk ? `${snap.uiBid} / ${snap.uiAsk}` : '—'}</div><div class="sub">bid / ask</div></div>
+      <div class="g-stat"><div class="k">Markets</div><div class="v">${snap.markets ?? '—'}</div><div class="sub">24/7 engine · updated ${ago}s ago</div></div>
+    </div>`;
+
+  const cards = gSrvTradable.length ? gSrvTradable.map((t, i) => {
+    const open = gOpenBooks.has('st:' + t.label);
+    const tags = `${i === 0 ? '<span class="g-tag gold">highest profit</span>' : ''}
+                  ${i === bestPctIdx ? '<span class="g-tag blue">best %</span>' : ''}
+                  ${t.forced ? '<span class="g-tag purple">sized to exchange min</span>' : ''}`;
+    const legLines = (t.legs || []).map((L, j) => {
+      const val = L.quote === 'inr' ? gInrFmt(L.value) : `${(+L.value).toFixed(2)} ${L.quote.toUpperCase()}`;
+      return `<div class="leg-line"><span class="k">(${j + 1}) ${L.side === 'buy' ? 'BUY' : 'SELL'} ${gLegTitle(L)}</span><span class="v">${val}</span></div>`;
+    }).join('');
+    return `
+    <div class="card" style="border-left:3px solid var(--success);">
+      <div class="card-top" style="flex-wrap:wrap; gap:6px;">
+        <div class="g-route">${gRouteChips(t.label)}</div>
+        <div class="badge-row" style="gap:4px;">${tags}</div>
+      </div>
+      <div class="g-facts">
+        <div class="g-fact"><div class="k">Screen</div><div class="v">${t.scrPct.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">Trade size</div><div class="v">${gInrFmt(t.inrIn)}</div></div>
+        <div class="g-fact"><div class="k">Net return</div><div class="v" style="color:var(--success);">${t.pct.toFixed(2)}%</div></div>
+        <div class="g-fact"><div class="k">Stable for</div><div class="v">${Math.floor(t.stableSec / 60)}m ${t.stableSec % 60}s</div></div>
+      </div>
+      <div class="kk-body" style="padding-top:0;">${legLines}</div>
+      <div class="arb-bar">
+        <div class="arb-label">Profit</div>
+        <div class="arb-mid">
+          <div class="arb-main">${gInrFmt(t.profit)} (${t.pct.toFixed(2)}%)</div>
+          <div class="arb-sub">on ${gInrFmt(t.inrIn)} · after all fees & exchange minimums · verified ${t.checks}× in a row</div>
+        </div>
+        <button class="track-live-btn" onclick="gToggleBooksSrv('st',${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
+      </div>
+      ${open ? gSrvBooksHtml(t) : ''}
+    </div>`;
+  }).join('') : `
+    <div class="empty-state"><span class="emoji">🔬</span>No route clears ${gInrFmt(minP)} at real depth right now — same verdict your alerts run on.<br>
+    <span style="font-size:12px; color:var(--gray-500);">The 24/7 engine re-checks every ${snap.pollSec || 15}s. Dislocations appear during volatile stretches — you'll get the alert the moment one holds.</span></div>`;
+
+  const thinNote = (snap.thinCoins && snap.thinCoins.length)
+    ? ` · <span style="color:var(--danger); font-weight:700;">${snap.thinCoins.length} thin ${snap.thinCoins.length === 1 ? 'coin' : 'coins'} disqualified</span>: ${snap.thinCoins.slice(0, 5).join(', ')}${snap.thinCoins.length > 5 ? '…' : ''} — re-probed every 5 min`
+    : '';
+  const glitchNote = (snap.badMkts && snap.badMkts.length)
+    ? ` · <span style="color:var(--warning); font-weight:700;">${snap.badMkts.length} glitched ${snap.badMkts.length === 1 ? 'market' : 'markets'} ignored</span> (crossed bid ≥ ask): ${snap.badMkts.slice(0, 4).join(', ')}${snap.badMkts.length > 4 ? '…' : ''}`
+    : '';
+  const status = `
+    <div class="g-status">
+      24/7 alert engine · updated ${ago}s ago · checks every ${snap.pollSec || 15}s server-side · ${dust.length ? `${dust.length} verified below min profit · ` : ''}zero Giottus calls from this browser${thinNote}${glitchNote}
+    </div>`;
+
+  const watchHeader = `<div style="grid-column:1/-1;"><div class="sect" style="margin:4px 2px 8px;">Top 5 by screen % — always shown</div></div>`;
+  const watchCards = gSrvWatch.map((t, i) => {
+    const open = gOpenBooks.has('sw:' + t.label);
+    const ok = t.status === 'ok', none = t.status === 'none';
+    return `
+    <div class="card">
+      <div class="card-top" style="flex-wrap:wrap; gap:6px;">
+        <div class="g-route">${gRouteChips(t.label)}</div>
+        <span class="badge" style="background:var(--gray-100); color:var(--gray-700);">#${i + 1} · screen ${t.scrPct.toFixed(2)}%</span>
+      </div>
+      <div class="arb-bar ${ok && t.profit > 0 ? '' : 'negative'}">
+        <div class="arb-label">Depth</div>
+        <div class="arb-mid">
+          <div class="arb-main">${ok ? `${gInrFmt(t.profit)} (${t.pct.toFixed(2)}%)` : none ? 'No profitable size' : 'checking depth…'}</div>
+          <div class="arb-sub">${ok ? `max profitable ${gInrFmt(t.inrIn)} · after fees & minimums` : none ? 'walked the real books — nothing placeable pays' : 'queued on the server (next few cycles)'}</div>
+        </div>
+        <button class="track-live-btn" onclick="gToggleBooksSrv('sw',${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
+      </div>
+      ${open ? gSrvBooksHtml(t) : ''}
+    </div>`;
+  }).join('');
+
+  const settings = gSettingsOpen ? `
+    <div class="g-settings" id="gSettingsCard">
+      <div style="grid-column:1/-1; font-size:11.5px; color:var(--gray-500);">Min profit ₹ filters this page. The other values apply to the in-page fallback scanner — the 24/7 engine uses the server's settings.</div>
+      <label>Min profit ₹<input id="gMinP" type="number" step="10" value="${gSettings.minP}" onchange="gApplySettings()"></label>
+      <label>INR-market fee %<input id="gFeeInr" type="number" step="0.05" value="${gSettings.feeInr}" onchange="gApplySettings()"></label>
+      <label>Crypto-market fee %<input id="gFeeUsdt" type="number" step="0.05" value="${gSettings.feeUsdt}" onchange="gApplySettings()"></label>
+      <label>Screen threshold %<input id="gThr" type="number" step="0.1" value="${gSettings.thr}" onchange="gApplySettings()"></label>
+      <label>Exchange min (INR mkt) ₹<input id="gMinInr" type="number" step="100" value="${gSettings.minInr}" onchange="gApplySettings()"></label>
+      <label>Exchange min (crypto mkt) USDT<input id="gMinUsdt" type="number" step="1" value="${gSettings.minUsdt}" onchange="gApplySettings()"></label>
+      <label>Top triangles per side (cross pairing)<input id="gTopK" type="number" step="1" value="${gSettings.topK}" onchange="gApplySettings()"></label>
+    </div>` : '';
+
+  list0.innerHTML = `${stats}${settings}${cards}${status}${gSrvWatch.length ? watchHeader + watchCards : ''}`;
+}
+
 function renderGiottusPage() {
   const list0 = document.getElementById('cardList');
   if (!list0 || currentPage !== 'giottus') return;
   // don't clobber the settings form while the user is typing in it
   if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#gSettingsCard')) return;
 
+  // Primary: the 24/7 server engine's live snapshot (instant, with books).
+  if (gSnapLive()) { renderGiottusServerView(list0); return; }
+
   if (!gTicker) {
-    list0.innerHTML = gErr
+    const wake = gServerSnap && !gServerSnap.enabled
+      ? `<div class="note-box" style="margin-top:10px;">The 24/7 engine is waking up (it sleeps when no Giottus alert is enabled and this tab is closed) — first results in ~15–30s.</div>` : '';
+    list0.innerHTML = (gErr
       ? `<div class="banner-error">Couldn't reach Giottus (${gErr}). Retrying every 10s. Note: this page only works on the deployed site, not from a local file.</div>`
-      : `<div class="empty-state"><span class="emoji">📡</span>Connecting to Giottus…</div>`;
+      : `<div class="empty-state"><span class="emoji">📡</span>Connecting to Giottus…</div>`) + wake;
     return;
   }
 
@@ -2890,6 +3061,7 @@ function renderGiottusPage() {
 
   list0.innerHTML = `
     ${gErr ? `<div class="banner-error">Couldn't reach Giottus (${gErr}) — showing the last data.</div>` : ''}
+    <div class="note-box" style="margin-bottom:10px;">Fallback scanner (runs in this browser) — the 24/7 engine isn't reachable right now; it takes over automatically once it responds.</div>
     ${stats}
     ${settings}
     ${cards}
