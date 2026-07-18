@@ -1037,9 +1037,12 @@ function filteredOpportunities() {
                                      : direct.filter(o => o.walletEnabled !== false);
   // USDT-pairs toggle: OFF hides the coin/USDT direct pairs, leaving INR pairs only.
   const quoted = showUsdtPairs ? scoped : scoped.filter(o => (o.quote || 'INR') !== 'USDT');
-  // Volume ON = show only valid (non-negative) opportunities. Volume OFF
-  // (fixed ₹1,00,000 view) shows everything, negatives included.
-  const signed = withVolume ? quoted.filter(o => pctOf(o) >= 0) : quoted;
+  // Volume ON = only opportunities that ACTUALLY walk against real depth and
+  // are non-negative. A card with no walked result (walked=null, "depth not
+  // walkable this instant") is dropped rather than shown as an empty green bar
+  // with a top-of-book %, which read as a fake trade. Volume OFF (fixed
+  // ₹1,00,000-at-top-of-book view) still shows everything, negatives included.
+  const signed = withVolume ? quoted.filter(o => o.walked && o.walked.profitPct >= 0) : quoted;
   return sortList(signed);
 }
 
