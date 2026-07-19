@@ -400,6 +400,12 @@
     <div class="sidebar-item" id="nav-giottus" onclick="selectPage('giottus')">
       Giottus <span class="new-badge" style="background:var(--success);">Lab</span>
     </div>
+    <!-- CoinSwitch tab hidden — focus is on WazirX / Binance / Giottus. The
+         page code stays in place (dormant) so it can be re-enabled later by
+         removing display:none. -->
+    <div class="sidebar-item" id="nav-coinswitch" onclick="selectPage('coinswitch')" style="display:none;">
+      CoinSwitch <span class="new-badge" style="background:var(--success);">Lab</span>
+    </div>
     <div class="sidebar-group-label" style="padding-top:14px;">Tools</div>
     <div class="sidebar-item" id="nav-orderbook" onclick="selectPage('orderbook')">Orderbook</div>
     <div class="sidebar-item" id="nav-alerts" onclick="selectPage('alerts')">Alerts</div>
@@ -466,6 +472,7 @@ const PAGES = {
   loop:      { label: 'Loop',       navId: 'nav-loop' },
   intraloop: { label: 'Intra Loop', navId: 'nav-intraloop' },
   giottus:   { label: 'Giottus',    navId: 'nav-giottus' },
+  coinswitch:{ label: 'CoinSwitch', navId: 'nav-coinswitch' },
   orderbook: { label: 'Orderbook',  navId: 'nav-orderbook' },
   alerts:    { label: 'Alerts',     navId: 'nav-alerts' },
   notifications: { label: 'Notifications', navId: 'nav-notifications' }
@@ -538,6 +545,8 @@ function loadUiState() {
         if (typeof s.gSettings[k] === 'number' && isFinite(s.gSettings[k])) gSettings[k] = s.gSettings[k];
       }
     }
+    // CoinSwitch is hidden now — if it was the last saved page, fall back to Direct.
+    if (s.page === 'coinswitch') return 'direct';
     return (s.page && PAGES[s.page]) ? s.page : null;
   } catch (e) { return null; }
 }
@@ -648,13 +657,23 @@ function selectPage(page) {
   // backend note/error banner is about the scanner, not Giottus, so hide
   // both on this page (it has its own status + error handling).
   const nb = document.getElementById('noteBox'), bs = document.getElementById('bannerSlot');
-  if (nb) nb.style.display = page === 'giottus' ? 'none' : '';
-  if (bs) bs.style.display = page === 'giottus' ? 'none' : '';
+  if (nb) nb.style.display = (page === 'giottus' || page === 'coinswitch') ? 'none' : '';
+  if (bs) bs.style.display = (page === 'giottus' || page === 'coinswitch') ? 'none' : '';
   if (page === 'giottus') {
     if (!gTimer) gTimer = setInterval(gRefresh, 10000);
     gRefresh();
-  } else if (gTimer) {
-    clearInterval(gTimer); gTimer = null;
+    gSyncBookTimer(); // resume 5s book refresh if a book was left open
+  } else {
+    if (gTimer) { clearInterval(gTimer); gTimer = null; }
+    if (gBookTimer) { clearInterval(gBookTimer); gBookTimer = null; }
+  }
+  // CoinSwitch tab: poll the server engine's snapshot while open. The GET
+  // itself is the keepalive that wakes the engine (pageSeen pattern).
+  if (page === 'coinswitch') {
+    if (!cswTimer) cswTimer = setInterval(cswRefresh, 15000);
+    cswRefresh();
+  } else if (cswTimer) {
+    clearInterval(cswTimer); cswTimer = null;
   }
   if (page === 'notifications') {
     if (!notifTimer) notifTimer = setInterval(loadNotifications, 60000);
@@ -662,6 +681,81 @@ function selectPage(page) {
   } else if (notifTimer) {
     clearInterval(notifTimer); notifTimer = null;
   }
+}
+
+// ================================================================
+// COINSWITCH page — server-engine snapshot (intra / cross / ⇄Binance)
+// Mirrors the Giottus server-first pattern: the GET is the keepalive.
+// ================================================================
+let cswTimer = null, cswSnap = null, cswErr = null, cswTab = 'intra', cswMin = -100, cswBooksOpen = {};
+
+async function cswRefresh() {
+  try {
+    const res = await fetch(`${API_BASE}/api/coinswitch/snapshot`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    cswSnap = await res.json();
+    cswErr = null;
+  } catch (err) { cswErr = err.message; }
+  if (currentPage === 'coinswitch') { renderToolbar(); renderCards(); }
+}
+function cswSetTab(t) { cswTab = t; cswBooksOpen = {}; renderToolbar(); renderCards(); }
+function cswToggleBooks(i) { cswBooksOpen[cswTab + i] = !cswBooksOpen[cswTab + i]; renderCards(); }
+
+function cswBooksHtml(r) {
+  return `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; padding:10px 14px; background:#fafbfc; border-top:1px solid var(--border);">` +
+    r.legs.map(L => {
+      const rows = (L.levels || []).map((lv, i) => {
+        const take = L.used && L.used[i] ? ` <span style="color:${L.side==='buy'?'var(--danger)':'var(--success)'}; font-weight:700;">← take ${fmtNum(L.used[i], 4)}</span>` : '';
+        return `<div style="display:flex; justify-content:space-between; gap:6px; font-size:10.5px;"><span>${fmtNum(lv[0], 6)}</span><span style="color:var(--gray-500);">${fmtNum(lv[1], 3)}${take}</span></div>`;
+      }).join('');
+      return `<div><div style="font-size:10.5px; font-weight:700; margin-bottom:3px;">${L.side.toUpperCase()} ${L.market} <span style="color:var(--gray-500); font-weight:400;">(${L.ex === 'bin' ? 'Binance' : 'CoinSwitch'})</span></div>${rows || '<div style="font-size:10.5px; color:var(--gray-500);">no book yet</div>'}</div>`;
+    }).join('') + `</div>`;
+}
+
+function renderCoinswitchPage() {
+  const el = document.getElementById('cardList');
+  const s = cswSnap;
+  if (!s) { el.innerHTML = `<div class="empty-state">${cswErr ? `Couldn't reach the backend (${cswErr}).` : 'Connecting…'}</div>`; return; }
+  if (s.configured === false) {
+    el.innerHTML = `<div class="empty-state">The CoinSwitch engine needs API keys on the server.<br><br>
+      Create a CoinSwitch API key (api-trading.coinswitch.co), then in DigitalOcean set env vars
+      <b>COINSWITCH_API_KEY</b> and <b>COINSWITCH_SECRET_KEY</b> and redeploy. Reads only — the engine never trades.</div>`;
+    return;
+  }
+  if (!s.enabled) { el.innerHTML = `<div class="empty-state">Waking the engine… first snapshot appears within ~${s.pollSec || 15}s of opening this tab.</div>`; return; }
+
+  const list = (s[cswTab] || []).filter(r => (r.pct != null ? r.pct : r.scrPct) >= cswMin);
+  const walletNote = cswTab === 'binloop'
+    ? `<div class="note-box" style="display:block;">Wallet checks — Binance: <b>${s.wallet ? s.wallet.binance : '?'}</b> · CoinSwitch: <b>${s.wallet ? s.wallet.coinswitch : '?'}</b>${s.wallet && s.wallet.coinswitch !== 'live' ? ' (CoinSwitch does not expose transfer flags — routes tagged, not hidden)' : ''}. Transfer times/fees are NOT modeled on this page.</div>`
+    : '';
+  if (!list.length) { el.innerHTML = walletNote + `<div class="empty-state">No ${cswTab} routes above ${cswMin}% right now · ${s.markets} markets screened every ${s.pollSec}s.</div>`; return; }
+
+  el.innerHTML = walletNote + list.map((r, i) => {
+    const open = !!cswBooksOpen[cswTab + i];
+    const verified = r.status === 'ok';
+    const pctShow = verified ? r.pct : r.scrPct;
+    const neg = pctShow < 0;
+    const wBadge = r.wallet ? `<span class="badge ${r.wallet === 'ok' ? 'badge-ok' : r.wallet === 'blocked' ? 'badge-blocked' : ''}" ${r.wallet === 'partial' ? 'style="background:#fff3cd; color:#8a6d1a;"' : ''}>${r.wallet === 'ok' ? 'Wallets OK' : r.wallet === 'blocked' ? 'Wallet blocked' : 'Wallet unverified'}</span>` : '';
+    const legLines = r.legs.map((L, j) =>
+      `<div style="display:flex; justify-content:space-between; padding:7px 14px; border-top:1px solid var(--border); font-size:12.5px;">
+         <span><b style="color:${L.side==='buy'?'var(--success)':'var(--danger)'};">${L.side.toUpperCase()}</b> ${L.market} <span style="color:var(--gray-500);">@ ${L.ex === 'bin' ? 'Binance' : 'CoinSwitch'}</span></span>
+         <span style="color:var(--gray-700);">${L.value != null ? (L.quote === 'inr' ? fmtInr(L.value, 0) : fmtNum(L.value, 2) + ' ' + L.quote.toUpperCase()) : '—'}</span>
+       </div>`).join('');
+    return `<div class="card">
+      <div class="card-top"><span class="coin-pair" style="font-size:13.5px;">${r.label}</span>
+        <div class="badge-row"><span class="badge badge-loop">${r.kind === 'binloop' ? 'CS ⇄ Binance' : r.kind === 'intra' ? 'Intra' : 'Cross'}</span>${wBadge}</div></div>
+      ${legLines}
+      <div class="arb-bar ${neg ? 'negative' : ''}">
+        <div class="arb-label">${verified ? 'Verified' : r.status === 'pending' ? 'Screening' : 'No depth'}</div>
+        <div class="arb-mid">
+          <div class="arb-main">${pctShow != null ? pctShow.toFixed(2) + '%' : '—'}${verified && r.profit != null ? ` (${fmtInr(r.profit, 0)})` : ''}</div>
+          <div class="arb-sub">${verified ? `on ${fmtInr(r.inrIn, 0)}${r.forced ? ' · forced to exchange minimum' : ''} · after fees` : `ticker screen ${r.scrPct.toFixed(2)}% · awaiting order-book verdict`}</div>
+        </div>
+        <button class="track-live-btn" onclick="cswToggleBooks(${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
+      </div>
+      ${open ? cswBooksHtml(r) : ''}
+    </div>`;
+  }).join('');
 }
 
 // ================================================================
@@ -683,18 +777,27 @@ function timeAgo(ts) {
   if (s < 5400) return `${Math.round(s / 60)}m ago`;
   return `${(s / 3600).toFixed(1)}h ago`;
 }
-function renderNotificationsPage() {
-  const el = document.getElementById('cardList');
-  if (notifError) { el.innerHTML = `<div class="banner-error">Couldn't load notifications (${notifError}). If the backend hasn't been redeployed with the 48h history route yet, deploy server.js first.</div>`; return; }
-  if (!notifRows) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading notifications…</div>`; return; }
-  if (!notifRows.length) { el.innerHTML = `<div class="empty-state"><span class="emoji">📭</span>No alerts fired in the last 48 hours.</div>`; return; }
-  el.innerHTML = notifRows.map(r => {
-    const d = (typeof r.detail === 'string' ? (() => { try { return JSON.parse(r.detail); } catch (e) { return {}; } })() : r.detail) || {};
-    const src = d.source === 'giottus' ? 'Giottus' : 'Scanner';
-    const body = d.message
-      ? `<div style="white-space:pre-line; font-size:12.5px; line-height:1.55; margin-top:8px;">${d.message}</div>`
-      : `<div style="font-size:12.5px; margin-top:8px;">Profit ${r.profit_inr != null ? '₹' + Math.round(r.profit_inr).toLocaleString('en-IN') : ''} (${r.profit_pct != null ? Number(r.profit_pct).toFixed(2) + '%' : '—'})</div>`;
-    return `
+// Request 6: bucket each fired alert into Loop / Direct / Intra Loop / Giottus.
+// The kind is stored on the history row's detail JSON (kind + source); we fall
+// back to sniffing the alert name so older rows still land in the right group.
+function notifGroupOf(r, d) {
+  const kind = (d && d.kind ? String(d.kind) : '').toLowerCase();
+  const src  = (d && d.source ? String(d.source) : '').toLowerCase();
+  const name = (r.alert_name || '').toLowerCase();
+  if (src === 'giottus' || kind.startsWith('giottus') || name.includes('giottus')) return 'giottus';
+  if (kind === 'intraloop' || kind === 'intra_loop' || kind === 'intra-loop' || name.includes('intra')) return 'intraloop';
+  if (kind === 'loop' || name.includes('loop')) return 'loop';
+  if (kind === 'direct' || name.includes('direct')) return 'direct';
+  return 'direct'; // safest default for an unlabeled scanner alert
+}
+
+function notifCardHtml(r) {
+  const d = (typeof r.detail === 'string' ? (() => { try { return JSON.parse(r.detail); } catch (e) { return {}; } })() : r.detail) || {};
+  const src = d.source === 'giottus' ? 'Giottus' : 'Scanner';
+  const body = d.message
+    ? `<div style="white-space:pre-line; font-size:12.5px; line-height:1.55; margin-top:8px;">${d.message}</div>`
+    : `<div style="font-size:12.5px; margin-top:8px;">Profit ${r.profit_inr != null ? '₹' + Math.round(r.profit_inr).toLocaleString('en-IN') : ''} (${r.profit_pct != null ? Number(r.profit_pct).toFixed(2) + '%' : '—'})</div>`;
+  return `
     <div class="card" style="padding:12px 14px;">
       <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center;">
         <div style="font-weight:800; color:var(--accent);">${r.alert_name || 'Alert #' + r.alert_id}</div>
@@ -705,7 +808,36 @@ function renderNotificationsPage() {
       </div>
       ${body}
     </div>`;
-  }).join('');
+}
+
+function renderNotificationsPage() {
+  const el = document.getElementById('cardList');
+  if (notifError) { el.innerHTML = `<div class="banner-error">Couldn't load notifications (${notifError}). If the backend hasn't been redeployed with the 48h history route yet, deploy server.js first.</div>`; return; }
+  if (!notifRows) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading notifications…</div>`; return; }
+  if (!notifRows.length) { el.innerHTML = `<div class="empty-state"><span class="emoji">📭</span>No alerts fired in the last 48 hours.</div>`; return; }
+
+  const groups = { loop: [], direct: [], intraloop: [], giottus: [] };
+  for (const r of notifRows) {
+    const d = (typeof r.detail === 'string' ? (() => { try { return JSON.parse(r.detail); } catch (e) { return {}; } })() : r.detail) || {};
+    groups[notifGroupOf(r, d)].push(r);
+  }
+  const sections = [
+    { key: 'loop',      title: 'Loop' },
+    { key: 'direct',    title: 'Direct' },
+    { key: 'intraloop', title: 'Intra Loop' },
+    { key: 'giottus',   title: 'Giottus' }
+  ];
+  el.innerHTML = sections.map(s => {
+    const rows = groups[s.key];
+    if (!rows.length) return '';
+    const cards = rows.map(notifCardHtml).join('');
+    return `
+      <div class="sect" style="margin:14px 2px 8px; display:flex; align-items:center; gap:8px;">
+        ${s.title}
+        <span class="badge" style="background:var(--gray-100); color:var(--gray-700);">${rows.length}</span>
+      </div>
+      ${cards}`;
+  }).join('') || `<div class="empty-state"><span class="emoji">📭</span>No alerts fired in the last 48 hours.</div>`;
 }
 
 // ================================================================
@@ -762,6 +894,23 @@ function renderToolbar() {
 
   if (currentPage === 'notifications') {
     el.innerHTML = `<span class="g-status" style="margin:0;">Every fired alert from the last 48 hours — auto-cleans after that. Refreshes every 60s while open.</span>`;
+    return;
+  }
+
+  if (currentPage === 'coinswitch') {
+    const s = cswSnap || {}, c = s.counts || {};
+    el.innerHTML = `
+      <div class="g-seg">
+        <button class="${cswTab==='intra'?'on':''}" onclick="cswSetTab('intra')">Intra${c.intra?` (${c.intra})`:''}</button>
+        <button class="${cswTab==='cross'?'on':''}" onclick="cswSetTab('cross')">Cross${c.cross?` (${c.cross})`:''}</button>
+        <button class="${cswTab==='binloop'?'on':''}" onclick="cswSetTab('binloop')">⇄ Binance${c.binloop?` (${c.binloop})`:''}</button>
+      </div>
+      <span class="g-status" style="margin:0;">${
+        s.enabled ? `⚡ engine live · ${s.markets || 0} markets · updated ${Math.max(0, Math.round((Date.now() - s.ts) / 1000))}s ago`
+        : s.configured === false ? '⏸ needs CoinSwitch API keys on the server'
+        : cswErr ? `error: ${cswErr}` : 'waking engine…'}</span>
+      <label style="font-size:11.5px; color:var(--gray-500);">min % <input type="number" step="0.1" value="${cswMin}" style="width:64px; padding:4px 6px; border:1px solid var(--border); border-radius:6px;" onchange="cswMin=parseFloat(this.value)||-100; renderCards();"></label>
+    `;
     return;
   }
 
@@ -828,14 +977,16 @@ function renderToolbar() {
   }
 
   if (currentPage === 'loop') {
-    // No sort controls here (loop results are always shown best-first),
-    // but wallet filtering matches Direct: toggle OFF hides loops where
-    // either leg's transfer is blocked.
+    // Volume defaults ON here (see loadUiState) so loops are shown at real
+    // depth by default; the toggle still lets you switch to top-of-book.
+    // Sort by Percentage / Profit mirrors the Direct page. Wallet filtering
+    // matches Direct: toggle OFF hides loops where either leg's transfer is blocked.
     el.innerHTML = `
       ${volumeToggleHtml()}
       <label class="toggle-wrap"><span>Disabled Wallets</span>
         <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
       </label>
+      ${sortControlsHtml()}
       <button class="apply-filter-btn" onclick="openDrawer()">Apply Filter</button>
       ${activeFilterChips()}
     `;
@@ -1028,7 +1179,7 @@ function filteredOpportunities() {
     // Volume ON = only valid (non-negative) loops; Volume OFF shows negatives too.
     // Loops under ₹100 walked profit are noise — hidden on the page (and in alerts).
     if (withVolume) list = list.filter(o => pctOf(o) >= 0 && (!o.walked || o.walked.profit >= 100));
-    return list.sort((a,b) => pctOf(b) - pctOf(a)); // fixed best-first order, no sort control on this page
+    return sortList(list); // Sort by Percentage / Profit, honoring the toolbar control
   }
   const direct = allOpportunities.filter(o => o.type === 'direct' && matchesCoinFilter(o) && matchesBuyExchange(o));
   // Toggle semantics match KoinKnight: OFF = transferable coins only,
@@ -1312,6 +1463,7 @@ function renderCards() {
   if (currentPage === 'alerts') { renderAlertsPage(); return; }
   if (currentPage === 'orderbook') { renderOrderbookPage(); return; }
   if (currentPage === 'giottus') { renderGiottusPage(); return; }
+  if (currentPage === 'coinswitch') { renderCoinswitchPage(); return; }
   if (currentPage === 'notifications') { renderNotificationsPage(); return; }
 
   if (currentPage === 'intraloop') {
@@ -1657,42 +1809,17 @@ function loopOrderBookTable(legs) {
 // ================================================================
 // RENDER — LOOP modal
 // ================================================================
-function renderLoopModal() {
-  const entry = loopLiveEntry || findOpportunity(openCard);
-  if (!entry) {
-    document.getElementById('modalBody').innerHTML = loopLiveError
-      ? `<div class="banner-error">Couldn't load this loop (${loopLiveError}). Retrying every 15s.</div>`
-      : `<div class="modal-note">Loading…</div>`;
-    return;
-  }
-  const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
-  document.getElementById('modalTitle').textContent = `${c1} → ${c2} — Loop Arbitrage`;
-  document.getElementById('modalStatus').innerHTML = modalVolumeToggleHtml() + `refreshes every 15s while open · <a href="#" onclick="refreshLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
-
-  if (!withVolume || !entry.walked) {
-    const legsEarly = entry.liveBooks && entry.liveBooks.legs;
-    // The live loop object (from the loop /live endpoint) carries `walked`
-    // but NO `roughPct`; the list entry carries `roughPct` but no books.
-    // Use whichever spread number is present so this never crashes on
-    // `roughPct.toFixed` when the live entry (with the order book) replaces
-    // the list entry — that crash was freezing the modal on "Loading…".
-    const loopPct = entry.roughPct != null ? entry.roughPct
-                   : (entry.walked ? entry.walked.profitPct : null);
-    document.getElementById('modalBody').innerHTML = `
-      <div class="note-box">Volume is OFF — spread below is top-of-book only, no depth walked.</div>
-      <div class="profit-box ${(loopPct ?? 0) < 0 ? 'negative' : ''}">
-        <div class="profit-pct">${loopPct != null ? loopPct.toFixed(2) + '%' : '—'}</div>
-        <div class="profit-sub">raw two-leg spread, fees not applied</div>
-      </div>
-      ${legsEarly ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legsEarly)}` : '<div class="modal-note">Loading order book depth…</div>'}`;
-    return;
-  }
-
-  const l = entry.walked;
-  const touchedRows = (label, arr, unit) => ((arr && arr.length) ? arr.map(t =>
+// Shared builders so the periodic refresh can update just the numbers + order
+// book IN PLACE (see updateLoopModalLive) instead of tearing down and rebuilding
+// the whole modal, which flickered and reset scroll / open <details> every cycle.
+function loopTouchedRows(label, arr, unit) {
+  return (arr && arr.length) ? arr.map(t =>
     `<div class="leg-line"><span class="k">${label} — level ${t.level}</span><span class="v">${fmtCoin(t.qty,2)} ${unit} @ ${fmtNum(t.price,6)} (${t.pct.toFixed(1)}% of level)</span></div>`
-  ).join('') : `<div class="leg-line"><span class="k">—</span><span class="v">no levels touched</span></div>`);
+  ).join('') : `<div class="leg-line"><span class="k">—</span><span class="v">no levels touched</span></div>`;
+}
 
+function loopRateNoteHtml(entry) {
+  const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
   const u = entry.usdtInrUsed || {};
   // Support both shapes: {rate,source} (build 45+) and a bare number (older).
   const rateVal = x => (x && typeof x === 'object') ? x.rate : x;
@@ -1701,39 +1828,23 @@ function renderLoopModal() {
   const rateBits = [];
   if (u.entry != null) rateBits.push(`buying ${c1} via WazirX ${c1}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.entry), 2)}</b>${srcTag(u.entry)}`);
   if (u.exit != null)  rateBits.push(`selling ${c2} via WazirX ${c2}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.exit), 2)}</b>${srcTag(u.exit)}`);
-  const usdtRateNote = rateBits.length
+  return rateBits.length
     ? `<div style="margin-top:10px; padding:9px 12px; background:#eef6ff; border:1px solid #cfe3f7; border-radius:8px; font-size:12.5px; color:#345;">
          <b>WazirX USDT/INR used:</b> ${rateBits.join(' &nbsp;·&nbsp; ')}
        </div>`
     : '';
+}
 
-  document.getElementById('modalBody').innerHTML = `
-    <div class="summary-box">
-      <div class="title">Loop Arbitrage Summary</div>
-      <div class="summary-grid">
-        <div><div class="lab">Net Profit</div><div class="val" style="color:var(--success);">${fmtInr(l.profit,2)}</div></div>
-        <div><div class="lab">ROI</div><div class="val" style="color:var(--success);">${l.profitPct.toFixed(2)}%</div></div>
-        <div><div class="lab">Exec Time</div><div class="val">${entry.executionMin.toFixed(2)} min</div></div>
-      </div>
-    </div>
-    ${usdtRateNote}
+// Request 3: show the 1st Level Arb (buy c1 half) and 2nd Level Arb (sell c2
+// half) percentages individually inside Track Live — same split as the loop
+// card — so you can see which leg carries the edge. Updated live with the book.
+function loopLevelSectionHtml(entry) {
+  if (!entry.levels) return '';
+  return `<div class="ob-section-title" style="margin-top:14px;">Arbitrage by level</div>${levelArbHtml(entry)}`;
+}
 
-    <details class="leg-detail" style="margin-top:12px;" open>
-      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 1 — sell ${c1} on Binance</div></div><div></div></summary>
-      <div class="leg-detail-body">${touchedRows(`Sell ${c1}`, l.sellTRBTouched, c1)}</div>
-    </details>
-    <details class="leg-detail" open>
-      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 2 — buy ${c2} on Binance</div></div><div></div></summary>
-      <div class="leg-detail-body">${touchedRows(`Buy ${c2}`, l.buyGALATouched, c2)}</div>
-    </details>
-    <details class="leg-detail" open>
-      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 3 — sell ${c2} on WazirX</div></div><div></div></summary>
-      <div class="leg-detail-body">${touchedRows(`Sell ${c2}`, l.sellGALATouched, c2)}</div>
-    </details>
-
-    <details class="leg-detail">
-      <summary><div class="leg-summary-left"><div class="leg-amount">Full fee breakdown</div></div><div></div></summary>
-      <div class="leg-detail-body">
+function loopFeeBodyHtml(l, c1, c2, entry) {
+  return `
         <div class="leg-line"><span class="k">${c1} bought (WazirX)</span><span class="v">${fmtCoin(l.trbQty,2)} ${c1}</span></div>
         <div class="leg-line"><span class="k">Final cost</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
         <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
@@ -1741,21 +1852,108 @@ function renderLoopModal() {
         <div class="leg-line"><span class="k">${c2} bought (Binance)</span><span class="v">${fmtCoin(l.galaQty,0)} ${c2}</span></div>
         <div class="leg-line"><span class="k">${c2} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.galaTransferCharge,2)}</span></div>
         <div class="leg-line"><span class="k">${c2} → INR (WazirX)</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
-        <div class="leg-line"><span class="k">Total transfer + confirm time</span><span class="v">${entry.executionMin.toFixed(2)} min</span></div>
-      </div>
-    </details>
+        <div class="leg-line"><span class="k">Total transfer + confirm time</span><span class="v">${entry.executionMin.toFixed(2)} min</span></div>`;
+}
 
-    ${entry.liveBooks && entry.liveBooks.legs
-      ? `<div class="ob-legend" style="margin-top:14px;">
+function loopObSectionHtml(entry) {
+  if (entry.liveBooks && entry.liveBooks.legs) {
+    return `<div class="ob-legend" style="margin-top:14px;">
            <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--ask-bg); border:1px solid #f4c2c2;"></span><span class="ob-bar-icon" style="background:var(--danger);"></span>Asks — % consumed by this loop</div>
            <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--bid-bg); border:1px solid #b7e6da;"></span><span class="ob-bar-icon" style="background:var(--success);"></span>Bids — % consumed by this loop</div>
          </div>
-         <div class="ob-section-title">Order Book</div>
-         ${loopOrderBookTable(entry.liveBooks.legs)}`
-      : (loopLiveError
-          ? `<div class="banner-error">Order book depth unavailable (${loopLiveError}). If the backend hasn't been redeployed with the loop live endpoint yet, deploy the updated server.js and src/compute.js first — depth appears automatically once it's live.</div>`
-          : `<div class="modal-note">Loading order book depth…</div>`)}
+         <div class="ob-section-title">Order Book <span style="font-weight:500; font-size:11px; color:var(--gray-500);">· live · updates every 5s</span></div>
+         ${loopOrderBookTable(entry.liveBooks.legs)}`;
+  }
+  return loopLiveError
+    ? `<div class="banner-error">Order book depth unavailable (${loopLiveError}). If the backend hasn't been redeployed with the loop live endpoint yet, deploy the updated server.js and src/compute.js first — depth appears automatically once it's live.</div>`
+    : `<div class="modal-note">Loading order book depth…</div>`;
+}
+
+function renderLoopModal() {
+  const entry = loopLiveEntry || findOpportunity(openCard);
+  if (!entry) {
+    document.getElementById('modalBody').innerHTML = loopLiveError
+      ? `<div class="banner-error">Couldn't load this loop (${loopLiveError}). Retrying every 5s.</div>`
+      : `<div class="modal-note">Loading…</div>`;
+    return;
+  }
+  const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
+  document.getElementById('modalTitle').textContent = `${c1} → ${c2} — Loop Arbitrage`;
+  document.getElementById('modalStatus').innerHTML = modalVolumeToggleHtml() + `order book updates live every 5s · <a href="#" onclick="refreshLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
+
+  if (!withVolume || !entry.walked) {
+    const legsEarly = entry.liveBooks && entry.liveBooks.legs;
+    // The live loop object (from the loop /live endpoint) carries `walked`
+    // but NO `roughPct`; the list entry carries `roughPct` but no books.
+    // Use whichever spread number is present so this never crashes.
+    const loopPct = entry.roughPct != null ? entry.roughPct
+                   : (entry.walked ? entry.walked.profitPct : null);
+    document.getElementById('modalBody').innerHTML = `
+      <div class="note-box">Volume is OFF — spread below is top-of-book only, no depth walked.</div>
+      <div class="profit-box ${(loopPct ?? 0) < 0 ? 'negative' : ''}">
+        <div class="profit-pct">${loopPct != null ? loopPct.toFixed(2) + '%' : '—'}</div>
+        <div class="profit-sub">raw two-leg spread, fees not applied</div>
+      </div>
+      <div id="loopLevelSlot">${loopLevelSectionHtml(entry)}</div>
+      <div id="loopObSlot">${legsEarly ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legsEarly)}` : '<div class="modal-note">Loading order book depth…</div>'}</div>`;
+    return;
+  }
+
+  const l = entry.walked;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="summary-box">
+      <div class="title">Loop Arbitrage Summary</div>
+      <div class="summary-grid">
+        <div><div class="lab">Net Profit</div><div class="val" id="loopSumProfit" style="color:var(--success);">${fmtInr(l.profit,2)}</div></div>
+        <div><div class="lab">ROI</div><div class="val" id="loopSumRoi" style="color:var(--success);">${l.profitPct.toFixed(2)}%</div></div>
+        <div><div class="lab">Exec Time</div><div class="val" id="loopSumExec">${entry.executionMin.toFixed(2)} min</div></div>
+      </div>
+    </div>
+    <div id="loopRateNote">${loopRateNoteHtml(entry)}</div>
+    <div id="loopLevelSlot">${loopLevelSectionHtml(entry)}</div>
+
+    <details class="leg-detail" style="margin-top:12px;" open>
+      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 1 — sell ${c1} on Binance</div></div><div></div></summary>
+      <div class="leg-detail-body" id="loopLeg1Body">${loopTouchedRows(`Sell ${c1}`, l.sellTRBTouched, c1)}</div>
+    </details>
+    <details class="leg-detail" open>
+      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 2 — buy ${c2} on Binance</div></div><div></div></summary>
+      <div class="leg-detail-body" id="loopLeg2Body">${loopTouchedRows(`Buy ${c2}`, l.buyGALATouched, c2)}</div>
+    </details>
+    <details class="leg-detail" open>
+      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 3 — sell ${c2} on WazirX</div></div><div></div></summary>
+      <div class="leg-detail-body" id="loopLeg3Body">${loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2)}</div>
+    </details>
+
+    <details class="leg-detail">
+      <summary><div class="leg-summary-left"><div class="leg-amount">Full fee breakdown</div></div><div></div></summary>
+      <div class="leg-detail-body" id="loopFeeBody">${loopFeeBodyHtml(l, c1, c2, entry)}</div>
+    </details>
+
+    <div id="loopObSlot">${loopObSectionHtml(entry)}</div>
   `;
+}
+
+// Request 4: refresh ONLY the numbers, level split, leg tables and order book
+// in place, so the modal never fully redraws while open (no flicker, no scroll
+// jump, open <details> stay open). Falls back to a full render if the expected
+// volume-ON structure isn't there yet (e.g. volume was OFF, walk just arrived).
+function updateLoopModalLive(entry) {
+  const slot = document.getElementById('loopObSlot');
+  const sumP = document.getElementById('loopSumProfit');
+  if (!slot || !sumP || !withVolume || !entry.walked) { renderLoopModal(); return; }
+  const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
+  const l = entry.walked;
+  sumP.textContent = fmtInr(l.profit,2);
+  const roi = document.getElementById('loopSumRoi'); if (roi) roi.textContent = l.profitPct.toFixed(2) + '%';
+  const ex  = document.getElementById('loopSumExec'); if (ex) ex.textContent = entry.executionMin.toFixed(2) + ' min';
+  const rn  = document.getElementById('loopRateNote'); if (rn) rn.innerHTML = loopRateNoteHtml(entry);
+  const ls  = document.getElementById('loopLevelSlot'); if (ls) ls.innerHTML = loopLevelSectionHtml(entry);
+  const b1  = document.getElementById('loopLeg1Body'); if (b1) b1.innerHTML = loopTouchedRows(`Sell ${c1}`, l.sellTRBTouched, c1);
+  const b2  = document.getElementById('loopLeg2Body'); if (b2) b2.innerHTML = loopTouchedRows(`Buy ${c2}`, l.buyGALATouched, c2);
+  const b3  = document.getElementById('loopLeg3Body'); if (b3) b3.innerHTML = loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2);
+  const fb  = document.getElementById('loopFeeBody'); if (fb) fb.innerHTML = loopFeeBodyHtml(l, c1, c2, entry);
+  slot.innerHTML = loopObSectionHtml(entry);
 }
 
 let loopLiveEntry = null;   // last successful response from the loop live endpoint
@@ -1777,7 +1975,7 @@ async function fetchLoopLive(coin1, coin2, entryVenue, exitVenue) {
 
 async function refreshLoopModalLive() {
   if (!openCard || openCard.type !== 'loop') return;
-  renderLoopModal(); // show what we have immediately
+  if (!document.getElementById('loopObSlot')) renderLoopModal(); // first paint builds the shell
   try {
     const data = await fetchLoopLive(openCard.coin1, openCard.coin2, openCard.entryVenue, openCard.exitVenue);
     loopLiveEntry = data.opportunity;
@@ -1785,9 +1983,12 @@ async function refreshLoopModalLive() {
     liveCache[`loop:${openCard.coin1}:${openCard.coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] = data.opportunity;
   } catch (err) {
     loopLiveError = err.message;
-    loopLiveEntry = null;
+    // keep the last good entry so the book doesn't vanish on a transient failure
   }
-  if (openCard) renderLoopModal();
+  if (!openCard || openCard.type !== 'loop') return;
+  const entry = loopLiveEntry || findOpportunity(openCard);
+  if (entry && document.getElementById('loopObSlot')) updateLoopModalLive(entry);
+  else renderLoopModal();
 }
 
 // ================================================================
@@ -2331,7 +2532,7 @@ function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVe
     loopLiveError = null;
     renderLoopModal();
     refreshLoopModalLive();
-    modalTimer = setInterval(refreshLoopModalLive, 15000);
+    modalTimer = setInterval(refreshLoopModalLive, 5000); // live order book
   }
 }
 function closeModal() {
@@ -2377,7 +2578,13 @@ async function fullRefresh() {
   document.getElementById('lastRefreshed').innerHTML = lastFetchTs
     ? `Last refreshed: <strong>${fmtTime(new Date(lastFetchTs))}</strong>` : 'Last refreshed: —';
   countdown = 10;
-  if (openCard && openCard.type === 'loop') renderLoopModal();
+  if (openCard && openCard.type === 'loop') {
+    // Keep the open Track Live modal in place — don't full-redraw it here (the
+    // modal has its own 5s live poll); just refresh its numbers + book.
+    const e = loopLiveEntry || findOpportunity(openCard);
+    if (e && document.getElementById('loopObSlot')) updateLoopModalLive(e);
+    else renderLoopModal();
+  }
   if (openCard && openCard.type === 'intraloop') renderIntraLoopModal();
   // Render the open book from the last-good LIVE entry (which holds the full
   // two-sided book), NOT the list entry — the list entry has no order book, so
@@ -2444,6 +2651,7 @@ if (location.protocol === 'file:') {
 // minimum profit survive, best rupee-profit first.
 // ================================================================
 let gTimer = null, gTab = 'intra', gSettingsOpen = false;
+let gBookTimer = null; // 5s refresh for any OPEN Giottus order book (book only, not the page)
 let gSettings = { feeInr: 0.4, feeUsdt: 0.3, thr: 1.0, minP: 100, minInr: 1000, minUsdt: 10, topK: 15 };
 let gTicker = null, gLastRoutes = null, gCandidates = [], gMkts = 0, gUiRate = '—';
 const gDepth = {}, gChecked = new Map(), gOpenBooks = new Set();
@@ -2865,6 +3073,49 @@ function gToggleBooksSrv(which, i) {
   const key = which + ':' + t.label;
   if (gOpenBooks.has(key)) gOpenBooks.delete(key); else gOpenBooks.add(key);
   renderGiottusPage();
+  gSyncBookTimer(); // start/stop the 5s book-only refresh
+}
+
+// Stable, id-safe key for an open book's slot div so the 5s refresher can
+// find and update JUST that book in the DOM.
+function gBookId(which, label) { return 'gbook-' + which + '-' + String(label).replace(/[^a-z0-9]/gi, '_'); }
+
+// Fetch the engine snapshot WITHOUT re-rendering the whole page (the normal
+// gFetchSnapshot repaints everything). Used by the book-only refresher.
+async function gFetchSnapshotQuiet() {
+  try {
+    const res = await fetch(`${API_BASE}/api/giottus/snapshot`);
+    if (!res.ok) return false;
+    gServerSnap = await res.json();
+    return true;
+  } catch (e) { return false; }
+}
+
+// Request 5: once a tradable's order book is opened, update ONLY that book
+// every 5s (not the whole page). We pull the latest snapshot quietly and
+// replace just the open books' inner HTML, leaving the rest of the page and
+// scroll position untouched.
+async function gRefreshOpenBooks() {
+  if (currentPage !== 'giottus' || !gOpenBooks.size) return;
+  const ok = await gFetchSnapshotQuiet();
+  if (!ok || currentPage !== 'giottus' || !gServerSnap) return;
+  const snap = gServerSnap;
+  const findBy = (arr, label) => (arr || []).find(x => x.label === label);
+  gOpenBooks.forEach(key => {
+    const sep = key.indexOf(':');
+    const which = key.slice(0, sep), label = key.slice(sep + 1);
+    const el = document.getElementById(gBookId(which, label));
+    if (!el) return; // that card isn't currently on screen
+    const t = which === 'st' ? findBy(snap.tradable, label) : findBy(snap.watch, label);
+    if (t) el.innerHTML = gSrvBooksHtml(t);
+  });
+}
+
+// Run the 5s book refresher only while at least one book is open on this page.
+function gSyncBookTimer() {
+  const wantOn = currentPage === 'giottus' && gOpenBooks.size > 0;
+  if (wantOn && !gBookTimer) gBookTimer = setInterval(gRefreshOpenBooks, 5000);
+  else if (!wantOn && gBookTimer) { clearInterval(gBookTimer); gBookTimer = null; }
 }
 
 function renderGiottusServerView(list0) {
@@ -2918,7 +3169,7 @@ function renderGiottusServerView(list0) {
         </div>
         <button class="track-live-btn" onclick="gToggleBooksSrv('st',${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
       </div>
-      ${open ? gSrvBooksHtml(t) : ''}
+      <div class="gbook-slot" id="${gBookId('st', t.label)}">${open ? gSrvBooksHtml(t) : ''}</div>
     </div>`;
   }).join('') : `
     <div class="empty-state"><span class="emoji">🔬</span>No route clears ${gInrFmt(minP)} at real depth right now — same verdict your alerts run on.<br>
@@ -2953,7 +3204,7 @@ function renderGiottusServerView(list0) {
         </div>
         <button class="track-live-btn" onclick="gToggleBooksSrv('sw',${i})">${open ? '▲ Hide books' : '◉ Books'}</button>
       </div>
-      ${open ? gSrvBooksHtml(t) : ''}
+      <div class="gbook-slot" id="${gBookId('sw', t.label)}">${open ? gSrvBooksHtml(t) : ''}</div>
     </div>`;
   }).join('');
 
