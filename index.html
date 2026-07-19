@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 46</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 47</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -2832,7 +2832,11 @@ function gScreen(maps) {
     if (!bmap || !bmap.size) continue;
     const elig = [];
     for (const [coin, ci] of maps.inr) {
-      if (coin === bridge || coin === 'usdt' || coin === 'btc') continue;
+      // Only skip the bridge coin itself (that would be a degenerate INR→X→X→INR).
+      // BTC and USDT ARE valid traded coins on the OTHER bridge — e.g. via the
+      // USDT bridge, INR→BTC→USDT→INR (buy BTC/INR, sell BTC/USDT, sell USDT/INR)
+      // is a real triangle. Blanket-excluding btc/usdt here hid those entirely.
+      if (coin === bridge) continue;
       const cb = bmap.get(coin);
       if (cb) elig.push({ coin, ci, cb });
     }
