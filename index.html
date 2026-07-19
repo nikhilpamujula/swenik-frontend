@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 44</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 46</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -522,7 +522,7 @@ let draftFilter = {}; // working copy while the drawer is open, committed on App
 function saveUiState() {
   try {
     localStorage.setItem('swenikUi', JSON.stringify({
-      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings
+      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings, notifTab
     }));
   } catch (e) {}
 }
@@ -540,6 +540,7 @@ function loadUiState() {
     if (s.sortBy === 'percentage' || s.sortBy === 'profit') sortBy = s.sortBy;
     if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
     if (s.gTab === 'intra' || s.gTab === 'cross') gTab = s.gTab;
+    if (['all','loop','direct','intraloop','giottus'].includes(s.notifTab)) notifTab = s.notifTab;
     if (s.gSettings && typeof s.gSettings === 'object') {
       for (const k of ['feeInr','feeUsdt','thr','minP','minInr','minUsdt','topK']) {
         if (typeof s.gSettings[k] === 'number' && isFinite(s.gSettings[k])) gSettings[k] = s.gSettings[k];
@@ -762,6 +763,20 @@ function renderCoinswitchPage() {
 // NOTIFICATIONS page — last 48h of fired alerts (from alert_history)
 // ================================================================
 let notifTimer = null, notifRows = null, notifError = null;
+let notifTab = 'all'; // Notifications page tab: all | loop | direct | intraloop | giottus
+
+// Parse a history row's detail JSON once (it may arrive as a string or object).
+function notifDetail(r) {
+  return (typeof r.detail === 'string'
+    ? (() => { try { return JSON.parse(r.detail); } catch (e) { return {}; } })()
+    : r.detail) || {};
+}
+function notifCounts() {
+  const c = { all: 0, loop: 0, direct: 0, intraloop: 0, giottus: 0 };
+  for (const r of (notifRows || [])) { c[notifGroupOf(r, notifDetail(r))]++; c.all++; }
+  return c;
+}
+function notifSetTab(t) { notifTab = t; saveUiState(); renderToolbar(); renderNotificationsPage(); }
 async function loadNotifications() {
   try {
     const res = await fetch(`${API_BASE}/api/alerts/history`);
@@ -769,7 +784,7 @@ async function loadNotifications() {
     notifRows = await res.json();
     notifError = null;
   } catch (err) { notifError = err.message; }
-  if (currentPage === 'notifications') renderNotificationsPage();
+  if (currentPage === 'notifications') { renderToolbar(); renderNotificationsPage(); }
 }
 function timeAgo(ts) {
   const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
@@ -817,23 +832,30 @@ function renderNotificationsPage() {
   if (!notifRows.length) { el.innerHTML = `<div class="empty-state"><span class="emoji">📭</span>No alerts fired in the last 48 hours.</div>`; return; }
 
   const groups = { loop: [], direct: [], intraloop: [], giottus: [] };
-  for (const r of notifRows) {
-    const d = (typeof r.detail === 'string' ? (() => { try { return JSON.parse(r.detail); } catch (e) { return {}; } })() : r.detail) || {};
-    groups[notifGroupOf(r, d)].push(r);
+  for (const r of notifRows) groups[notifGroupOf(r, notifDetail(r))].push(r);
+
+  const titles = { loop: 'Loop', direct: 'Direct', intraloop: 'Intra Loop', giottus: 'Giottus' };
+
+  // A specific tab is selected → show just that category as a flat list.
+  if (notifTab !== 'all') {
+    const rows = groups[notifTab] || [];
+    if (!rows.length) {
+      el.innerHTML = `<div class="empty-state"><span class="emoji">📭</span>No ${titles[notifTab] || ''} alerts fired in the last 48 hours.</div>`;
+      return;
+    }
+    el.innerHTML = rows.map(notifCardHtml).join('');
+    return;
   }
-  const sections = [
-    { key: 'loop',      title: 'Loop' },
-    { key: 'direct',    title: 'Direct' },
-    { key: 'intraloop', title: 'Intra Loop' },
-    { key: 'giottus',   title: 'Giottus' }
-  ];
-  el.innerHTML = sections.map(s => {
-    const rows = groups[s.key];
+
+  // "All" → every category, each under its own header.
+  const order = ['loop', 'direct', 'intraloop', 'giottus'];
+  el.innerHTML = order.map(key => {
+    const rows = groups[key];
     if (!rows.length) return '';
     const cards = rows.map(notifCardHtml).join('');
     return `
       <div class="sect" style="margin:14px 2px 8px; display:flex; align-items:center; gap:8px;">
-        ${s.title}
+        ${titles[key]}
         <span class="badge" style="background:var(--gray-100); color:var(--gray-700);">${rows.length}</span>
       </div>
       ${cards}`;
@@ -893,7 +915,18 @@ function renderToolbar() {
   const el = document.getElementById('toolbar');
 
   if (currentPage === 'notifications') {
-    el.innerHTML = `<span class="g-status" style="margin:0;">Every fired alert from the last 48 hours — auto-cleans after that. Refreshes every 60s while open.</span>`;
+    const c = notifCounts();
+    const tab = (key, label) => `<button class="${notifTab===key?'on':''}" onclick="notifSetTab('${key}')">${label}${c[key]?` (${c[key]})`:''}</button>`;
+    el.innerHTML = `
+      <div class="g-seg">
+        ${tab('all','All')}
+        ${tab('direct','Direct')}
+        ${tab('loop','Loop')}
+        ${tab('intraloop','Intra Loop')}
+        ${tab('giottus','Giottus')}
+      </div>
+      <span class="g-status" style="margin:0;">Fired alerts from the last 48 hours — auto-cleans after that. Refreshes every 60s while open.</span>
+    `;
     return;
   }
 
@@ -2551,7 +2584,23 @@ function setBanner(msg) {
   document.getElementById('bannerSlot').innerHTML = msg ? `<div class="banner-error">${msg}</div>` : '';
 }
 
+let refreshInFlight = false;
+// Shows "Refreshing…" while a fetch is in flight, otherwise the countdown —
+// so on a slow connection the header reflects what's actually happening
+// instead of sitting frozen at "in 0s".
+function updateRefreshStatus() {
+  const el = document.getElementById('nextRefresh');
+  if (!el) return;
+  el.textContent = refreshInFlight ? 'Refreshing…' : `Next auto-refresh in ${countdown}s`;
+}
+
 async function fullRefresh() {
+  // Don't stack requests: on a slow network a fetch can take longer than the
+  // 10s auto-refresh interval. Without this guard the requests pile up and
+  // choke each other — the #1 cause of the "everything lags" feeling.
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  updateRefreshStatus();
   let ok = true, errMsg = null;
   try {
     const data = await fetchOpportunities();
@@ -2561,6 +2610,8 @@ async function fullRefresh() {
   } catch (err) {
     ok = false;
     errMsg = err.message;
+  } finally {
+    refreshInFlight = false;
   }
   hasLoadedOnce = true;
 
@@ -2573,11 +2624,17 @@ async function fullRefresh() {
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   const navEl = PAGES[currentPage] && document.getElementById(PAGES[currentPage].navId);
   if (navEl) navEl.classList.add('active');
-  renderToolbar();
+  // NOTE: we deliberately do NOT rebuild the toolbar here. It was being torn
+  // down and recreated every 10s, which made the toggles/sort controls flicker
+  // and could swallow a tap that landed right as the refresh fired. The toolbar
+  // only depends on user choices (filters/toggles), not on fetched data, so it
+  // never needs rebuilding on a data refresh — pages with live counts
+  // (Giottus/CoinSwitch) refresh their own toolbars.
   renderCards();
   document.getElementById('lastRefreshed').innerHTML = lastFetchTs
     ? `Last refreshed: <strong>${fmtTime(new Date(lastFetchTs))}</strong>` : 'Last refreshed: —';
   countdown = 10;
+  updateRefreshStatus();
   if (openCard && openCard.type === 'loop') {
     // Keep the open Track Live modal in place — don't full-redraw it here (the
     // modal has its own 5s live poll); just refresh its numbers + book.
@@ -2604,7 +2661,7 @@ function manualRefresh() {
 }
 
 document.getElementById('noteBox').innerHTML =
-  'Live from the Swenik backend — every number is walked against real order book depth, not estimated. Loop opportunities keep their own wallet-status badge per card (unlike KoinKnight, our Loop results can include wallet-blocked coins, so it\'s shown rather than hidden). Track Live (2s refresh) is Direct-only for now — Loop syncs with the 10s list refresh.';
+  'Live from the Swenik backend — every number is walked against real order book depth, not estimated. Loop opportunities keep their own wallet-status badge per card (unlike KoinKnight, our Loop results can include wallet-blocked coins, so it\'s shown rather than hidden). Track Live now streams the order book live (Direct 15s · Loop 5s), updating the book in place without redrawing the whole card.';
 
 // Pull-to-refresh: on touch devices, dragging down >70px from the very top
 // of the page triggers the same refresh as the ↻ button (rate-limited the
@@ -3382,7 +3439,7 @@ fullRefresh();
 setInterval(fullRefresh, 10000);
 setInterval(() => {
   countdown = Math.max(0, countdown - 1);
-  document.getElementById('nextRefresh').textContent = `Next auto-refresh in ${countdown}s`;
+  updateRefreshStatus();
 }, 1000);
 </script>
 </body>
