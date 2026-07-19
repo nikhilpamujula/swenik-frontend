@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 49</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 50</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -3304,9 +3304,23 @@ function renderGiottusServerView(list0) {
     <div class="empty-state"><span class="emoji">🔬</span>No route clears ${gInrFmt(minP)} at real depth right now — same verdict your alerts run on.<br>
     <span style="font-size:12px; color:var(--gray-500);">The 24/7 engine re-checks every ${snap.pollSec || 15}s. Dislocations appear during volatile stretches — you'll get the alert the moment one holds.</span></div>`;
 
-  const thinNote = (snap.thinCoins && snap.thinCoins.length)
-    ? ` · <span style="color:var(--danger); font-weight:700;">${snap.thinCoins.length} thin ${snap.thinCoins.length === 1 ? 'coin' : 'coins'} disqualified</span>: ${snap.thinCoins.slice(0, 5).join(', ')}${snap.thinCoins.length > 5 ? '…' : ''} — re-probed every 5 min`
-    : '';
+  // Show the MEASURED book value behind each "thin" verdict so it's verifiable
+  // (coin · ₹ INR-book / USDT-book — vs the minimums), not just a bare label.
+  const thinNote = (() => {
+    const d = snap.thinDetail || [];
+    if (d.length) {
+      const minI = d[0].minInr ?? 1000, minU = d[0].minUsdt ?? 10;
+      const show = d.slice(0, 6).map(t => {
+        const inr = t.inr == null ? '—' : '₹' + Math.round(t.inr).toLocaleString('en-IN');
+        const usd = t.usdt == null ? '—' : (+t.usdt).toFixed(0) + ' USDT';
+        return `${(t.coin || '').toUpperCase()} (${inr} / ${usd})`;
+      }).join(', ');
+      return ` · <span style="color:var(--danger); font-weight:700;">${d.length} thin ${d.length === 1 ? 'coin' : 'coins'} benched</span> — measured book vs min ₹${minI}/${minU} USDT: ${show}${d.length > 6 ? '…' : ''} · re-probed every 5 min`;
+    }
+    return (snap.thinCoins && snap.thinCoins.length)
+      ? ` · <span style="color:var(--danger); font-weight:700;">${snap.thinCoins.length} thin ${snap.thinCoins.length === 1 ? 'coin' : 'coins'} disqualified</span>: ${snap.thinCoins.slice(0, 5).join(', ')}${snap.thinCoins.length > 5 ? '…' : ''} — re-probed every 5 min`
+      : '';
+  })();
   const glitchNote = (snap.badMkts && snap.badMkts.length)
     ? ` · <span style="color:var(--warning); font-weight:700;">${snap.badMkts.length} glitched ${snap.badMkts.length === 1 ? 'market' : 'markets'} ignored</span> (crossed bid ≥ ask): ${snap.badMkts.slice(0, 4).join(', ')}${snap.badMkts.length > 4 ? '…' : ''}`
     : '';
