@@ -85,12 +85,12 @@
   /* ---------------- Toolbar ---------------- */
   .toolbar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 4px 0 14px; }
   .toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--gray-700); }
-  .switch { position: relative; width: 34px; height: 19px; flex: 0 0 auto; }
+  .switch { position: relative; width: 48px; height: 28px; flex: 0 0 auto; }
   .switch input { opacity: 0; width: 0; height: 0; }
   .slider { position: absolute; inset: 0; background: #ccc; border-radius: 20px; cursor: pointer; transition: .2s; }
-  .slider::before { content:''; position:absolute; width:15px; height:15px; left:2px; top:2px; background:#fff; border-radius:50%; transition:.2s; }
+  .slider::before { content:''; position:absolute; width:22px; height:22px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; box-shadow:0 1px 3px rgba(0,0,0,.25); }
   .switch input:checked + .slider { background: var(--success); }
-  .switch input:checked + .slider::before { transform: translateX(15px); }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
   .sort-wrap { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--gray-700); }
   .sort-select { font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background:#fff; color:#333; }
   .apply-filter-btn {
@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 47</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 49</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -612,11 +612,25 @@ function pctOf(o) { return o.walked ? o.walked.profitPct : o.roughPct; }
 // would silently also strip loop opportunities, which don't have
 // their own disabled-wallets control.
 // ================================================================
-async function fetchOpportunities() {
-  const url = `${API_BASE}/api/opportunities?volume=${withVolume}&wallets=all&profit=all`;
+// Both volume snapshots are cached client-side so flipping "With volume" can
+// repaint instantly from the cache while a fresh copy loads in the background —
+// instead of the toggle feeling dead until a slow network round-trip returns.
+let volSnapCache = {}; // { 'true': {opportunities, ts}, 'false': {opportunities, ts} }
+
+async function fetchOpportunities(volume = withVolume) {
+  const url = `${API_BASE}/api/opportunities?volume=${volume}&wallets=all&profit=all`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`API returned ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  volSnapCache[String(volume)] = { opportunities: data.opportunities, ts: data.ts };
+  return data;
+}
+
+// Warm the OTHER volume's snapshot in the background so the next toggle is
+// instant. Best-effort — errors are ignored (the toggle still works, just
+// with a brief load the first time).
+function prefetchOtherVolume() {
+  fetchOpportunities(!withVolume).catch(() => {});
 }
 
 async function fetchLiveCoin(coin) {
@@ -662,6 +676,7 @@ function selectPage(page) {
   if (bs) bs.style.display = (page === 'giottus' || page === 'coinswitch') ? 'none' : '';
   if (page === 'giottus') {
     if (!gTimer) gTimer = setInterval(gRefresh, 10000);
+    gLoadEngineSettings(); // reflect the engine's real fees/thresholds in the inputs
     gRefresh();
     gSyncBookTimer(); // resume 5s book refresh if a book was left open
   } else {
@@ -1041,10 +1056,24 @@ function renderToolbar() {
   `;
 }
 
+// Repaint the list immediately from the cached snapshot for the new volume
+// (if we have it), so the toggle feels instant, then quietly fetch a fresh
+// copy in the background. This removes the "numb"/dead feeling on a slow
+// connection where the old code sat on the fetch before anything changed.
+function applyVolumeInstant() {
+  const cached = volSnapCache[String(withVolume)];
+  if (cached) {
+    allOpportunities = cached.opportunities;
+    lastFetchTs = cached.ts;
+    renderCards(); // instant client-side repaint, no toolbar rebuild
+  }
+  // Freshen this volume in the background, then warm the other for next time.
+  fullRefresh().finally(prefetchOtherVolume);
+}
 function onVolumeToggle() {
   withVolume = document.getElementById('volumeToggle').checked;
   saveUiState();
-  fullRefresh(); // volume changes the query param — needs a fresh fetch
+  applyVolumeInstant();
 }
 function onDisabledToggle() {
   showDisabledWallets = document.getElementById('disabledToggle').checked;
@@ -1068,7 +1097,7 @@ function onModalVolumeToggle() {
   saveUiState();
   const main = document.getElementById('volumeToggle');
   if (main) main.checked = withVolume;        // keep the main-page toggle in sync
-  fullRefresh(); // refetch the list AND re-render the open modal in the new mode
+  applyVolumeInstant(); // instant repaint from cache, then background refresh
 }
 
 // ================================================================
@@ -2602,11 +2631,20 @@ async function fullRefresh() {
   refreshInFlight = true;
   updateRefreshStatus();
   let ok = true, errMsg = null;
+  const fetchedVol = withVolume; // remember which volume this fetch is for
   try {
-    const data = await fetchOpportunities();
-    allOpportunities = data.opportunities;
-    lastFetchTs = data.ts;
+    const data = await fetchOpportunities(fetchedVol);
     usingSeedData = false;
+    // If the user flipped volume WHILE this was in flight, don't clobber the
+    // (already instant-repainted) new view with the old volume's data — show
+    // the current volume's cached snapshot instead.
+    if (String(fetchedVol) === String(withVolume)) {
+      allOpportunities = data.opportunities;
+      lastFetchTs = data.ts;
+    } else if (volSnapCache[String(withVolume)]) {
+      allOpportunities = volSnapCache[String(withVolume)].opportunities;
+      lastFetchTs = volSnapCache[String(withVolume)].ts;
+    }
   } catch (err) {
     ok = false;
     errMsg = err.message;
@@ -2953,13 +2991,43 @@ function gCounts() {
 }
 function gSetTab(t) { gTab = t; saveUiState(); renderToolbar(); renderGiottusPage(); }
 function gToggleSettings() { gSettingsOpen = !gSettingsOpen; renderGiottusPage(); }
-function gApplySettings() {
+async function gApplySettings() {
   const read = (id, cur) => { const v = parseFloat(document.getElementById(id)?.value); return isFinite(v) ? v : cur; };
   gSettings = { feeInr: read('gFeeInr', gSettings.feeInr), feeUsdt: read('gFeeUsdt', gSettings.feeUsdt),
                 thr: read('gThr', gSettings.thr), minP: read('gMinP', gSettings.minP),
                 minInr: read('gMinInr', gSettings.minInr), minUsdt: read('gMinUsdt', gSettings.minUsdt),
                 topK: read('gTopK', gSettings.topK) };
-  gChecked.clear(); saveUiState(); gRefresh();
+  gChecked.clear(); saveUiState();
+  await gPushEngineSettings(); // push fees/thresholds to the 24/7 server engine too
+  gRefresh();
+}
+
+// Push the engine-relevant settings to the server so the 24/7 engine uses them
+// (fees, screen threshold, exchange minimums, top-K). Min profit ₹ stays a
+// page-only display filter. Persisted server-side so it survives a restart.
+async function gPushEngineSettings() {
+  try {
+    await fetch(`${API_BASE}/api/giottus/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        feeInr: gSettings.feeInr, feeUsdt: gSettings.feeUsdt, thr: gSettings.thr,
+        minInr: gSettings.minInr, minUsdt: gSettings.minUsdt, topK: gSettings.topK
+      })
+    });
+  } catch (e) {}
+}
+// Pull the engine's current settings so the inputs reflect what the server is
+// actually running on (the server is the source of truth for engine settings).
+async function gLoadEngineSettings() {
+  try {
+    const res = await fetch(`${API_BASE}/api/giottus/settings`);
+    if (!res.ok) return;
+    const c = await res.json();
+    gSettings = { ...gSettings, feeInr: c.feeInr, feeUsdt: c.feeUsdt, thr: c.thr,
+                  minInr: c.minInr, minUsdt: c.minUsdt, topK: c.topK };
+    saveUiState();
+    if (currentPage === 'giottus') renderToolbar();
+  } catch (e) {}
 }
 let gWatch = []; // top-5 by screen % for the active tab, shown regardless of threshold/profit
 function gToggleBooksL(which, i) {
@@ -3271,7 +3339,7 @@ function renderGiottusServerView(list0) {
 
   const settings = gSettingsOpen ? `
     <div class="g-settings" id="gSettingsCard">
-      <div style="grid-column:1/-1; font-size:11.5px; color:var(--gray-500);">Min profit ₹ filters this page. The other values apply to the in-page fallback scanner — the 24/7 engine uses the server's settings.</div>
+      <div style="grid-column:1/-1; font-size:11.5px; color:var(--gray-500);">These settings drive the 24/7 engine and are saved on the server (they survive a restart). Set the fees to what you actually pay on Giottus — too low and it will surface trades that aren't really profitable. Min profit ₹ additionally filters this page's display. Changes apply on the engine's next check (~15s).</div>
       <label>Min profit ₹<input id="gMinP" type="number" step="10" value="${gSettings.minP}" onchange="gApplySettings()"></label>
       <label>INR-market fee %<input id="gFeeInr" type="number" step="0.05" value="${gSettings.feeInr}" onchange="gApplySettings()"></label>
       <label>Crypto-market fee %<input id="gFeeUsdt" type="number" step="0.05" value="${gSettings.feeUsdt}" onchange="gApplySettings()"></label>
@@ -3439,7 +3507,7 @@ function renderGiottusPage() {
 // (browser refresh / mobile pull-to-refresh) keeps them where they were
 // instead of snapping back to Direct with cleared filters.
 selectPage(loadUiState() || 'direct');
-fullRefresh();
+fullRefresh().finally(prefetchOtherVolume); // warm the other volume so the first toggle is instant
 setInterval(fullRefresh, 10000);
 setInterval(() => {
   countdown = Math.max(0, countdown - 1);
