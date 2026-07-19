@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 50</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 51</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -3311,11 +3311,12 @@ function renderGiottusServerView(list0) {
     if (d.length) {
       const minI = d[0].minInr ?? 1000, minU = d[0].minUsdt ?? 10;
       const show = d.slice(0, 6).map(t => {
+        const br = (t.bridge || 'usdt').toUpperCase(); // which market the crypto side is priced in
         const inr = t.inr == null ? '—' : '₹' + Math.round(t.inr).toLocaleString('en-IN');
-        const usd = t.usdt == null ? '—' : (+t.usdt).toFixed(0) + ' USDT';
-        return `${(t.coin || '').toUpperCase()} (${inr} / ${usd})`;
+        const cv = t.usdt == null ? '—' : (+t.usdt).toPrecision(3) + ' ' + br;
+        return `${(t.coin || '').toUpperCase()}·${br} (${inr} / ${cv})`;
       }).join(', ');
-      return ` · <span style="color:var(--danger); font-weight:700;">${d.length} thin ${d.length === 1 ? 'coin' : 'coins'} benched</span> — measured book vs min ₹${minI}/${minU} USDT: ${show}${d.length > 6 ? '…' : ''} · re-probed every 5 min`;
+      return ` · <span style="color:var(--danger); font-weight:700;">${d.length} thin ${d.length === 1 ? 'coin' : 'coins'} benched</span> — measured book vs min ₹${minI} / ${minU} USDT (BTC-bridge min scaled to BTC): ${show}${d.length > 6 ? '…' : ''} · re-probed every 5 min`;
     }
     return (snap.thinCoins && snap.thinCoins.length)
       ? ` · <span style="color:var(--danger); font-weight:700;">${snap.thinCoins.length} thin ${snap.thinCoins.length === 1 ? 'coin' : 'coins'} disqualified</span>: ${snap.thinCoins.slice(0, 5).join(', ')}${snap.thinCoins.length > 5 ? '…' : ''} — re-probed every 5 min`
