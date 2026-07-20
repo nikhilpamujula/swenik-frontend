@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 51</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 52</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -1583,9 +1583,13 @@ function kkBar(l, colorVar) {
     <div class="kk-ob-consumed" style="color:var(${colorVar});">(${fmtSize(l.consumedQty)})</div>`;
 }
 
-function kkObCellPair(l, colorVar, currency) {
+function kkObCellPair(l, colorVar, currency, showBars) {
   if (!l) return '<td class="ob-size-cell"></td><td class="ob-price-cell"></td>';
-  return `<td class="ob-size-cell"><div class="kk-ob-size">${fmtSize(l.size)}</div>${kkBar(l, colorVar)}</td><td class="ob-price-cell">${fmtAdaptive(l.price)}</td>`;
+  // showBars === false hides the red/green "% consumed" bar (used for Loop /
+  // Intra Loop when the overall arb has gone negative). Undefined = show, so
+  // the Direct modal keeps its bars unchanged.
+  const bar = (showBars === false) ? '' : kkBar(l, colorVar);
+  return `<td class="ob-size-cell"><div class="kk-ob-size">${fmtSize(l.size)}</div>${bar}</td><td class="ob-price-cell">${fmtAdaptive(l.price)}</td>`;
 }
 
 // KoinKnight layout: one continuous table — asks section (pink) on top with
@@ -1812,7 +1816,10 @@ function fallbackBooksFromRows(entry) {
 // best ask sits adjacent to the yellow Spread row (shorter books pad at
 // the top), then per-leg Spread values (best ask - best bid — computable
 // now that the backend sends both sides), then bids best-first.
-function loopOrderBookTable(legs) {
+function loopOrderBookTable(legs, opts) {
+  opts = opts || {};
+  const showBars = opts.showBars !== false;   // false → plain book (arb negative)
+  const levels = opts.levels || null;         // {first:{pct,inr}, second:{pct,inr}}
   // Cap at 13 levels a side — deeper reads poorly on screen (user call).
   legs = legs.map(l => ({ ...l, asks: (l.asks || []).slice(0, 13), bids: (l.bids || []).slice(0, 13) }));
   const maxAsks = Math.max(...legs.map(l => l.asks.length));
@@ -1825,7 +1832,7 @@ function loopOrderBookTable(legs) {
       // bottom row (r = maxAsks-1) shows each leg's BEST ask (index 0),
       // rows above walk outward into worse prices; shallow legs pad at top
       const idx = maxAsks - 1 - r;
-      askRows += idx < leg.asks.length ? kkObCellPair(leg.asks[idx], '--danger', leg.currency) : '<td></td><td></td>';
+      askRows += idx < leg.asks.length ? kkObCellPair(leg.asks[idx], '--danger', leg.currency, showBars) : '<td></td><td></td>';
     }
     askRows += '</tr>';
   }
@@ -1842,7 +1849,7 @@ function loopOrderBookTable(legs) {
   for (let r = 0; r < maxBids; r++) {
     bidRows += '<tr class="kk-bid-row">';
     for (const leg of legs) {
-      bidRows += leg.bids[r] ? kkObCellPair(leg.bids[r], '--success', leg.currency) : '<td></td><td></td>';
+      bidRows += leg.bids[r] ? kkObCellPair(leg.bids[r], '--success', leg.currency, showBars) : '<td></td><td></td>';
     }
     bidRows += '</tr>';
   }
@@ -1850,10 +1857,17 @@ function loopOrderBookTable(legs) {
   const headGroups = legs.map(l => `<th colspan="2" class="ob-group">${cap(l.exchange)}<div class="ob-sub">${l.market}</div></th>`).join('');
   const headCols = legs.map(() => '<th class="ob-size-cell">Size</th><th class="ob-price-cell">Price</th>').join('');
 
-  // The 1st/2nd Level Arb banner only makes sense for 4-leg loop books —
-  // on a 2-leg direct book it was a floating orphan header.
+  // 1st/2nd Level Arb banner (4-leg loop books only). The arb % for each half
+  // now lives HERE, right above its columns — instead of at the top of the
+  // modal — so you can read it against the book it belongs to.
+  const arbCell = (label, x) => {
+    if (!x || !isFinite(x.pct)) return label;
+    const color = x.pct < 0 ? 'var(--danger)' : 'var(--success)';
+    const inr = (x.inr != null && isFinite(x.inr)) ? ` (${fmtInr(x.inr, 2)})` : '';
+    return `${label} <span style="color:${color}; font-weight:800;">${x.pct.toFixed(2)}%${inr}</span>`;
+  };
   const levelBanner = legs.length >= 4
-    ? `<tr><th class="ob-group" colspan="${legs.length}">1st Level Arb</th><th class="ob-group" colspan="${legs.length}">2nd Level Arb</th></tr>`
+    ? `<tr><th class="ob-group" colspan="${legs.length}">${levels ? arbCell('1st Level Arb', levels.first) : '1st Level Arb'}</th><th class="ob-group" colspan="${legs.length}">${levels ? arbCell('2nd Level Arb', levels.second) : '2nd Level Arb'}</th></tr>`
     : '';
   return `
     <div class="loop-scroll">
@@ -1919,12 +1933,22 @@ function loopFeeBodyHtml(l, c1, c2, entry) {
 
 function loopObSectionHtml(entry) {
   if (entry.liveBooks && entry.liveBooks.legs) {
-    return `<div class="ob-legend" style="margin-top:14px;">
+    // Overall arb negative → the trade has slipped/been taken; drop the
+    // red/green "% consumed" bars and their legend (they imply a live trade
+    // that no longer exists) and just show the plain book.
+    const overall = entry.walked ? entry.walked.profit
+                   : (entry.roughPct != null ? entry.roughPct : null);
+    const negative = overall != null && overall < 0;
+    const showBars = !negative;
+    const header = showBars
+      ? `<div class="ob-legend" style="margin-top:14px;">
            <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--ask-bg); border:1px solid #f4c2c2;"></span><span class="ob-bar-icon" style="background:var(--danger);"></span>Asks — % consumed by this loop</div>
            <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--bid-bg); border:1px solid #b7e6da;"></span><span class="ob-bar-icon" style="background:var(--success);"></span>Bids — % consumed by this loop</div>
-         </div>
+         </div>`
+      : `<div class="note-box" style="margin-top:14px;">Overall arbitrage is negative right now — the trade has slipped, so the plain order book is shown (no consumption bars).</div>`;
+    return `${header}
          <div class="ob-section-title">Order Book <span style="font-weight:500; font-size:11px; color:var(--gray-500);">· live · updates every 5s</span></div>
-         ${loopOrderBookTable(entry.liveBooks.legs)}`;
+         ${loopOrderBookTable(entry.liveBooks.legs, { showBars, levels: entry.levels })}`;
   }
   return loopLiveError
     ? `<div class="banner-error">Order book depth unavailable (${loopLiveError}). If the backend hasn't been redeployed with the loop live endpoint yet, deploy the updated server.js and src/compute.js first — depth appears automatically once it's live.</div>`
@@ -1956,8 +1980,7 @@ function renderLoopModal() {
         <div class="profit-pct">${loopPct != null ? loopPct.toFixed(2) + '%' : '—'}</div>
         <div class="profit-sub">raw two-leg spread, fees not applied</div>
       </div>
-      <div id="loopLevelSlot">${loopLevelSectionHtml(entry)}</div>
-      <div id="loopObSlot">${legsEarly ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legsEarly)}` : '<div class="modal-note">Loading order book depth…</div>'}</div>`;
+      <div id="loopObSlot">${legsEarly ? `<div class="ob-section-title" style="margin-top:14px;">Order Book</div>${loopOrderBookTable(legsEarly, { showBars: (loopPct ?? 0) >= 0, levels: entry.levels })}` : '<div class="modal-note">Loading order book depth…</div>'}</div>`;
     return;
   }
 
@@ -1972,7 +1995,6 @@ function renderLoopModal() {
       </div>
     </div>
     <div id="loopRateNote">${loopRateNoteHtml(entry)}</div>
-    <div id="loopLevelSlot">${loopLevelSectionHtml(entry)}</div>
 
     <details class="leg-detail" style="margin-top:12px;" open>
       <summary><div class="leg-summary-left"><div class="leg-amount">Leg 1 — sell ${c1} on Binance</div></div><div></div></summary>
@@ -2010,7 +2032,6 @@ function updateLoopModalLive(entry) {
   const roi = document.getElementById('loopSumRoi'); if (roi) roi.textContent = l.profitPct.toFixed(2) + '%';
   const ex  = document.getElementById('loopSumExec'); if (ex) ex.textContent = entry.executionMin.toFixed(2) + ' min';
   const rn  = document.getElementById('loopRateNote'); if (rn) rn.innerHTML = loopRateNoteHtml(entry);
-  const ls  = document.getElementById('loopLevelSlot'); if (ls) ls.innerHTML = loopLevelSectionHtml(entry);
   const b1  = document.getElementById('loopLeg1Body'); if (b1) b1.innerHTML = loopTouchedRows(`Sell ${c1}`, l.sellTRBTouched, c1);
   const b2  = document.getElementById('loopLeg2Body'); if (b2) b2.innerHTML = loopTouchedRows(`Buy ${c2}`, l.buyGALATouched, c2);
   const b3  = document.getElementById('loopLeg3Body'); if (b3) b3.innerHTML = loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2);
@@ -2082,6 +2103,9 @@ function renderIntraLoopModal() {
   }
   const opps = entry.opportunities || [];
   const legs = entry.liveBooks && entry.liveBooks.legs;
+  // Same rule as Loop: if no triangle direction is positive, the trade has
+  // slipped — show the plain book without the red/green consumption bars.
+  const intraShowBars = opps.some(op => (op.walked ? op.walked.profit : op.roughPct) > 0);
   const pathHtml = opps.length ? opps.map(op => {
     const l = op.walked;
     const p = l ? l.profitPct : op.roughPct;
@@ -2093,11 +2117,13 @@ function renderIntraLoopModal() {
   document.getElementById('modalBody').innerHTML = `
     <div class="note-box">Same-exchange WazirX triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
     ${pathHtml}
-    ${legs ? `<div class="ob-legend" style="margin-top:14px;">
+    ${legs ? `${intraShowBars
+         ? `<div class="ob-legend" style="margin-top:14px;">
          <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--ask-bg); border:1px solid #f4c2c2;"></span><span class="ob-bar-icon" style="background:var(--danger);"></span>Asks — % consumed by this loop</div>
          <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--bid-bg); border:1px solid #b7e6da;"></span><span class="ob-bar-icon" style="background:var(--success);"></span>Bids — % consumed by this loop</div>
-       </div>
-       <div class="ob-section-title">Order Book</div>${loopOrderBookTable(legs)}` : '<div class="modal-note">Loading order book depth…</div>'}
+       </div>`
+         : `<div class="note-box" style="margin-top:14px;">Triangle is negative right now — showing the plain order book (no consumption bars).</div>`}
+       <div class="ob-section-title">Order Book</div>${loopOrderBookTable(legs, { showBars: intraShowBars })}` : '<div class="modal-note">Loading order book depth…</div>'}
   `;
 }
 
