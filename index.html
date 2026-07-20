@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 52</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 53</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -478,6 +478,21 @@ const PAGES = {
   notifications: { label: 'Notifications', navId: 'nav-notifications' }
 };
 
+// ================================================================
+// EXTERNAL EXCHANGE VENUES — each is a full trading venue vs Binance, backed by
+// its own server engine (discovery + compute). The tab, cards, filters, and
+// Track Live are all GENERIC: to add a future exchange, add ONE entry here and
+// ship its backend engine at the same `${api}/…` route shape as Zebpay
+//   list:  GET ${api}/opportunities?volume=&wallets=&profit=&type=
+//   live:  GET ${api}/{direct|loop|intraloop}/…/live
+// No other frontend change is needed — a new tab appears automatically.
+// ================================================================
+const VENUES = [
+  { id: 'zebpay', label: 'Zebpay', partner: 'Binance', api: '/api/zebpay' }
+  // , { id: 'coindcx', label: 'CoinDCX', partner: 'Binance', api: '/api/coindcx' }  // future
+];
+VENUES.forEach(v => { PAGES[v.id] = { label: v.label, navId: 'nav-' + v.id, venue: v }; });
+
 // Exchange list is derived from live data (plus the two known defaults), so
 // when the backend starts tracking Giottus / CoinSwitch / ZebPay / etc.,
 // every exchange dropdown on this page picks them up automatically — no
@@ -522,7 +537,7 @@ let draftFilter = {}; // working copy while the drawer is open, committed on App
 function saveUiState() {
   try {
     localStorage.setItem('swenikUi', JSON.stringify({
-      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings, notifTab
+      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings, notifTab, vTab
     }));
   } catch (e) {}
 }
@@ -540,6 +555,7 @@ function loadUiState() {
     if (s.sortBy === 'percentage' || s.sortBy === 'profit') sortBy = s.sortBy;
     if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
     if (s.gTab === 'intra' || s.gTab === 'cross') gTab = s.gTab;
+    if (['direct','loop','intraloop'].includes(s.vTab)) vTab = s.vTab;
     if (['all','loop','direct','intraloop','giottus'].includes(s.notifTab)) notifTab = s.notifTab;
     if (s.gSettings && typeof s.gSettings === 'object') {
       for (const k of ['feeInr','feeUsdt','thr','minP','minInr','minUsdt','topK']) {
@@ -634,19 +650,23 @@ function prefetchOtherVolume() {
 }
 
 async function fetchLiveCoin(coin) {
-  const res = await fetch(`${API_BASE}/api/opportunities/${coin}/live`);
+  const url = (openCard && openCard.venueApi)
+    ? `${API_BASE}${openCard.venueApi}/direct/${coin}/live`
+    : `${API_BASE}/api/opportunities/${coin}/live`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`API returned ${res.status}`);
   return res.json();
 }
 
 function findOpportunity(card) {
   if (!card) return null;
+  const src = (card.venueId && venueState[card.venueId]) ? (venueState[card.venueId].opps || []) : allOpportunities;
   if (card.type === 'direct') {
-    return allOpportunities.find(o => o.type === 'direct' && o.coin === card.coin
+    return src.find(o => o.type === 'direct' && o.coin === card.coin
       && o.buyExchange === card.buyExchange
       && (!card.buyMarket || o.buyMarket === card.buyMarket));
   }
-  return allOpportunities.find(o => o.type === 'loop' && o.coin1 === card.coin1 && o.coin2 === card.coin2
+  return src.find(o => o.type === 'loop' && o.coin1 === card.coin1 && o.coin2 === card.coin2
     && (!card.entryVenue || o.entryVenue === card.entryVenue)
     && (!card.exitVenue || o.exitVenue === card.exitVenue));
 }
@@ -671,9 +691,15 @@ function selectPage(page) {
   // Giottus polls its own APIs — only while its page is open. The Swenik
   // backend note/error banner is about the scanner, not Giottus, so hide
   // both on this page (it has its own status + error handling).
+  const isVenue = !!(PAGES[page] && PAGES[page].venue);
   const nb = document.getElementById('noteBox'), bs = document.getElementById('bannerSlot');
-  if (nb) nb.style.display = (page === 'giottus' || page === 'coinswitch') ? 'none' : '';
-  if (bs) bs.style.display = (page === 'giottus' || page === 'coinswitch') ? 'none' : '';
+  if (nb) nb.style.display = (page === 'giottus' || page === 'coinswitch' || isVenue) ? 'none' : '';
+  if (bs) bs.style.display = (page === 'giottus' || page === 'coinswitch' || isVenue) ? 'none' : '';
+  // Venue pages poll their own engine while open (like Giottus).
+  if (isVenue) {
+    if (!vTimer) vTimer = setInterval(vRefresh, 10000);
+    vRefresh();
+  } else if (vTimer) { clearInterval(vTimer); vTimer = null; }
   if (page === 'giottus') {
     if (!gTimer) gTimer = setInterval(gRefresh, 10000);
     gLoadEngineSettings(); // reflect the engine's real fees/thresholds in the inputs
@@ -929,6 +955,26 @@ function volumeToggleHtml() {
 function renderToolbar() {
   const el = document.getElementById('toolbar');
 
+  const _v = venueCfg();
+  if (_v) {
+    const st = venueState[_v.id] || {};
+    const c = vCounts(st.opps);
+    const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l}${c[k]?` (${c[k]})`:''}</button>`;
+    el.innerHTML = `
+      <div class="g-seg">${tab('direct','Direct')}${tab('loop','Loop')}${tab('intraloop','Intra Loop')}</div>
+      ${volumeToggleHtml()}
+      <label class="toggle-wrap"><span>Disabled Wallets</span>
+        <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
+      </label>
+      ${sortControlsHtml()}
+      <span class="g-status" style="margin:0;">${
+        st.err ? `error: ${st.err}`
+        : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner} · ${st.tracked||0} coins · updated ${Math.max(0, Math.round((Date.now()-st.ts)/1000))}s ago`
+        : 'connecting…'}</span>
+    `;
+    return;
+  }
+
   if (currentPage === 'notifications') {
     const c = notifCounts();
     const tab = (key, label) => `<button class="${notifTab===key?'on':''}" onclick="notifSetTab('${key}')">${label}${c[key]?` (${c[key]})`:''}</button>`;
@@ -1073,6 +1119,7 @@ function applyVolumeInstant() {
 function onVolumeToggle() {
   withVolume = document.getElementById('volumeToggle').checked;
   saveUiState();
+  if (venueCfg()) { vRefresh(); return; } // venue pages fetch their own snapshot
   applyVolumeInstant();
 }
 function onDisabledToggle() {
@@ -1519,9 +1566,77 @@ function intraLoopCard(o) {
     </div>`;
 }
 
+// ================================================================
+// GENERIC VENUE PAGE (Zebpay first) — Direct / Loop / Intra sub-tabs, reusing
+// the same card renderers, sort, and wallet filter as the WazirX pages.
+// ================================================================
+let vTimer = null;
+let vTab = 'direct'; // sub-tab within a venue page: direct | loop | intraloop
+const venueState = {}; // id -> { opps, ts, tracked, err }
+
+function venueCfg() { return (PAGES[currentPage] && PAGES[currentPage].venue) || null; }
+function vCounts(opps) {
+  const c = { direct: 0, loop: 0, intraloop: 0 };
+  for (const o of opps || []) if (c[o.type] !== undefined) c[o.type]++;
+  return c;
+}
+function vSetTab(t) { vTab = t; saveUiState(); renderToolbar(); renderVenuePage(); }
+
+async function vRefresh() {
+  const v = venueCfg(); if (!v) return;
+  const st = venueState[v.id] || (venueState[v.id] = { opps: [], ts: 0, tracked: 0, err: null });
+  try {
+    const res = await fetch(`${API_BASE}${v.api}/opportunities?volume=${withVolume}&wallets=all&profit=all`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    const data = await res.json();
+    st.opps = data.opportunities || []; st.ts = data.ts; st.tracked = data.trackedPairs || 0; st.err = null;
+  } catch (e) { st.err = e.message; }
+  if (venueCfg() === v) { renderToolbar(); renderVenuePage(); }
+}
+
+function renderVenuePage() {
+  const v = venueCfg(); if (!v) return;
+  const el = document.getElementById('cardList');
+  const st = venueState[v.id];
+  if (!st || (!st.ts && !st.err)) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Connecting to ${v.label}…</div>`; return; }
+  if (st.err && !(st.opps && st.opps.length)) {
+    el.innerHTML = `<div class="empty-state"><span class="emoji">⚠️</span>Couldn't reach the ${v.label} engine (${st.err}). If the backend was just deployed, give it a moment to discover markets.</div>`;
+    return;
+  }
+  let list = (st.opps || []).filter(o => o.type === vTab);
+  // Same client-side filters as the WazirX pages.
+  if ((vTab === 'direct' || vTab === 'loop') && !showDisabledWallets) list = list.filter(o => o.walletEnabled !== false);
+  if (vTab === 'direct' && !showUsdtPairs) list = list.filter(o => (o.quote || 'INR') !== 'USDT');
+  if (vTab === 'intraloop') list = list.filter(o => !o.walked || o.walked.profit >= 100);
+  list = sortList(list);
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No ${vTab === 'intraloop' ? 'intra-loop' : vTab} opportunities on ${v.label} ⇄ ${v.partner} right now.</div>`;
+    return;
+  }
+  el.innerHTML = list.map(o => o.type === 'direct' ? directCard(o) : o.type === 'loop' ? loopCard(o) : intraLoopCard(o)).join('');
+}
+
+// Inject a sidebar tab for every venue (under the Exchanges group), so adding
+// to VENUES is all it takes for a new exchange to appear.
+function buildVenueNav() {
+  let after = document.getElementById('nav-giottus');
+  if (!after) return;
+  VENUES.forEach(v => {
+    if (document.getElementById('nav-' + v.id)) return;
+    const el = document.createElement('div');
+    el.className = 'sidebar-item';
+    el.id = 'nav-' + v.id;
+    el.textContent = v.label;
+    el.onclick = () => selectPage(v.id);
+    after.insertAdjacentElement('afterend', el);
+    after = el;
+  });
+}
+
 function renderCards() {
   const list0 = document.getElementById('cardList');
 
+  if (venueCfg()) { renderVenuePage(); return; }
   if (currentPage === 'alerts') { renderAlertsPage(); return; }
   if (currentPage === 'orderbook') { renderOrderbookPage(); return; }
   if (currentPage === 'giottus') { renderGiottusPage(); return; }
@@ -2047,7 +2162,10 @@ async function fetchLoopLive(coin1, coin2, entryVenue, exitVenue) {
   if (entryVenue) qs.set('entry', entryVenue);
   if (exitVenue) qs.set('exit', exitVenue);
   const q = qs.toString();
-  const res = await fetch(`${API_BASE}/api/opportunities/loop/${coin1}/${coin2}/live${q ? '?' + q : ''}`);
+  const loopPath = (openCard && openCard.venueApi)
+    ? `${openCard.venueApi}/loop/${coin1}/${coin2}/live`
+    : `/api/opportunities/loop/${coin1}/${coin2}/live`;
+  const res = await fetch(`${API_BASE}${loopPath}${q ? '?' + q : ''}`);
   if (!res.ok) {
     let reason = `API returned ${res.status}`;
     try { const body = await res.json(); if (body.error) reason = body.error; } catch (e) {}
@@ -2081,7 +2199,10 @@ let intraLoopLiveEntry = null;
 let intraLoopLiveError = null;
 
 async function fetchIntraLoopLive(coin) {
-  const res = await fetch(`${API_BASE}/api/opportunities/intraloop/${coin}/live`);
+  const intraPath = (openCard && openCard.venueApi)
+    ? `${openCard.venueApi}/intraloop/${coin}/live`
+    : `/api/opportunities/intraloop/${coin}/live`;
+  const res = await fetch(`${API_BASE}${intraPath}`);
   if (!res.ok) {
     let reason = `API returned ${res.status}`;
     try { const body = await res.json(); if (body.error) reason = body.error; } catch (e) {}
@@ -2601,7 +2722,9 @@ function renderOrderbookPage() {
 // MODAL open/close
 // ================================================================
 function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVenue, exitVenue) {
-  openCard = { type, coin, coin1, coin2, buyExchange, buyMarket: buyMarket || '', entryVenue: entryVenue || '', exitVenue: exitVenue || '' };
+  const _vc = venueCfg();
+  openCard = { type, coin, coin1, coin2, buyExchange, buyMarket: buyMarket || '', entryVenue: entryVenue || '', exitVenue: exitVenue || '',
+    venueId: _vc ? _vc.id : null, venueApi: _vc ? _vc.api : null };
   document.getElementById('modalOverlay').classList.remove('hidden');
   if (type === 'direct') {
     directLiveEntry = liveCache[`${coin}:${buyExchange}:${buyMarket || ''}`] || null;
@@ -3547,6 +3670,7 @@ function renderGiottusPage() {
 // Restore the page + filters the user last had, so a full page reload
 // (browser refresh / mobile pull-to-refresh) keeps them where they were
 // instead of snapping back to Direct with cleared filters.
+buildVenueNav(); // inject the Zebpay (and future) exchange tabs before restoring the page
 selectPage(loadUiState() || 'direct');
 fullRefresh().finally(prefetchOtherVolume); // warm the other volume so the first toggle is instant
 setInterval(fullRefresh, 10000);
