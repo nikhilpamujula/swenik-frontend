@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 53</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 54</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -499,6 +499,7 @@ VENUES.forEach(v => { PAGES[v.id] = { label: v.label, navId: 'nav-' + v.id, venu
 // frontend change needed.
 function knownExchanges() {
   const s = new Set(['binance', 'wazirx']);
+  VENUES.forEach(v => s.add(v.id)); // venue exchanges (Zebpay…) always selectable
   for (const o of allOpportunities) {
     if (o.buyExchange) s.add(o.buyExchange);
     if (o.sellExchange) s.add(o.sellExchange);
@@ -537,7 +538,7 @@ let draftFilter = {}; // working copy while the drawer is open, committed on App
 function saveUiState() {
   try {
     localStorage.setItem('swenikUi', JSON.stringify({
-      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings, notifTab, vTab
+      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings, notifTab, vTab, vCoinFilter
     }));
   } catch (e) {}
 }
@@ -556,6 +557,7 @@ function loadUiState() {
     if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
     if (s.gTab === 'intra' || s.gTab === 'cross') gTab = s.gTab;
     if (['direct','loop','intraloop'].includes(s.vTab)) vTab = s.vTab;
+    if (typeof s.vCoinFilter === 'string') vCoinFilter = s.vCoinFilter;
     if (['all','loop','direct','intraloop','giottus'].includes(s.notifTab)) notifTab = s.notifTab;
     if (s.gSettings && typeof s.gSettings === 'object') {
       for (const k of ['feeInr','feeUsdt','thr','minP','minInr','minUsdt','topK']) {
@@ -958,15 +960,26 @@ function renderToolbar() {
   const _v = venueCfg();
   if (_v) {
     const st = venueState[_v.id] || {};
-    const c = vCounts(st.opps);
-    const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l}${c[k]?` (${c[k]})`:''}</button>`;
+    // Counts reflect the ACTIVE filters (wallets/USDT/coin), so flipping a
+    // toggle visibly moves the numbers — proof the filter applied.
+    const f = vFiltered(st.opps);
+    const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l} (${(f[k]||[]).length})</button>`;
     el.innerHTML = `
       <div class="g-seg">${tab('direct','Direct')}${tab('loop','Loop')}${tab('intraloop','Intra Loop')}</div>
       ${volumeToggleHtml()}
       <label class="toggle-wrap"><span>Disabled Wallets</span>
         <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
       </label>
+      <label class="toggle-wrap"><span>USDT pairs</span>
+        <label class="switch"><input type="checkbox" id="usdtToggle" ${showUsdtPairs?'checked':''} onchange="onUsdtToggle()"><span class="slider"></span></label>
+      </label>
       ${sortControlsHtml()}
+      <div class="sort-wrap" style="gap:6px;">
+        <input type="text" id="vCoinInput" placeholder="Filter coin, e.g. BTC" value="${vCoinFilter}"
+               style="width:150px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; font-family:inherit;"
+               oninput="onVCoinFilter(this.value)">
+        ${vCoinFilter ? `<span class="active-filter-chip">Coin: ${vCoinFilter.toUpperCase()} <button onclick="clearVCoinFilter()">×</button></span>` : ''}
+      </div>
       <span class="g-status" style="margin:0;">${
         st.err ? `error: ${st.err}`
         : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner} · ${st.tracked||0} coins · updated ${Math.max(0, Math.round((Date.now()-st.ts)/1000))}s ago`
@@ -1125,11 +1138,13 @@ function onVolumeToggle() {
 function onDisabledToggle() {
   showDisabledWallets = document.getElementById('disabledToggle').checked;
   saveUiState();
+  if (venueCfg()) renderToolbar(); // venue sub-tab counts are filter-aware — keep them in sync
   renderCards(); // client-side filter only, no refetch needed
 }
 function onUsdtToggle() {
   showUsdtPairs = document.getElementById('usdtToggle').checked;
   saveUiState();
+  if (venueCfg()) renderToolbar();
   renderCards(); // client-side filter only, no refetch needed
 }
 // In-modal volume toggle: same global `withVolume`, reachable from inside a
@@ -1461,7 +1476,7 @@ function loopCard(o) {
           <div class="kk-qty">${fmtCoin(l.trbQty,4)} ${c1}</div>
           <div class="kk-price">${fmtInr(l.finalCostInr,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">${entryMkt}</div></div>
+        <div class="kk-ex"><div class="ex-name">${pageVenueName()}</div><div class="ex-market">${entryMkt}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Final cost (incl. trading):</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
@@ -1492,7 +1507,7 @@ function loopCard(o) {
           <div class="kk-qty">${fmtCoin(l.galaArrived,4)} ${c2}</div>
           <div class="kk-price">${fmtInr(l.inrReceived,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">Wazirx</div><div class="ex-market">${exitMkt}</div></div>
+        <div class="kk-ex"><div class="ex-name">${pageVenueName()}</div><div class="ex-market">${exitMkt}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">INR received (net):</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
@@ -1509,11 +1524,11 @@ function loopCard(o) {
   : `
     <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag buy">Buy<span class="kk-coin">${c1}</span></div>
-      <div class="kk-mid"><div class="kk-price">Wazirx ${c1}/${entryQ} → Binance ${c1}/USDT</div></div>
+      <div class="kk-mid"><div class="kk-price">${pageVenueName()} ${c1}/${entryQ} → Binance ${c1}/USDT</div></div>
     </div>
     <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag sell">Sell<span class="kk-coin">${c2}</span></div>
-      <div class="kk-mid"><div class="kk-price">Binance ${c2}/USDT → Wazirx ${c2}/${exitQ}</div></div>
+      <div class="kk-mid"><div class="kk-price">Binance ${c2}/USDT → ${pageVenueName()} ${c2}/${exitQ}</div></div>
     </div>
     <div class="arb-bar ${pct < 0 ? 'negative' : ''}">
       <div class="arb-label">Arbitrage</div>
@@ -1572,15 +1587,49 @@ function intraLoopCard(o) {
 // ================================================================
 let vTimer = null;
 let vTab = 'direct'; // sub-tab within a venue page: direct | loop | intraloop
+let vCoinFilter = ''; // venue coin filter (matches direct coin, either loop leg, intra coin)
 const venueState = {}; // id -> { opps, ts, tracked, err }
 
 function venueCfg() { return (PAGES[currentPage] && PAGES[currentPage].venue) || null; }
-function vCounts(opps) {
-  const c = { direct: 0, loop: 0, intraloop: 0 };
-  for (const o of opps || []) if (c[o.type] !== undefined) c[o.type]++;
-  return c;
+// The INR-side exchange name for cards being rendered on the CURRENT page
+// (venue tab -> that venue's label; classic pages -> WazirX).
+function pageVenueName() { const v = venueCfg(); return v ? v.label : 'Wazirx'; }
+// Same, but for the OPEN MODAL — derived from the card that opened it, so a
+// Zebpay modal stays labeled Zebpay even if the page changes underneath.
+function cardVenueName() {
+  if (openCard && openCard.venueId && PAGES[openCard.venueId] && PAGES[openCard.venueId].venue) {
+    return PAGES[openCard.venueId].venue.label;
+  }
+  return 'WazirX';
+}
+// liveCache keys MUST be venue-scoped: a WazirX HOT→GALA loop and a Zebpay
+// HOT→GALA loop would otherwise share a key, and one venue's cached books
+// would flash inside the other venue's modal.
+function cachePfx() { return (openCard && openCard.venueId) ? openCard.venueId + ':' : ''; }
+// One place applies EVERY venue filter (wallet toggle, USDT toggle, coin
+// search, the ₹100 intra noise floor) so the card list and the sub-tab
+// counts can never disagree — toggling a filter visibly changes both.
+function vFiltered(opps) {
+  const f = { direct: [], loop: [], intraloop: [] };
+  const q = (vCoinFilter || '').trim().toLowerCase();
+  for (const o of opps || []) {
+    if (f[o.type] === undefined) continue;
+    if ((o.type === 'direct' || o.type === 'loop') && !showDisabledWallets && o.walletEnabled === false) continue;
+    if (o.type === 'direct' && !showUsdtPairs && (o.quote || 'INR') === 'USDT') continue;
+    if (o.type === 'intraloop' && o.walked && o.walked.profit < 100) continue; // same noise floor as the WazirX page
+    if (q) {
+      const hit = o.type === 'loop'
+        ? (o.coin1.includes(q) || o.coin2.includes(q))
+        : (o.coin || '').includes(q);
+      if (!hit) continue;
+    }
+    f[o.type].push(o);
+  }
+  return f;
 }
 function vSetTab(t) { vTab = t; saveUiState(); renderToolbar(); renderVenuePage(); }
+function onVCoinFilter(val) { vCoinFilter = val; saveUiState(); renderVenuePage(); }
+function clearVCoinFilter() { vCoinFilter = ''; saveUiState(); renderToolbar(); renderVenuePage(); }
 
 async function vRefresh() {
   const v = venueCfg(); if (!v) return;
@@ -1591,7 +1640,12 @@ async function vRefresh() {
     const data = await res.json();
     st.opps = data.opportunities || []; st.ts = data.ts; st.tracked = data.trackedPairs || 0; st.err = null;
   } catch (e) { st.err = e.message; }
-  if (venueCfg() === v) { renderToolbar(); renderVenuePage(); }
+  if (venueCfg() === v) {
+    // Don't rebuild the toolbar while the user is typing in the coin filter —
+    // an innerHTML rebuild would steal focus mid-word. Cards still update.
+    if (!(document.activeElement && document.activeElement.id === 'vCoinInput')) renderToolbar();
+    renderVenuePage();
+  }
 }
 
 function renderVenuePage() {
@@ -1603,14 +1657,16 @@ function renderVenuePage() {
     el.innerHTML = `<div class="empty-state"><span class="emoji">⚠️</span>Couldn't reach the ${v.label} engine (${st.err}). If the backend was just deployed, give it a moment to discover markets.</div>`;
     return;
   }
-  let list = (st.opps || []).filter(o => o.type === vTab);
-  // Same client-side filters as the WazirX pages.
-  if ((vTab === 'direct' || vTab === 'loop') && !showDisabledWallets) list = list.filter(o => o.walletEnabled !== false);
-  if (vTab === 'direct' && !showUsdtPairs) list = list.filter(o => (o.quote || 'INR') !== 'USDT');
-  if (vTab === 'intraloop') list = list.filter(o => !o.walked || o.walked.profit >= 100);
-  list = sortList(list);
+  const list = sortList(vFiltered(st.opps)[vTab] || []);
   if (!list.length) {
-    el.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No ${vTab === 'intraloop' ? 'intra-loop' : vTab} opportunities on ${v.label} ⇄ ${v.partner} right now.</div>`;
+    // Say WHY it's empty: intra-loop is same-exchange (never "⇄ Binance"),
+    // and an active filter is called out so a filtered-to-zero list isn't
+    // mistaken for "no data".
+    const filterNote = vCoinFilter ? ` matching “${vCoinFilter}”` : '';
+    const scope = vTab === 'intraloop'
+      ? `No ${v.label} triangle (intra-loop) opportunities${filterNote} with ≥ ₹100 profit right now — all three legs run on ${v.label} itself.`
+      : `No ${vTab} opportunities${filterNote} on ${v.label} ⇄ ${v.partner} right now${!showDisabledWallets ? ' (blocked-wallet coins are hidden — flip “Disabled Wallets” to include them)' : ''}.`;
+    el.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>${scope}</div>`;
     return;
   }
   el.innerHTML = list.map(o => o.type === 'direct' ? directCard(o) : o.type === 'loop' ? loopCard(o) : intraLoopCard(o)).join('');
@@ -1888,7 +1944,7 @@ async function refreshDirectModalLive() {
       || list[0];
     if (match) {
       directLiveEntry = match; liveBookError = null; liveFailStreak = 0;
-      liveCache[`${openCard.coin}:${openCard.buyExchange}:${openCard.buyMarket}`] = match;
+      liveCache[`${cachePfx()}${openCard.coin}:${openCard.buyExchange}:${openCard.buyMarket}`] = match;
     }
     if (openCard) renderDirectModal(directLiveEntry || findOpportunity(openCard));
   } catch (err) {
@@ -2016,12 +2072,13 @@ function loopRateNoteHtml(entry) {
   const rateVal = x => (x && typeof x === 'object') ? x.rate : x;
   const rateSrc = x => (x && typeof x === 'object' && x.source) ? x.source : null;
   const srcTag = x => { const s = rateSrc(x); return s ? ` <span style="opacity:.7;">(${s === 'wazirx' ? 'WazirX book' : s})</span>` : ''; };
+  const vn = cardVenueName();
   const rateBits = [];
-  if (u.entry != null) rateBits.push(`buying ${c1} via WazirX ${c1}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.entry), 2)}</b>${srcTag(u.entry)}`);
-  if (u.exit != null)  rateBits.push(`selling ${c2} via WazirX ${c2}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.exit), 2)}</b>${srcTag(u.exit)}`);
+  if (u.entry != null) rateBits.push(`buying ${c1} via ${vn} ${c1}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.entry), 2)}</b>${srcTag(u.entry)}`);
+  if (u.exit != null)  rateBits.push(`selling ${c2} via ${vn} ${c2}/USDT → USDT/INR <b>₹${fmtNum(rateVal(u.exit), 2)}</b>${srcTag(u.exit)}`);
   return rateBits.length
     ? `<div style="margin-top:10px; padding:9px 12px; background:#eef6ff; border:1px solid #cfe3f7; border-radius:8px; font-size:12.5px; color:#345;">
-         <b>WazirX USDT/INR used:</b> ${rateBits.join(' &nbsp;·&nbsp; ')}
+         <b>${vn} USDT/INR used:</b> ${rateBits.join(' &nbsp;·&nbsp; ')}
        </div>`
     : '';
 }
@@ -2036,13 +2093,13 @@ function loopLevelSectionHtml(entry) {
 
 function loopFeeBodyHtml(l, c1, c2, entry) {
   return `
-        <div class="leg-line"><span class="k">${c1} bought (WazirX)</span><span class="v">${fmtCoin(l.trbQty,2)} ${c1}</span></div>
+        <div class="leg-line"><span class="k">${c1} bought (${cardVenueName()})</span><span class="v">${fmtCoin(l.trbQty,2)} ${c1}</span></div>
         <div class="leg-line"><span class="k">Final cost</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
         <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
         <div class="leg-line"><span class="k">${c1} → USDT (Binance)</span><span class="v">${fmtNum(l.usdtFromTRB,3)} USDT</span></div>
         <div class="leg-line"><span class="k">${c2} bought (Binance)</span><span class="v">${fmtCoin(l.galaQty,0)} ${c2}</span></div>
         <div class="leg-line"><span class="k">${c2} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.galaTransferCharge,2)}</span></div>
-        <div class="leg-line"><span class="k">${c2} → INR (WazirX)</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
+        <div class="leg-line"><span class="k">${c2} → INR (${cardVenueName()})</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
         <div class="leg-line"><span class="k">Total transfer + confirm time</span><span class="v">${entry.executionMin.toFixed(2)} min</span></div>`;
 }
 
@@ -2120,7 +2177,7 @@ function renderLoopModal() {
       <div class="leg-detail-body" id="loopLeg2Body">${loopTouchedRows(`Buy ${c2}`, l.buyGALATouched, c2)}</div>
     </details>
     <details class="leg-detail" open>
-      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 3 — sell ${c2} on WazirX</div></div><div></div></summary>
+      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 3 — sell ${c2} on ${cardVenueName()}</div></div><div></div></summary>
       <div class="leg-detail-body" id="loopLeg3Body">${loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2)}</div>
     </details>
 
@@ -2181,7 +2238,7 @@ async function refreshLoopModalLive() {
     const data = await fetchLoopLive(openCard.coin1, openCard.coin2, openCard.entryVenue, openCard.exitVenue);
     loopLiveEntry = data.opportunity;
     loopLiveError = null;
-    liveCache[`loop:${openCard.coin1}:${openCard.coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] = data.opportunity;
+    liveCache[`${cachePfx()}loop:${openCard.coin1}:${openCard.coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] = data.opportunity;
   } catch (err) {
     loopLiveError = err.message;
     // keep the last good entry so the book doesn't vanish on a transient failure
@@ -2213,7 +2270,7 @@ async function fetchIntraLoopLive(coin) {
 
 function renderIntraLoopModal() {
   const coin = (openCard.coin || '').toUpperCase();
-  document.getElementById('modalTitle').textContent = `${coin} — Intra Loop (WazirX triangle)`;
+  document.getElementById('modalTitle').textContent = `${coin} — Intra Loop (${cardVenueName()} triangle)`;
   document.getElementById('modalStatus').innerHTML = `refreshes every 15s while open · <a href="#" onclick="refreshIntraLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
   const entry = intraLoopLiveEntry;
   if (!entry) {
@@ -2234,9 +2291,9 @@ function renderIntraLoopModal() {
       <div class="profit-pct">${p != null ? p.toFixed(2) + '%' : '—'}${l ? ` (${fmtInr(l.profit,2)})` : ''}</div>
       <div class="profit-sub">${op.pathLabel || ''}${l ? ` · max ${fmtCoin(l.qty,2)} ${coin} at top-of-book` : ''}</div>
     </div>`;
-  }).join('') : `<div class="modal-note">No computable triangle right now (thin WazirX book).</div>`;
+  }).join('') : `<div class="modal-note">No computable triangle right now (thin ${cardVenueName()} book).</div>`;
   document.getElementById('modalBody').innerHTML = `
-    <div class="note-box">Same-exchange WazirX triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
+    <div class="note-box">Same-exchange ${cardVenueName()} triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
     ${pathHtml}
     ${legs ? `${intraShowBars
          ? `<div class="ob-legend" style="margin-top:14px;">
@@ -2255,7 +2312,7 @@ async function refreshIntraLoopModalLive() {
     const data = await fetchIntraLoopLive(openCard.coin);
     intraLoopLiveEntry = data.view;
     intraLoopLiveError = null;
-    liveCache[`intraloop:${openCard.coin}`] = data.view;
+    liveCache[`${cachePfx()}intraloop:${openCard.coin}`] = data.view;
   } catch (err) {
     intraLoopLiveError = err.message;
     intraLoopLiveEntry = null;
@@ -2727,19 +2784,19 @@ function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVe
     venueId: _vc ? _vc.id : null, venueApi: _vc ? _vc.api : null };
   document.getElementById('modalOverlay').classList.remove('hidden');
   if (type === 'direct') {
-    directLiveEntry = liveCache[`${coin}:${buyExchange}:${buyMarket || ''}`] || null;
+    directLiveEntry = liveCache[`${cachePfx()}${coin}:${buyExchange}:${buyMarket || ''}`] || null;
     liveBookError = null; liveFailStreak = 0;
     renderDirectModal(directLiveEntry || findOpportunity(openCard));
     refreshDirectModalLive();
     modalTimer = setInterval(refreshDirectModalLive, 15000);
   } else if (type === 'intraloop') {
-    intraLoopLiveEntry = liveCache[`intraloop:${coin}`] || null;
+    intraLoopLiveEntry = liveCache[`${cachePfx()}intraloop:${coin}`] || null;
     intraLoopLiveError = null;
     renderIntraLoopModal();
     refreshIntraLoopModalLive();
     modalTimer = setInterval(refreshIntraLoopModalLive, 15000);
   } else {
-    loopLiveEntry = liveCache[`loop:${coin1}:${coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] || null;
+    loopLiveEntry = liveCache[`${cachePfx()}loop:${coin1}:${coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] || null;
     loopLiveError = null;
     renderLoopModal();
     refreshLoopModalLive();
