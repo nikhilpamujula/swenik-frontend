@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 54</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 55</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -538,7 +538,7 @@ let draftFilter = {}; // working copy while the drawer is open, committed on App
 function saveUiState() {
   try {
     localStorage.setItem('swenikUi', JSON.stringify({
-      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings, notifTab, vTab, vCoinFilter
+      page: currentPage, pageFilters, withVolume, showDisabledWallets, showUsdtPairs, sortBy, sortDir, gTab, gSettings, notifTab, vTab, venueFilter
     }));
   } catch (e) {}
 }
@@ -557,7 +557,9 @@ function loadUiState() {
     if (s.sortDir === 'asc' || s.sortDir === 'desc') sortDir = s.sortDir;
     if (s.gTab === 'intra' || s.gTab === 'cross') gTab = s.gTab;
     if (['direct','loop','intraloop'].includes(s.vTab)) vTab = s.vTab;
-    if (typeof s.vCoinFilter === 'string') vCoinFilter = s.vCoinFilter;
+    if (s.venueFilter && typeof s.venueFilter === 'object') {
+      venueFilter = Object.assign({ direct: { coin: '', buyExchanges: [] }, loop: { buyCoin: '', sellCoin: '' }, intraloop: { coin: '' } }, s.venueFilter);
+    }
     if (['all','loop','direct','intraloop','giottus'].includes(s.notifTab)) notifTab = s.notifTab;
     if (s.gSettings && typeof s.gSettings === 'object') {
       for (const k of ['feeInr','feeUsdt','thr','minP','minInr','minUsdt','topK']) {
@@ -967,19 +969,15 @@ function renderToolbar() {
     el.innerHTML = `
       <div class="g-seg">${tab('direct','Direct')}${tab('loop','Loop')}${tab('intraloop','Intra Loop')}</div>
       ${volumeToggleHtml()}
-      <label class="toggle-wrap"><span>Disabled Wallets</span>
+      ${vTab !== 'intraloop' ? `<label class="toggle-wrap"><span>Disabled Wallets</span>
         <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
-      </label>
-      <label class="toggle-wrap"><span>USDT pairs</span>
+      </label>` : ''}
+      ${vTab === 'direct' ? `<label class="toggle-wrap"><span>USDT pairs</span>
         <label class="switch"><input type="checkbox" id="usdtToggle" ${showUsdtPairs?'checked':''} onchange="onUsdtToggle()"><span class="slider"></span></label>
-      </label>
+      </label>` : ''}
       ${sortControlsHtml()}
-      <div class="sort-wrap" style="gap:6px;">
-        <input type="text" id="vCoinInput" placeholder="Filter coin, e.g. BTC" value="${vCoinFilter}"
-               style="width:150px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; font-family:inherit;"
-               oninput="onVCoinFilter(this.value)">
-        ${vCoinFilter ? `<span class="active-filter-chip">Coin: ${vCoinFilter.toUpperCase()} <button onclick="clearVCoinFilter()">×</button></span>` : ''}
-      </div>
+      <button class="apply-filter-btn" onclick="openDrawer()">Apply Filter</button>
+      ${venueFilterChips()}
       <span class="g-status" style="margin:0;">${
         st.err ? `error: ${st.err}`
         : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner} · ${st.tracked||0} coins · updated ${Math.max(0, Math.round((Date.now()-st.ts)/1000))}s ago`
@@ -1049,6 +1047,7 @@ function renderToolbar() {
           <div class="cam-item" onclick="createAlertOfKind('loop')">Loop</div>
           <div class="cam-item" onclick="createAlertOfKind('intra_loop')">Intra Loop</div>
           <div class="cam-item" onclick="createAlertOfKind('giottus')">Giottus</div>
+          ${venueAlertMenuHtml()}
           <div class="cam-item cam-disabled">Crypto Price (soon)</div>
           <div class="cam-item cam-disabled">Pump &amp; Dump (soon)</div>
         </div>
@@ -1166,6 +1165,19 @@ function onModalVolumeToggle() {
 // FILTER DRAWER
 // ================================================================
 function openDrawer() {
+  const v = venueCfg();
+  if (v) {
+    // Venue drawer is scoped to the active sub-tab (direct / loop / intra).
+    draftFilter = JSON.parse(JSON.stringify(venueFilter[vTab] || {}));
+    document.getElementById('drawerTitle').textContent = `Apply Filter — ${v.label} ${vTab === 'intraloop' ? 'Intra Loop' : cap(vTab)}`;
+    document.getElementById('drawerSub').textContent =
+      vTab === 'direct' ? `Filter ${v.label} ⇄ ${v.partner} direct opportunities — choose the buy side and/or a coin.` :
+      vTab === 'loop'   ? `Filter ${v.label} loops by either leg's coin.` :
+                          `Filter ${v.label} intra-loop triangles by coin.`;
+    renderDrawerBody();
+    document.getElementById('drawerOverlay').classList.remove('hidden');
+    return;
+  }
   draftFilter = { ...pageFilters[currentPage] };
   document.getElementById('drawerTitle').textContent = `Apply Filter — ${PAGES[currentPage].label}`;
   document.getElementById('drawerSub').textContent =
@@ -1180,6 +1192,34 @@ function closeDrawer() {
 }
 
 function renderDrawerBody() {
+  const _v = venueCfg();
+  if (_v) {
+    let body;
+    if (vTab === 'direct') {
+      // Buy side = this venue or Binance (none checked = any).
+      const boxes = [_v.id, 'binance'].map(e =>
+        `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="draftVenueBuyEx" value="${e}" ${(draftFilter.buyExchanges||[]).includes(e)?'checked':''}> ${cap(e)}</label>`
+      ).join('');
+      body = `
+        <div class="drawer-section-label">Primary Filter</div>
+        <label class="field-label">Buy side — none checked = any</label>
+        <div>${boxes}</div>
+        <div class="drawer-section-label" style="margin-top:16px;">Secondary Filter</div>
+        <label class="field-label">Coin</label>
+        <input type="text" id="draftCoinInput" placeholder="e.g. BTC" value="${(draftFilter.coin || '').toUpperCase()}">`;
+    } else if (vTab === 'loop') {
+      body = `
+        <label class="field-label">Buy coin (leg 1)</label>
+        <input type="text" id="draftBuyCoinInput" placeholder="e.g. HOT" value="${(draftFilter.buyCoin || '').toUpperCase()}">
+        <label class="field-label">Sell coin (leg 2)</label>
+        <input type="text" id="draftSellCoinInput" placeholder="e.g. GALA" value="${(draftFilter.sellCoin || '').toUpperCase()}">`;
+    } else {
+      body = `<label class="field-label">Coin</label>
+        <input type="text" id="draftCoinInput" placeholder="e.g. BTC" value="${(draftFilter.coin || '').toUpperCase()}">`;
+    }
+    document.getElementById('drawerBody').innerHTML = body;
+    return;
+  }
   if (currentPage === 'intraloop') {
     const exOpts = `<option value="" ${!draftFilter.exchange?'selected':''}>All exchanges</option>`
       + knownExchanges().map(e => `<option value="${e}" ${draftFilter.exchange===e?'selected':''}>${cap(e)}</option>`).join('');
@@ -1230,6 +1270,22 @@ function renderDrawerBody() {
 }
 
 function applyDrawerFilter() {
+  const _v = venueCfg();
+  if (_v) {
+    if (vTab === 'direct') {
+      venueFilter.direct.buyExchanges = [...document.querySelectorAll('input.draftVenueBuyEx:checked')].map(el => el.value);
+      const ci = document.getElementById('draftCoinInput');
+      venueFilter.direct.coin = ci ? ci.value.trim().toLowerCase() : '';
+    } else if (vTab === 'loop') {
+      venueFilter.loop.buyCoin = document.getElementById('draftBuyCoinInput').value.trim().toLowerCase();
+      venueFilter.loop.sellCoin = document.getElementById('draftSellCoinInput').value.trim().toLowerCase();
+    } else {
+      const ci = document.getElementById('draftCoinInput');
+      venueFilter.intraloop.coin = ci ? ci.value.trim().toLowerCase() : '';
+    }
+    saveUiState(); closeDrawer(); renderToolbar(); renderVenuePage();
+    return;
+  }
   if (currentPage === 'loop') {
     pageFilters.loop.buyCoin = document.getElementById('draftBuyCoinInput').value.trim().toLowerCase();
     pageFilters.loop.sellCoin = document.getElementById('draftSellCoinInput').value.trim().toLowerCase();
@@ -1253,6 +1309,13 @@ function applyDrawerFilter() {
 }
 
 function resetDrawerFilter() {
+  const _v = venueCfg();
+  if (_v) {
+    venueFilter[vTab] = vTab === 'direct' ? { coin: '', buyExchanges: [] }
+      : vTab === 'loop' ? { buyCoin: '', sellCoin: '' } : { coin: '' };
+    saveUiState(); closeDrawer(); renderToolbar(); renderVenuePage();
+    return;
+  }
   pageFilters[currentPage] = currentPage === 'intraloop' ? { coin: '', exchange: '' }
     : currentPage === 'direct' ? { coin: '', buyExchanges: [] }
     : currentPage === 'loop' ? { buyCoin: '', sellCoin: '', loopEx: [], viaEx: [] }
@@ -1587,7 +1650,11 @@ function intraLoopCard(o) {
 // ================================================================
 let vTimer = null;
 let vTab = 'direct'; // sub-tab within a venue page: direct | loop | intraloop
-let vCoinFilter = ''; // venue coin filter (matches direct coin, either loop leg, intra coin)
+// Venue Apply-Filter state, per sub-tab (mirrors the WazirX pages' pageFilters):
+//   direct    — buyExchanges multi-select (venue / binance) + coin
+//   loop      — buy coin (leg 1) + sell coin (leg 2)
+//   intraloop — coin
+let venueFilter = { direct: { coin: '', buyExchanges: [] }, loop: { buyCoin: '', sellCoin: '' }, intraloop: { coin: '' } };
 const venueState = {}; // id -> { opps, ts, tracked, err }
 
 function venueCfg() { return (PAGES[currentPage] && PAGES[currentPage].venue) || null; }
@@ -1611,25 +1678,51 @@ function cachePfx() { return (openCard && openCard.venueId) ? openCard.venueId +
 // counts can never disagree — toggling a filter visibly changes both.
 function vFiltered(opps) {
   const f = { direct: [], loop: [], intraloop: [] };
-  const q = (vCoinFilter || '').trim().toLowerCase();
+  const vf = venueFilter;
   for (const o of opps || []) {
     if (f[o.type] === undefined) continue;
-    if ((o.type === 'direct' || o.type === 'loop') && !showDisabledWallets && o.walletEnabled === false) continue;
+    // Disabled Wallets: OFF = transferable only, ON = wallet-blocked ONLY —
+    // a separate view, not a superset. Matches the WazirX Direct page exactly.
+    if (o.type === 'direct' || o.type === 'loop') {
+      if (showDisabledWallets ? o.walletEnabled !== false : o.walletEnabled === false) continue;
+    }
     if (o.type === 'direct' && !showUsdtPairs && (o.quote || 'INR') === 'USDT') continue;
     if (o.type === 'intraloop' && o.walked && o.walked.profit < 100) continue; // same noise floor as the WazirX page
-    if (q) {
-      const hit = o.type === 'loop'
-        ? (o.coin1.includes(q) || o.coin2.includes(q))
-        : (o.coin || '').includes(q);
-      if (!hit) continue;
+    // Apply Filter (drawer) fields, per sub-tab.
+    if (o.type === 'direct') {
+      if (vf.direct.coin && !o.coin.includes(vf.direct.coin)) continue;
+      if (vf.direct.buyExchanges.length && !vf.direct.buyExchanges.includes(o.buyExchange)) continue;
+    } else if (o.type === 'loop') {
+      if (vf.loop.buyCoin && !o.coin1.includes(vf.loop.buyCoin)) continue;
+      if (vf.loop.sellCoin && !o.coin2.includes(vf.loop.sellCoin)) continue;
+    } else if (o.type === 'intraloop') {
+      if (vf.intraloop.coin && !o.coin.includes(vf.intraloop.coin)) continue;
     }
     f[o.type].push(o);
   }
   return f;
 }
 function vSetTab(t) { vTab = t; saveUiState(); renderToolbar(); renderVenuePage(); }
-function onVCoinFilter(val) { vCoinFilter = val; saveUiState(); renderVenuePage(); }
-function clearVCoinFilter() { vCoinFilter = ''; saveUiState(); renderToolbar(); renderVenuePage(); }
+
+// Active-filter chips for the current venue sub-tab (with × to clear each).
+function venueFilterChips() {
+  const chips = [];
+  const push = (label, onclick) => chips.push(`<span class="active-filter-chip">${label} <button onclick="${onclick}">×</button></span>`);
+  if (vTab === 'direct') {
+    if (venueFilter.direct.buyExchanges.length) push(`Buy on: ${venueFilter.direct.buyExchanges.map(cap).join(', ')}`, `clearVenueFilter('direct','buyExchanges')`);
+    if (venueFilter.direct.coin) push(`Coin: ${venueFilter.direct.coin.toUpperCase()}`, `clearVenueFilter('direct','coin')`);
+  } else if (vTab === 'loop') {
+    if (venueFilter.loop.buyCoin) push(`Buy coin: ${venueFilter.loop.buyCoin.toUpperCase()}`, `clearVenueFilter('loop','buyCoin')`);
+    if (venueFilter.loop.sellCoin) push(`Sell coin: ${venueFilter.loop.sellCoin.toUpperCase()}`, `clearVenueFilter('loop','sellCoin')`);
+  } else if (vTab === 'intraloop') {
+    if (venueFilter.intraloop.coin) push(`Coin: ${venueFilter.intraloop.coin.toUpperCase()}`, `clearVenueFilter('intraloop','coin')`);
+  }
+  return chips.join('');
+}
+function clearVenueFilter(tab, field) {
+  venueFilter[tab][field] = (field === 'buyExchanges') ? [] : '';
+  saveUiState(); renderToolbar(); renderVenuePage();
+}
 
 async function vRefresh() {
   const v = venueCfg(); if (!v) return;
@@ -1640,12 +1733,7 @@ async function vRefresh() {
     const data = await res.json();
     st.opps = data.opportunities || []; st.ts = data.ts; st.tracked = data.trackedPairs || 0; st.err = null;
   } catch (e) { st.err = e.message; }
-  if (venueCfg() === v) {
-    // Don't rebuild the toolbar while the user is typing in the coin filter —
-    // an innerHTML rebuild would steal focus mid-word. Cards still update.
-    if (!(document.activeElement && document.activeElement.id === 'vCoinInput')) renderToolbar();
-    renderVenuePage();
-  }
+  if (venueCfg() === v) { renderToolbar(); renderVenuePage(); }
 }
 
 function renderVenuePage() {
@@ -1676,17 +1764,27 @@ function renderVenuePage() {
 // to VENUES is all it takes for a new exchange to appear.
 function buildVenueNav() {
   let after = document.getElementById('nav-giottus');
-  if (!after) return;
-  VENUES.forEach(v => {
-    if (document.getElementById('nav-' + v.id)) return;
-    const el = document.createElement('div');
-    el.className = 'sidebar-item';
-    el.id = 'nav-' + v.id;
-    el.textContent = v.label;
-    el.onclick = () => selectPage(v.id);
-    after.insertAdjacentElement('afterend', el);
-    after = el;
-  });
+  if (after) {
+    VENUES.forEach(v => {
+      if (document.getElementById('nav-' + v.id)) return;
+      const el = document.createElement('div');
+      el.className = 'sidebar-item';
+      el.id = 'nav-' + v.id;
+      el.textContent = v.label;
+      el.onclick = () => selectPage(v.id);
+      after.insertAdjacentElement('afterend', el);
+      after = el;
+    });
+  }
+}
+
+// "<Venue> Direct/Loop/Intra Loop" entries for the Create-alert menu — one set
+// per venue. Inlined into the (re-rendered) alerts toolbar so it always shows.
+function venueAlertMenuHtml() {
+  return VENUES.map(v => `
+      <div class="cam-item" onclick="createAlertOfKind('direct','${v.id}')">${v.label} Direct</div>
+      <div class="cam-item" onclick="createAlertOfKind('loop','${v.id}')">${v.label} Loop</div>
+      <div class="cam-item" onclick="createAlertOfKind('intra_loop','${v.id}')">${v.label} Intra Loop</div>`).join('');
 }
 
 function renderCards() {
@@ -2331,13 +2429,14 @@ let alertsError = null;
 let editingAlert = null; // null = creating
 let alertTypeFilter = 'arbitrage';
 let creatingKind = 'direct'; // which form variant the modal shows
+let creatingVenue = 'wazirx'; // which INR venue this alert evaluates against: 'wazirx' | 'zebpay' | …
 
 function toggleCreateMenu() {
   document.getElementById('createAlertMenu').classList.toggle('hidden');
 }
-function createAlertOfKind(kind) {
+function createAlertOfKind(kind, venue) {
   document.getElementById('createAlertMenu').classList.add('hidden');
-  openAlertModal(null, kind);
+  openAlertModal(null, kind, venue || 'wazirx');
 }
 document.addEventListener('click', e => {
   const menu = document.getElementById('createAlertMenu');
@@ -2388,6 +2487,7 @@ function renderAlertsPage() {
         ${alertTag(a.kind && a.kind !== 'any' ? a.kind : 'any type',
           a.kind === 'giottus' ? '#e6f6ec' : a.kind === 'loop' ? '#dff3ef' : '#eef3d8',
           a.kind === 'giottus' ? '#21a05f' : a.kind === 'loop' ? '#0d7a6a' : '#6b7a12')}
+        ${a.config && a.config.venue && a.config.venue !== 'wazirx' ? alertTag(cap(a.config.venue), '#e0edf9', '#2b6ea3') : ''}
         ${a.kind === 'giottus' && a.config ? alertTag(`${a.config.routeKind || 'any'} routes`, '#e6f0f8', '#2176ae')
           + alertTag(`stable ${a.config.persistChecks || 2}✓`, '#fdf2e3', '#b5750e')
           + alertTag(`≤ ${a.config.maxPerHour || 6}/hr`, '#f2e8fb', '#6b3fa0') : ''}
@@ -2402,10 +2502,12 @@ function renderAlertsPage() {
     </div>`).join('');
 }
 
-function openAlertModal(id, presetKind) {
+function openAlertModal(id, presetKind, presetVenue) {
   editingAlert = id ? alertsList.find(a => a.id === id) : null;
   const a = editingAlert || {};
   creatingKind = editingAlert ? (a.kind && a.kind !== 'any' ? a.kind : 'direct') : (presetKind || 'direct');
+  // Venue: editing reads it from the alert's config; creating uses the menu choice.
+  creatingVenue = editingAlert ? ((a.config && a.config.venue) || 'wazirx') : (presetVenue || 'wazirx');
 
   // ---- Giottus alerts: their own form, built around noise control ----
   if (creatingKind === 'giottus') {
@@ -2474,8 +2576,11 @@ function openAlertModal(id, presetKind) {
     return;
   }
 
-  const exchanges = knownExchanges();
+  // Exchange options are scoped to the venue: a Zebpay alert only makes sense
+  // between Zebpay and Binance, so don't offer WazirX there (and vice versa).
+  const exchanges = creatingVenue === 'wazirx' ? knownExchanges().filter(e => e !== 'zebpay') : [creatingVenue, 'binance'];
   const exOpts = (sel) => exchanges.map(e => `<option value="${e}" ${sel===e?'selected':''}>${cap(e)}</option>`).join('');
+  const defVenueEx = creatingVenue; // default loop/intra INR-venue leg
 
   // direction field varies by kind
   let dirSection = '';
@@ -2491,7 +2596,7 @@ function openAlertModal(id, presetKind) {
         <select id="afTo"><option value="">Any</option>${exOpts(curTo)}</select>
       </div>`;
   } else if (creatingKind === 'loop') {
-    const [curLoop, curVia] = (a.direction || '').includes('_via_') ? a.direction.split('_via_') : ['wazirx', 'binance'];
+    const [curLoop, curVia] = (a.direction || '').includes('_via_') ? a.direction.split('_via_') : [defVenueEx, 'binance'];
     dirSection = `
       <div>
         <label class="field-label">Loop exchange</label>
@@ -2502,7 +2607,7 @@ function openAlertModal(id, presetKind) {
         <select id="afViaEx">${exOpts(curVia)}</select>
       </div>`;
   } else { // intra_loop
-    const curEx = (a.direction || '').startsWith('intra_') ? a.direction.slice(6) : 'wazirx';
+    const curEx = (a.direction || '').startsWith('intra_') ? a.direction.slice(6) : defVenueEx;
     dirSection = `
       <div>
         <label class="field-label">Exchange</label>
@@ -2513,7 +2618,8 @@ function openAlertModal(id, presetKind) {
 
   const isProfit = a.threshold_inr != null && a.threshold_pct == null;
   const kindLabel = creatingKind === 'intra_loop' ? 'Intra Loop' : cap(creatingKind);
-  document.getElementById('modalTitle').textContent = (editingAlert ? 'Update alert' : 'Create alert') + ` — ${kindLabel}`;
+  const venuePfx = creatingVenue !== 'wazirx' ? cap(creatingVenue) + ' ' : '';
+  document.getElementById('modalTitle').textContent = (editingAlert ? 'Update alert' : 'Create alert') + ` — ${venuePfx}${kindLabel}`;
   document.getElementById('modalStatus').textContent = '';
   const cfg = a.config || {};
   document.getElementById('modalBody').innerHTML = `
@@ -2650,6 +2756,7 @@ async function saveAlert() {
     threshold_inr: trig === 'profit' ? threshold : null,
     enabled: enabledEl ? enabledEl.checked : true,
     config: {
+      venue: creatingVenue, // routes this alert to the matching engine (wazirx / zebpay)
       coins: parseCoinList(document.getElementById('afCoins').value),
       excludeCoins: parseCoinList(document.getElementById('afExclude').value),
       volumeMode: document.querySelector('input[name=afVol]:checked').value,
