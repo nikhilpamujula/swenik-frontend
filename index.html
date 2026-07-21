@@ -36,6 +36,22 @@
     background: var(--light);
     color: #2b3440;
     -webkit-font-smoothing: antialiased;
+    /* Clip any stray horizontal spill so the layout width always equals the
+       visible width — stops a browser from shrink-to-fitting the page (a source
+       of tap-offset). clip (not hidden) keeps sticky/scroll behaviour intact. */
+    overflow-x: clip;
+  }
+
+  /* ---- Split-screen / foldable touch fix ----
+     On touch devices (especially a fold in multi-window), Android browsers can
+     leave the sticky sidebar's touch hit-map stale after a window resize, so
+     taps register offset from where you see them across the whole page. The
+     sidebar gains nothing from being sticky on a phone/fold, so make it a normal
+     scrolling element on any touch (coarse-pointer) device. A JS reflow kick on
+     resize (see bottom of script) backs this up. */
+  @media (pointer: coarse) {
+    .sidebar { position: static !important; top: auto !important; }
+    .modal-header { position: static !important; }
   }
 
   /* ---------------- App-level header ---------------- */
@@ -433,7 +449,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 63</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 64</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -4129,6 +4145,31 @@ setInterval(() => {
   countdown = Math.max(0, countdown - 1);
   updateRefreshStatus();
 }, 1000);
+
+// ---- Split-screen / foldable touch-offset fix ----
+// Some Android browsers (notably on foldables entering multi-window) don't
+// refresh their touch hit-test map after the window is resized, so taps land
+// offset from what's drawn. Forcing a synchronous reflow on every viewport
+// change rebuilds that map. We nudge the scroll by a pixel and read layout,
+// which reliably invalidates the stale hit regions without any visible jump.
+let __reflowT = null;
+function kickTouchReflow() {
+  // Coalesce bursts of resize events into one reflow.
+  if (__reflowT) return;
+  __reflowT = setTimeout(() => {
+    __reflowT = null;
+    const y = window.scrollY || 0;
+    document.body.style.minHeight = window.innerHeight + 'px';
+    void document.body.offsetHeight;          // force synchronous layout
+    document.body.style.minHeight = '';
+    window.scrollTo(0, y + 1); window.scrollTo(0, y); // re-seat the hit-test map
+  }, 60);
+}
+window.addEventListener('resize', kickTouchReflow);
+window.addEventListener('orientationchange', () => setTimeout(kickTouchReflow, 120));
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', kickTouchReflow);
+}
 </script>
 </body>
 </html>
