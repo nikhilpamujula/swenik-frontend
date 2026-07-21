@@ -411,7 +411,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 58</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 59</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -1941,14 +1941,14 @@ function futuresCard(o) {
     </div>
     <div class="kk-row" style="padding:10px 14px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:12.5px;">
       <span>Implied <b>₹${fmtNum(o.implied,3)}</b>/$ · baseline ₹${fmtNum(o.baseline,3)} · <span ${devClass}>dev ${o.deviationPct.toFixed(3)}%</span></span>
-      <span style="color:var(--gray-500);">top size ${fmtCoin(o.sizeCoin,4)} ${C} (${fmtInr(o.sizeInr,0)})</span>
+      <span style="color:var(--gray-500);">${o.sizeCoin != null ? `top size ${fmtCoin(o.sizeCoin,4)} ${C} (${fmtInr(o.sizeInr,0)})` : 'mark-price signal · open Track Live for the live books'}</span>
     </div>
     <div class="kk-row" style="padding:10px 14px; font-size:12.5px;"><b>${futDirText(o)}</b></div>
     <div class="arb-bar ${neg ? 'negative' : ''}">
       <div class="arb-label">At reversion</div>
       <div class="arb-mid">
         <div class="arb-main">${(o.netPct ?? 0).toFixed(3)}% net</div>
-        <div class="arb-sub">gross ${(o.grossPct ?? 0).toFixed(3)}% − fees ${o.feesPct.toFixed(2)}% · close both when implied returns to baseline</div>
+        <div class="arb-sub">gross ${(o.grossPct ?? 0).toFixed(3)}% − fees ${o.feesPct.toFixed(2)}% · close both when implied returns to baseline${o.bookFresh === false ? ' · indicative (mark-based)' : ''}</div>
       </div>
       <button class="track-live-btn" onclick="openFuturesModal('${o.coin}')">◉ Track Live</button>
     </div>
