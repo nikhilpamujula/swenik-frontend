@@ -411,7 +411,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 57</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 58</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -432,6 +432,10 @@
          removing display:none. -->
     <div class="sidebar-item" id="nav-coinswitch" onclick="selectPage('coinswitch')" style="display:none;">
       CoinSwitch <span class="new-badge" style="background:var(--success);">Lab</span>
+    </div>
+    <div class="sidebar-group-label" style="padding-top:14px;">Derivatives</div>
+    <div class="sidebar-item" id="nav-futures" onclick="selectPage('futures')">
+      Futures <span class="new-badge">New</span>
     </div>
     <div class="sidebar-group-label" style="padding-top:14px;">Tools</div>
     <div class="sidebar-item" id="nav-orderbook" onclick="selectPage('orderbook')">Orderbook</div>
@@ -523,6 +527,9 @@ VENUES.forEach(v => { PAGES[v.id] = { label: v.label, navId: 'nav-' + v.id, venu
 // the others, but its data is the main scanner (allOpportunities) and Track Live
 // uses the classic /api/opportunities routes (no per-venue api).
 PAGES['wazirx'] = { label: 'WazirX', navId: 'nav-wazirx', venue: { id: 'wazirx', label: 'WazirX', partner: 'Binance', native: true } };
+// Futures basis page (WazirX INR perps ↔ Binance USDT perps) — its own page,
+// not a venue: different math (implied-rate deviation), no wallet/transfer legs.
+PAGES['futures'] = { label: 'Futures', navId: 'nav-futures' };
 
 // Exchange list is derived from live data (plus the two known defaults), so
 // when the backend starts tracking Giottus / CoinSwitch / ZebPay / etc.,
@@ -744,9 +751,14 @@ function selectPage(page) {
   const nb = document.getElementById('noteBox'), bs = document.getElementById('bannerSlot');
   // Keep the scanner note/banner on WazirX (native) — it's about that scanner;
   // hide it only on the external-engine pages (Zebpay/CoinDCX/Giottus/CoinSwitch).
-  const hideScanner = (page === 'giottus' || page === 'coinswitch' || (isVenue && !isNativeVenue));
+  const hideScanner = (page === 'giottus' || page === 'coinswitch' || page === 'futures' || (isVenue && !isNativeVenue));
   if (nb) nb.style.display = hideScanner ? 'none' : '';
   if (bs) bs.style.display = hideScanner ? 'none' : '';
+  // Futures page polls its own engine while open.
+  if (page === 'futures') {
+    if (!futTimer) futTimer = setInterval(futRefresh, 10000);
+    futRefresh();
+  } else if (futTimer) { clearInterval(futTimer); futTimer = null; }
   // External venues (Zebpay/CoinDCX) poll their own engine while open. WazirX
   // (native) rides the global fullRefresh, so no separate timer.
   if (isVenue && !isNativeVenue) {
@@ -1037,6 +1049,21 @@ function renderToolbar() {
     return;
   }
 
+  if (currentPage === 'futures') {
+    const s = futSnap || {};
+    const n = (s.opportunities || []).filter(o => o.warmedUp).length;
+    el.innerHTML = `
+      <span class="g-status" style="margin:0;">${
+        futErr ? `error: ${futErr}`
+        : s.ts ? `⚡ WazirX perps ⇄ Binance perps · ${s.pairs || 0} pairs (${n} tracking) · round-trip fees ${s.feesPct ? s.feesPct.toFixed(2) : '—'}% · no transfers, no TDS · updated ${Math.max(0, Math.round((Date.now()-s.ts)/1000))}s ago`
+        : 'connecting…'}</span>
+      <label style="font-size:11.5px; color:var(--gray-500);">min deviation %
+        <input type="number" step="0.05" min="0" value="${futMinDev}" style="width:70px; padding:4px 6px; border:1px solid var(--border); border-radius:6px;"
+               onchange="futMinDev=Math.max(0,parseFloat(this.value)||0); renderFuturesPage();"></label>
+    `;
+    return;
+  }
+
   if (currentPage === 'notifications') {
     const c = notifCounts();
     const tab = (key, label) => `<button class="${notifTab===key?'on':''}" onclick="notifSetTab('${key}')">${label}${c[key]?` (${c[key]})`:''}</button>`;
@@ -1098,6 +1125,7 @@ function renderToolbar() {
           <div class="cam-item" onclick="createAlertOfKind('loop')">Loop</div>
           <div class="cam-item" onclick="createAlertOfKind('intra_loop')">Intra Loop</div>
           <div class="cam-item" onclick="createAlertOfKind('giottus')">Giottus</div>
+          <div class="cam-item" onclick="createAlertOfKind('futures','futures')">Futures Basis</div>
           ${venueAlertMenuHtml()}
           <div class="cam-item cam-disabled">Crypto Price (soon)</div>
           <div class="cam-item cam-disabled">Pump &amp; Dump (soon)</div>
@@ -1869,10 +1897,120 @@ function venueAlertMenuHtml() {
       <div class="cam-item" onclick="createAlertOfKind('intra_loop','${v.id}')">${v.label} Intra Loop</div>`).join('');
 }
 
+// ================================================================
+// FUTURES BASIS page — WazirX INR perps ↔ Binance USDT perps.
+// Signal = implied ₹/$ rate (wzxPerp/binPerp) deviating from its own rolling
+// baseline. No transfers, no TDS; profit = reversion − 4 taker fees ± funding.
+// ================================================================
+let futTimer = null, futSnap = null, futErr = null, futMinDev = 0.1; // min |deviation| % filter
+
+async function futRefresh() {
+  try {
+    const res = await fetch(`${API_BASE}/api/futures/opportunities`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    futSnap = await res.json();
+    futErr = null;
+  } catch (e) { futErr = e.message; }
+  if (currentPage === 'futures') { renderToolbar(); renderFuturesPage(); }
+}
+
+function futDirText(o) {
+  if (!o.direction) return '';
+  return o.direction === 'long_wazirx_short_binance'
+    ? `LONG ${o.wzxSymbol} @WazirX-Fut · SHORT ${o.binSymbol} @Binance-Fut`
+    : `SHORT ${o.wzxSymbol} @WazirX-Fut · LONG ${o.binSymbol} @Binance-Fut`;
+}
+
+function futuresCard(o) {
+  const C = o.coin.toUpperCase();
+  if (!o.warmedUp) {
+    return `<div class="card"><div class="card-top">
+        <span class="coin-pair">${C} perp</span>
+        <div class="badge-row"><span class="badge" style="background:#eef1f6; color:#4a5568;">Futures</span></div></div>
+      <div class="kk-row" style="padding:12px 14px;"><div class="kk-mid"><div class="kk-price">Building baseline… ${o.samples} samples (needs ~5 min after boot). Implied ₹${fmtNum(o.implied,2)}/$</div></div></div>
+    </div>`;
+  }
+  const neg = (o.netPct ?? 0) < 0;
+  const devClass = o.deviationPct < 0 ? 'style="color:var(--success); font-weight:700;"' : 'style="color:var(--danger); font-weight:700;"';
+  const carry = o.carry8hPct != null ? o.carry8hPct : 0;
+  return `<div class="card">
+    <div class="card-top">
+      <span class="coin-pair">${C} perp basis</span>
+      <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Futures</span>
+      <span class="badge" style="background:${carry >= 0 ? '#e6f6ec' : '#fdecea'}; color:${carry >= 0 ? '#21a05f' : '#a33'};">funding ${carry >= 0 ? '+' : ''}${carry.toFixed(4)}%/8h</span></div>
+    </div>
+    <div class="kk-row" style="padding:10px 14px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:12.5px;">
+      <span>Implied <b>₹${fmtNum(o.implied,3)}</b>/$ · baseline ₹${fmtNum(o.baseline,3)} · <span ${devClass}>dev ${o.deviationPct.toFixed(3)}%</span></span>
+      <span style="color:var(--gray-500);">top size ${fmtCoin(o.sizeCoin,4)} ${C} (${fmtInr(o.sizeInr,0)})</span>
+    </div>
+    <div class="kk-row" style="padding:10px 14px; font-size:12.5px;"><b>${futDirText(o)}</b></div>
+    <div class="arb-bar ${neg ? 'negative' : ''}">
+      <div class="arb-label">At reversion</div>
+      <div class="arb-mid">
+        <div class="arb-main">${(o.netPct ?? 0).toFixed(3)}% net</div>
+        <div class="arb-sub">gross ${(o.grossPct ?? 0).toFixed(3)}% − fees ${o.feesPct.toFixed(2)}% · close both when implied returns to baseline</div>
+      </div>
+      <button class="track-live-btn" onclick="openFuturesModal('${o.coin}')">◉ Track Live</button>
+    </div>
+  </div>`;
+}
+
+function renderFuturesPage() {
+  const el = document.getElementById('cardList');
+  if (!futSnap) { el.innerHTML = `<div class="empty-state">${futErr ? `Couldn't reach the futures engine (${futErr}).` : '⏳ Connecting…'}</div>`; return; }
+  const all = futSnap.opportunities || [];
+  if (!all.length) { el.innerHTML = `<div class="empty-state"><span class="emoji">📉</span>No common WazirX↔Binance perp pairs yet — if the backend was just deployed, give discovery a minute.</div>`; return; }
+  const warming = all.filter(o => !o.warmedUp);
+  const ready = all.filter(o => o.warmedUp && Math.abs(o.deviationPct) >= futMinDev);
+  const quiet = all.filter(o => o.warmedUp && Math.abs(o.deviationPct) < futMinDev);
+  let html = ready.map(futuresCard).join('');
+  if (!ready.length) html += `<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">😴</span>No perp deviating ≥ ${futMinDev}% from its baseline right now — ${quiet.length} pair(s) tracking quietly. The basis is calm; that's normal most of the time.</div>`;
+  if (quiet.length && ready.length) html += `<div class="note-box" style="display:block; grid-column:1/-1;">${quiet.length} more pair(s) within ±${futMinDev}% of baseline (calm).</div>`;
+  html += warming.map(futuresCard).join('');
+  el.innerHTML = html;
+}
+
+// ---- Futures Track Live modal (5s refresh) ----
+let futModalCoin = null, futModalTimer = null;
+function openFuturesModal(coin) {
+  futModalCoin = coin;
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  document.getElementById('modalTitle').textContent = `${coin.toUpperCase()} — Futures Basis`;
+  document.getElementById('modalStatus').textContent = 'refreshes every 5s while open';
+  document.getElementById('modalBody').innerHTML = `<div class="modal-note">Loading…</div>`;
+  refreshFuturesModal();
+  futModalTimer = setInterval(refreshFuturesModal, 5000);
+}
+async function refreshFuturesModal() {
+  if (!futModalCoin) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/futures/${futModalCoin}/live`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    const data = await res.json();
+    if (!futModalCoin) return;
+    const o = data.view;
+    const carry = o.carry8hPct != null ? o.carry8hPct : 0;
+    const wf = o.funding && o.funding.wazirx, bf = o.funding && o.funding.binance;
+    document.getElementById('modalBody').innerHTML = `
+      <div class="profit-box ${(o.netPct ?? 0) < 0 ? 'negative' : ''}">
+        <div class="profit-pct">${o.warmedUp ? `${(o.netPct ?? 0).toFixed(3)}% net at reversion` : 'building baseline…'}</div>
+        <div class="profit-sub">implied ₹${fmtNum(o.implied,3)}/$ · baseline ${o.baseline ? '₹' + fmtNum(o.baseline,3) : '—'} · dev ${o.deviationPct != null ? o.deviationPct.toFixed(3) + '%' : '—'} · fees ${o.feesPct.toFixed(2)}%</div>
+      </div>
+      ${o.direction ? `<div class="note-box" style="display:block;"><b>${futDirText(o)}</b> — close both legs when the implied rate returns to its baseline. Funding carry ${carry >= 0 ? '+' : ''}${carry.toFixed(4)}%/8h${wf ? ` (WazirX ${(wf.fundingRate*100).toFixed(4)}%` : ''}${bf ? ` · Binance ${(bf.fundingRate*100).toFixed(4)}%)` : ')'}. Basis can widen before it reverts — use low leverage.</div>` : ''}
+      <div class="ob-section-title" style="margin-top:12px;">Order Books</div>
+      ${loopOrderBookTable(o.liveBooks.legs, { showBars: false })}
+    `;
+  } catch (e) {
+    const body = document.getElementById('modalBody');
+    if (body && futModalCoin) body.innerHTML = `<div class="banner-error">Couldn't load (${e.message}). Retrying…</div>`;
+  }
+}
+
 function renderCards() {
   const list0 = document.getElementById('cardList');
 
   if (venueCfg()) { renderVenuePage(); return; }
+  if (currentPage === 'futures') { renderFuturesPage(); return; }
   if (currentPage === 'alerts') { renderAlertsPage(); return; }
   if (currentPage === 'orderbook') { renderOrderbookPage(); return; }
   if (currentPage === 'giottus') { renderGiottusPage(); return; }
@@ -2660,13 +2798,19 @@ function openAlertModal(id, presetKind, presetVenue) {
 
   // Exchange options are scoped to the venue: a Zebpay alert only makes sense
   // between Zebpay and Binance, so don't offer WazirX there (and vice versa).
-  const exchanges = creatingVenue === 'wazirx' ? knownExchanges().filter(e => e !== 'zebpay') : [creatingVenue, 'binance'];
+  const exchanges = creatingVenue === 'wazirx' ? knownExchanges().filter(e => e !== 'zebpay' && e !== 'coindcx')
+                  : creatingVenue === 'futures' ? []
+                  : [creatingVenue, 'binance'];
   const exOpts = (sel) => exchanges.map(e => `<option value="${e}" ${sel===e?'selected':''}>${exLabel(e)}</option>`).join('');
   const defVenueEx = creatingVenue; // default loop/intra INR-venue leg
 
   // direction field varies by kind
   let dirSection = '';
-  if (creatingKind === 'direct') {
+  if (creatingKind === 'futures') {
+    dirSection = `<div style="grid-column:1/-1; font-size:11.5px; color:var(--gray-500);">
+      Fires when a perp pair's <b>net-at-reversion</b> (deviation from its own baseline, minus all four taker fees) crosses your threshold %. Direction is picked automatically (long the cheap side, short the rich side).
+    </div>`;
+  } else if (creatingKind === 'direct') {
     const [curFrom, curTo] = (a.direction || '').includes('_to_') ? a.direction.split('_to_') : ['', ''];
     dirSection = `
       <div>
@@ -2699,8 +2843,8 @@ function openAlertModal(id, presetKind, presetVenue) {
   }
 
   const isProfit = a.threshold_inr != null && a.threshold_pct == null;
-  const kindLabel = creatingKind === 'intra_loop' ? 'Intra Loop' : cap(creatingKind);
-  const venuePfx = creatingVenue !== 'wazirx' ? exLabel(creatingVenue) + ' ' : '';
+  const kindLabel = creatingKind === 'intra_loop' ? 'Intra Loop' : creatingKind === 'futures' ? 'Futures Basis' : cap(creatingKind);
+  const venuePfx = (creatingVenue !== 'wazirx' && creatingKind !== 'futures') ? exLabel(creatingVenue) + ' ' : '';
   document.getElementById('modalTitle').textContent = (editingAlert ? 'Update alert' : 'Create alert') + ` — ${venuePfx}${kindLabel}`;
   document.getElementById('modalStatus').textContent = '';
   const cfg = a.config || {};
@@ -2823,6 +2967,7 @@ async function saveAlert() {
     wallets: document.querySelector('input[name=afWal]:checked').value,
     frequency: document.querySelector('input[name=afFreq]:checked').value,
     direction: (() => {
+      if (creatingKind === 'futures') return null; // direction is auto (long cheap / short rich)
       if (creatingKind === 'direct') {
         const from = document.getElementById('afFrom').value, to = document.getElementById('afTo').value;
         return (from && to && from !== to) ? `${from}_to_${to}` : null;
@@ -2997,6 +3142,8 @@ function closeModal() {
   loopLiveEntry = null; loopLiveError = null;
   directLiveEntry = null; liveBookError = null;
   intraLoopLiveEntry = null; intraLoopLiveError = null;
+  futModalCoin = null;
+  if (futModalTimer) { clearInterval(futModalTimer); futModalTimer = null; }
   document.getElementById('modalOverlay').classList.add('hidden');
   if (modalTimer) { clearInterval(modalTimer); modalTimer = null; }
 }
