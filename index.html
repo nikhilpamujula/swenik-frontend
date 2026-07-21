@@ -411,7 +411,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 59</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 61</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -3244,7 +3244,7 @@ function manualRefresh() {
 }
 
 document.getElementById('noteBox').innerHTML =
-  'Live from the Swenik backend — every number is walked against real order book depth, not estimated. Loop opportunities keep their own wallet-status badge per card (unlike KoinKnight, our Loop results can include wallet-blocked coins, so it\'s shown rather than hidden). Track Live now streams the order book live (Direct 15s · Loop 5s), updating the book in place without redrawing the whole card.';
+  'Live from the Swenik backend — every number is walked against real order book depth, not estimated. Loop opportunities keep their own wallet-status badge per card (unlike KoinKnight, our Loop results can include wallet-blocked coins, so it\'s shown rather than hidden). Loops now include USDT cash-out routes: any coin → USDT → INR (buy coin/INR on WazirX, sell it for USDT on Binance, then sell USDT/INR on WazirX) — and USDC is treated as an ordinary coin, so USDC/INR → USDC→USDT → USDT/INR ranks right alongside the others. Track Live now streams the order book live (Direct 15s · Loop 5s), updating the book in place without redrawing the whole card.';
 
 // Pull-to-refresh: on touch devices, dragging down >70px from the very top
 // of the page triggers the same refresh as the ↻ button (rate-limited the
