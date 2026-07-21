@@ -173,16 +173,38 @@
   .arb-bar {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
     background: var(--success); color: #fff; padding: 11px 14px;
+    /* Allow the Track Live button to wrap to its own line on very narrow
+       layouts (e.g. a fold in split-screen) instead of being squeezed to an
+       unreliable tap target. The bar is a control strip, not readable content,
+       so disable text selection here — that stops a tap from starting a
+       highlight and registering as a mis-click on neighbouring text. */
+    flex-wrap: wrap;
+    -webkit-user-select: none; user-select: none;
   }
   .arb-bar.negative { background: var(--danger); }
   .arb-bar.rough { background: var(--success); }
   .arb-bar .arb-label { font-size: 12px; font-weight: 700; flex: 0 0 auto; }
-  .arb-bar .arb-mid { flex: 1; }
+  .arb-bar .arb-mid { flex: 1; min-width: 120px; }
   .arb-bar .arb-main { font-size: 15px; font-weight: 800; }
   .arb-bar .arb-sub { font-size: 11px; opacity: .9; margin-top: 1px; }
   .arb-bar .track-live-btn {
     background: #fff; color: #222; border: none; border-radius: 18px;
     padding: 8px 15px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    /* Never shrink below a comfortable tap target, keep the hit area above
+       neighbouring text, and kill the double-tap-zoom / 300ms tap delay that
+       causes ghost clicks to land on the wrong element in split-screen. */
+    flex: 0 0 auto; margin-left: auto; min-height: 40px;
+    position: relative; z-index: 2;
+    touch-action: manipulation;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: rgba(0,0,0,0.16);
+  }
+
+  /* Global touch robustness for every control: manipulation removes the
+     double-tap-zoom gesture (the usual reason a tap "jumps" to the wrong spot
+     after a window resize like entering split-screen on a fold). */
+  button, .sidebar-item, .g-seg button, .switch, .apply-filter-btn, [onclick] {
+    touch-action: manipulation;
   }
 
   /* ---------------- 1st / 2nd Level Arb (loop split) ---------------- */
@@ -411,7 +433,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 61</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 63</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -1914,6 +1936,33 @@ async function futRefresh() {
   if (currentPage === 'futures') { renderToolbar(); renderFuturesPage(); }
 }
 
+// Stop/Start the whole futures engine from the UI, so the WazirX + Binance perp
+// feeds aren't polling in the background when you don't need them. The choice is
+// saved server-side and survives a redeploy.
+let futBusy = false;
+async function toggleFutures(enabled) {
+  if (futBusy) return;
+  futBusy = true;
+  try {
+    const res = await fetch(`${API_BASE}/api/futures/control`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (futSnap) futSnap.running = enabled; // optimistic, so the button flips instantly
+    await futRefresh();
+  } catch (e) {
+    alert(`Could not ${enabled ? 'start' : 'stop'} the futures scanner: ${e.message}`);
+  } finally { futBusy = false; }
+}
+
+function futuresControlBar(running) {
+  return `<div class="note-box" style="display:flex; align-items:center; justify-content:space-between; gap:12px; grid-column:1/-1; ${running ? '' : 'background:#fff4e5; border-color:#f0c27a;'}">
+      <span><b>Futures scanner:</b> ${running ? '🟢 Running' : '⏸️ Paused — background polling stopped'}</span>
+      <button class="track-live-btn" style="background:${running ? '#c0392b' : '#21a05f'}; min-width:150px;" onclick="toggleFutures(${running ? 'false' : 'true'})">${running ? '■ Stop scanning' : '▶ Start scanning'}</button>
+    </div>`;
+}
+
 function futDirText(o) {
   if (!o.direction) return '';
   return o.direction === 'long_wazirx_short_binance'
@@ -1958,12 +2007,18 @@ function futuresCard(o) {
 function renderFuturesPage() {
   const el = document.getElementById('cardList');
   if (!futSnap) { el.innerHTML = `<div class="empty-state">${futErr ? `Couldn't reach the futures engine (${futErr}).` : '⏳ Connecting…'}</div>`; return; }
+  const running = futSnap.running !== false; // older backend without the flag => treat as running
+  const controlBar = futuresControlBar(running);
+  if (!running) {
+    el.innerHTML = controlBar + `<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">⏸️</span>Futures scanning is stopped — the WazirX &amp; Binance perp feeds aren't running, so nothing is polling in the background. Press <b>Start scanning</b> above whenever you want it back.</div>`;
+    return;
+  }
   const all = futSnap.opportunities || [];
-  if (!all.length) { el.innerHTML = `<div class="empty-state"><span class="emoji">📉</span>No common WazirX↔Binance perp pairs yet — if the backend was just deployed, give discovery a minute.</div>`; return; }
+  if (!all.length) { el.innerHTML = controlBar + `<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">📉</span>No common WazirX↔Binance perp pairs yet — if the backend was just deployed, give discovery a minute.</div>`; return; }
   const warming = all.filter(o => !o.warmedUp);
   const ready = all.filter(o => o.warmedUp && Math.abs(o.deviationPct) >= futMinDev);
   const quiet = all.filter(o => o.warmedUp && Math.abs(o.deviationPct) < futMinDev);
-  let html = ready.map(futuresCard).join('');
+  let html = controlBar + ready.map(futuresCard).join('');
   if (!ready.length) html += `<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">😴</span>No perp deviating ≥ ${futMinDev}% from its baseline right now — ${quiet.length} pair(s) tracking quietly. The basis is calm; that's normal most of the time.</div>`;
   if (quiet.length && ready.length) html += `<div class="note-box" style="display:block; grid-column:1/-1;">${quiet.length} more pair(s) within ±${futMinDev}% of baseline (calm).</div>`;
   html += warming.map(futuresCard).join('');
