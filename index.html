@@ -379,7 +379,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 55</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 56</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -488,8 +488,8 @@ const PAGES = {
 // No other frontend change is needed — a new tab appears automatically.
 // ================================================================
 const VENUES = [
-  { id: 'zebpay', label: 'Zebpay', partner: 'Binance', api: '/api/zebpay' }
-  // , { id: 'coindcx', label: 'CoinDCX', partner: 'Binance', api: '/api/coindcx' }  // future
+  { id: 'zebpay', label: 'Zebpay', partner: 'Binance', api: '/api/zebpay' },
+  { id: 'coindcx', label: 'CoinDCX', partner: 'Binance', api: '/api/coindcx' }
 ];
 VENUES.forEach(v => { PAGES[v.id] = { label: v.label, navId: 'nav-' + v.id, venue: v }; });
 
@@ -623,6 +623,15 @@ function fmtSize(n) {
 }
 function fmtTime(t) { return t.toLocaleTimeString('en-US', {hour12:false}); }
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+// Proper display label for an exchange id — venues carry their own casing
+// (e.g. "CoinDCX", which naive capitalization would get wrong). Falls back to
+// cap() for anything not in VENUES / EX_LABELS.
+const EX_LABELS = { wazirx: 'Wazirx', binance: 'Binance', giottus: 'Giottus', coinswitch: 'CoinSwitch' };
+function exLabel(id) {
+  if (!id) return id;
+  const v = (typeof VENUES !== 'undefined') ? VENUES.find(x => x.id === id) : null;
+  return v ? v.label : (EX_LABELS[id] || cap(id));
+}
 function pctOf(o) { return o.walked ? o.walked.profitPct : o.roughPct; }
 
 // ================================================================
@@ -914,13 +923,13 @@ function activeFilterChips() {
   const f = pageFilters[currentPage];
   const chips = [];
   if (f.coin) chips.push(`<span class="active-filter-chip">Coin: ${f.coin.toUpperCase()} <button onclick="clearChip('coin')">×</button></span>`);
-  if (currentPage === 'direct' && f.buyExchanges && f.buyExchanges.length) chips.push(`<span class="active-filter-chip">Buy on: ${f.buyExchanges.map(cap).join(', ')} <button onclick="clearChip('buyExchanges')">×</button></span>`);
-  if (currentPage === 'intraloop' && f.exchange) chips.push(`<span class="active-filter-chip">Exchange: ${cap(f.exchange)} <button onclick="clearChip('exchange')">×</button></span>`);
+  if (currentPage === 'direct' && f.buyExchanges && f.buyExchanges.length) chips.push(`<span class="active-filter-chip">Buy on: ${f.buyExchanges.map(exLabel).join(', ')} <button onclick="clearChip('buyExchanges')">×</button></span>`);
+  if (currentPage === 'intraloop' && f.exchange) chips.push(`<span class="active-filter-chip">Exchange: ${exLabel(f.exchange)} <button onclick="clearChip('exchange')">×</button></span>`);
   if (currentPage === 'loop') {
     if (f.buyCoin) chips.push(`<span class="active-filter-chip">Buy: ${f.buyCoin.toUpperCase()} <button onclick="clearChip('buyCoin')">×</button></span>`);
     if (f.sellCoin) chips.push(`<span class="active-filter-chip">Sell: ${f.sellCoin.toUpperCase()} <button onclick="clearChip('sellCoin')">×</button></span>`);
-    if (f.loopEx && f.loopEx.length) chips.push(`<span class="active-filter-chip">Loop: ${f.loopEx.map(cap).join(', ')} <button onclick="clearChip('loopEx')">×</button></span>`);
-    if (f.viaEx && f.viaEx.length) chips.push(`<span class="active-filter-chip">Via: ${f.viaEx.map(cap).join(', ')} <button onclick="clearChip('viaEx')">×</button></span>`);
+    if (f.loopEx && f.loopEx.length) chips.push(`<span class="active-filter-chip">Loop: ${f.loopEx.map(exLabel).join(', ')} <button onclick="clearChip('loopEx')">×</button></span>`);
+    if (f.viaEx && f.viaEx.length) chips.push(`<span class="active-filter-chip">Via: ${f.viaEx.map(exLabel).join(', ')} <button onclick="clearChip('viaEx')">×</button></span>`);
   }
   return chips.join('');
 }
@@ -1057,7 +1066,7 @@ function renderToolbar() {
   }
 
   if (currentPage === 'orderbook') {
-    const exOpts = knownExchanges().map(e => `<option value="${e}">${cap(e)}</option>`).join('');
+    const exOpts = knownExchanges().map(e => `<option value="${e}">${exLabel(e)}</option>`).join('');
     el.innerHTML = `
       <div class="sort-wrap" style="flex:1; min-width:260px; flex-wrap:wrap;">
         <select class="sort-select" id="obExchangeSelect">${exOpts}</select>
@@ -1066,7 +1075,7 @@ function renderToolbar() {
         <button class="apply-filter-btn" style="margin-left:0;" onclick="addObSelection()">Compare</button>
       </div>
       <div style="flex-basis:100%; display:flex; gap:6px; flex-wrap:wrap;">
-        ${obSelections.map((s,i) => `<span class="ob-chip">${cap(s.exchange)} ${s.coin.toUpperCase()} <button onclick="removeObSelection(${i})">×</button></span>`).join('')}
+        ${obSelections.map((s,i) => `<span class="ob-chip">${exLabel(s.exchange)} ${s.coin.toUpperCase()} <button onclick="removeObSelection(${i})">×</button></span>`).join('')}
       </div>
     `;
     return;
@@ -1198,7 +1207,7 @@ function renderDrawerBody() {
     if (vTab === 'direct') {
       // Buy side = this venue or Binance (none checked = any).
       const boxes = [_v.id, 'binance'].map(e =>
-        `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="draftVenueBuyEx" value="${e}" ${(draftFilter.buyExchanges||[]).includes(e)?'checked':''}> ${cap(e)}</label>`
+        `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="draftVenueBuyEx" value="${e}" ${(draftFilter.buyExchanges||[]).includes(e)?'checked':''}> ${exLabel(e)}</label>`
       ).join('');
       body = `
         <div class="drawer-section-label">Primary Filter</div>
@@ -1222,7 +1231,7 @@ function renderDrawerBody() {
   }
   if (currentPage === 'intraloop') {
     const exOpts = `<option value="" ${!draftFilter.exchange?'selected':''}>All exchanges</option>`
-      + knownExchanges().map(e => `<option value="${e}" ${draftFilter.exchange===e?'selected':''}>${cap(e)}</option>`).join('');
+      + knownExchanges().map(e => `<option value="${e}" ${draftFilter.exchange===e?'selected':''}>${exLabel(e)}</option>`).join('');
     document.getElementById('drawerBody').innerHTML = `
       <label class="field-label">Exchange</label>
       <select id="draftExchangeSelect">${exOpts}</select>
@@ -1233,7 +1242,7 @@ function renderDrawerBody() {
   }
   if (currentPage === 'direct') {
     const boxes = knownExchanges().map(e =>
-      `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="draftBuyEx" value="${e}" ${(draftFilter.buyExchanges||[]).includes(e)?'checked':''}> ${cap(e)}</label>`
+      `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="draftBuyEx" value="${e}" ${(draftFilter.buyExchanges||[]).includes(e)?'checked':''}> ${exLabel(e)}</label>`
     ).join('');
     document.getElementById('drawerBody').innerHTML = `
       <div class="drawer-section-label">Primary Filter</div>
@@ -1247,7 +1256,7 @@ function renderDrawerBody() {
   }
   if (currentPage === 'loop') {
     const exBoxes = (id, selected) => knownExchanges().map(e =>
-      `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="${id}" value="${e}" ${selected.includes(e)?'checked':''}> ${cap(e)}</label>`
+      `<label class="af-radio" style="display:inline-block; margin-right:12px;"><input type="checkbox" class="${id}" value="${e}" ${selected.includes(e)?'checked':''}> ${exLabel(e)}</label>`
     ).join('');
     document.getElementById('drawerBody').innerHTML = `
       <div class="drawer-section-label">Primary Filter</div>
@@ -1407,7 +1416,7 @@ function directCard(o) {
           <div class="kk-qty">${fmtCoin(d.buyQty,5)} ${coin}</div>
           <div class="kk-price">${fmtInr(d.buyPrice,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${cap(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
+        <div class="kk-ex"><div class="ex-name">${exLabel(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Buy price:</span><span class="v">${fmtInr(d.buyPrice,4)}</span></div>
@@ -1422,7 +1431,7 @@ function directCard(o) {
           <div class="kk-qty">${fmtCoin(d.sellQty,5)} ${coin}</div>
           <div class="kk-price">${fmtInr(d.finalSell,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${cap(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
+        <div class="kk-ex"><div class="ex-name">${exLabel(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Sell price:</span><span class="v">${fmtInr(d.sellPrice,4)}</span></div>
@@ -1448,7 +1457,7 @@ function directCard(o) {
           <div class="kk-qty">${fmtAdaptive(o.fixed.buyQty)} ${coin}</div>
           <div class="kk-price">₹1,00,000 @ ${fmtAdaptive(o.fixed.buyPrice)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${cap(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
+        <div class="kk-ex"><div class="ex-name">${exLabel(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">First ask price:</span><span class="v">${fmtAdaptive(o.fixed.buyPrice)}</span></div>
@@ -1462,7 +1471,7 @@ function directCard(o) {
           <div class="kk-qty">${fmtAdaptive(o.fixed.sellQty)} ${coin}</div>
           <div class="kk-price">${fmtInr(o.fixed.sellRevenue,0)} @ ${fmtAdaptive(o.fixed.sellPrice)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${cap(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
+        <div class="kk-ex"><div class="ex-name">${exLabel(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">First bid price:</span><span class="v">${fmtAdaptive(o.fixed.sellPrice)}</span></div>
@@ -1480,11 +1489,11 @@ function directCard(o) {
   : `
     <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag buy">Buy<span class="kk-coin">${coin}</span></div>
-      <div class="kk-mid"><div class="kk-price">${cap(o.buyExchange)} · ${o.buyMarket}</div></div>
+      <div class="kk-mid"><div class="kk-price">${exLabel(o.buyExchange)} · ${o.buyMarket}</div></div>
     </div>
     <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag sell">Sell<span class="kk-coin">${coin}</span></div>
-      <div class="kk-mid"><div class="kk-price">${cap(o.sellExchange)} · ${o.sellMarket}</div></div>
+      <div class="kk-mid"><div class="kk-price">${exLabel(o.sellExchange)} · ${o.sellMarket}</div></div>
     </div>
     <div class="arb-bar ${pct < 0 ? 'negative' : ''}">
       <div class="arb-label">Arbitrage</div>
@@ -1624,13 +1633,13 @@ function intraLoopCard(o) {
         <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtCoin(leg.qty, 4) + ' ' + leg.asset.toUpperCase()}</div>
         <div class="kk-price">${fmtInr(leg.valueInr, 0)} · @ ${fmtNum(leg.price, 6)}</div>
       </div>
-      <div class="kk-ex"><div class="ex-name">${cap(o.exchange || 'wazirx')}</div><div class="ex-market">${leg.market}</div></div>
+      <div class="kk-ex"><div class="ex-name">${exLabel(o.exchange || 'wazirx')}</div><div class="ex-market">${leg.market}</div></div>
     </div>`).join('');
   return `
     <div class="card">
       <div class="card-top">
         <span class="coin-pair">${o.pathLabel || o.coin.toUpperCase()}</span>
-        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${cap(o.exchange || 'wazirx')}</span></div>
+        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${exLabel(o.exchange || 'wazirx')}</span></div>
       </div>
       ${rows || `<div class="kk-row" style="padding:12px 14px;"><div class="kk-mid"><div class="kk-price">${o.pathLabel || ''}</div></div></div>`}
       <div class="arb-bar ${barClass}">
@@ -1709,7 +1718,7 @@ function venueFilterChips() {
   const chips = [];
   const push = (label, onclick) => chips.push(`<span class="active-filter-chip">${label} <button onclick="${onclick}">×</button></span>`);
   if (vTab === 'direct') {
-    if (venueFilter.direct.buyExchanges.length) push(`Buy on: ${venueFilter.direct.buyExchanges.map(cap).join(', ')}`, `clearVenueFilter('direct','buyExchanges')`);
+    if (venueFilter.direct.buyExchanges.length) push(`Buy on: ${venueFilter.direct.buyExchanges.map(exLabel).join(', ')}`, `clearVenueFilter('direct','buyExchanges')`);
     if (venueFilter.direct.coin) push(`Coin: ${venueFilter.direct.coin.toUpperCase()}`, `clearVenueFilter('direct','coin')`);
   } else if (vTab === 'loop') {
     if (venueFilter.loop.buyCoin) push(`Buy coin: ${venueFilter.loop.buyCoin.toUpperCase()}`, `clearVenueFilter('loop','buyCoin')`);
@@ -1882,8 +1891,8 @@ function dualOrderBookTable(buy, sell) {
     <table class="ob-table dual">
       <thead>
         <tr>
-          <th colspan="2" class="ob-group">${cap(buy.exchange)}<div class="ob-sub">${buy.market}</div></th>
-          <th colspan="2" class="ob-group">${cap(sell.exchange)}<div class="ob-sub">${sell.market}</div></th>
+          <th colspan="2" class="ob-group">${exLabel(buy.exchange)}<div class="ob-sub">${buy.market}</div></th>
+          <th colspan="2" class="ob-group">${exLabel(sell.exchange)}<div class="ob-sub">${sell.market}</div></th>
         </tr>
         <tr><th>Size</th><th>Price</th><th>Size</th><th>Price</th></tr>
       </thead>
@@ -1960,7 +1969,7 @@ function renderDirectModal(entry) {
     <div class="ob-section-title">Order Book</div>
     ${liveBookError ? `<div class="modal-note" style="color:var(--danger);">Last refresh failed (${liveBookError}) — showing the previous snapshot, retrying every 15s.</div>` : ''}
     ${loopOrderBookTable(legs)}
-    <div class="note-box">Both sides of both books, 15 levels each. Bars mark the levels this trade consumes: ${cap(entry.buyExchange)}'s asks (buying) and ${cap(entry.sellExchange)}'s bids (selling).</div>`
+    <div class="note-box">Both sides of both books, 15 levels each. Bars mark the levels this trade consumes: ${exLabel(entry.buyExchange)}'s asks (buying) and ${exLabel(entry.sellExchange)}'s bids (selling).</div>`
   : (buy && sell && liveFailStreak >= 2) ? `
     ${obLegend}
     <div class="ob-section-title">Order Book</div>
@@ -1979,7 +1988,7 @@ function renderDirectModal(entry) {
           <div class="leg-sub">${fmtInr(d.buyPrice,0)}</div>
         </div>
         <div class="leg-summary-right">
-          <div class="ex-name">${cap(entry.buyExchange)}</div>
+          <div class="ex-name">${exLabel(entry.buyExchange)}</div>
           <div class="ex-market">${entry.buyMarket}</div>
         </div>
       </summary>
@@ -1998,7 +2007,7 @@ function renderDirectModal(entry) {
           <div class="leg-sub">${fmtInr(d.finalSell,0)}</div>
         </div>
         <div class="leg-summary-right">
-          <div class="ex-name">${cap(entry.sellExchange)}</div>
+          <div class="ex-name">${exLabel(entry.sellExchange)}</div>
           <div class="ex-market">${entry.sellMarket}</div>
         </div>
       </summary>
@@ -2123,7 +2132,7 @@ function loopOrderBookTable(legs, opts) {
     bidRows += '</tr>';
   }
 
-  const headGroups = legs.map(l => `<th colspan="2" class="ob-group">${cap(l.exchange)}<div class="ob-sub">${l.market}</div></th>`).join('');
+  const headGroups = legs.map(l => `<th colspan="2" class="ob-group">${exLabel(l.exchange)}<div class="ob-sub">${l.market}</div></th>`).join('');
   const headCols = legs.map(() => '<th class="ob-size-cell">Size</th><th class="ob-price-cell">Price</th>').join('');
 
   // 1st/2nd Level Arb banner (4-leg loop books only). The arb % for each half
@@ -2487,7 +2496,7 @@ function renderAlertsPage() {
         ${alertTag(a.kind && a.kind !== 'any' ? a.kind : 'any type',
           a.kind === 'giottus' ? '#e6f6ec' : a.kind === 'loop' ? '#dff3ef' : '#eef3d8',
           a.kind === 'giottus' ? '#21a05f' : a.kind === 'loop' ? '#0d7a6a' : '#6b7a12')}
-        ${a.config && a.config.venue && a.config.venue !== 'wazirx' ? alertTag(cap(a.config.venue), '#e0edf9', '#2b6ea3') : ''}
+        ${a.config && a.config.venue && a.config.venue !== 'wazirx' ? alertTag(exLabel(a.config.venue), '#e0edf9', '#2b6ea3') : ''}
         ${a.kind === 'giottus' && a.config ? alertTag(`${a.config.routeKind || 'any'} routes`, '#e6f0f8', '#2176ae')
           + alertTag(`stable ${a.config.persistChecks || 2}✓`, '#fdf2e3', '#b5750e')
           + alertTag(`≤ ${a.config.maxPerHour || 6}/hr`, '#f2e8fb', '#6b3fa0') : ''}
@@ -2579,7 +2588,7 @@ function openAlertModal(id, presetKind, presetVenue) {
   // Exchange options are scoped to the venue: a Zebpay alert only makes sense
   // between Zebpay and Binance, so don't offer WazirX there (and vice versa).
   const exchanges = creatingVenue === 'wazirx' ? knownExchanges().filter(e => e !== 'zebpay') : [creatingVenue, 'binance'];
-  const exOpts = (sel) => exchanges.map(e => `<option value="${e}" ${sel===e?'selected':''}>${cap(e)}</option>`).join('');
+  const exOpts = (sel) => exchanges.map(e => `<option value="${e}" ${sel===e?'selected':''}>${exLabel(e)}</option>`).join('');
   const defVenueEx = creatingVenue; // default loop/intra INR-venue leg
 
   // direction field varies by kind
@@ -2618,7 +2627,7 @@ function openAlertModal(id, presetKind, presetVenue) {
 
   const isProfit = a.threshold_inr != null && a.threshold_pct == null;
   const kindLabel = creatingKind === 'intra_loop' ? 'Intra Loop' : cap(creatingKind);
-  const venuePfx = creatingVenue !== 'wazirx' ? cap(creatingVenue) + ' ' : '';
+  const venuePfx = creatingVenue !== 'wazirx' ? exLabel(creatingVenue) + ' ' : '';
   document.getElementById('modalTitle').textContent = (editingAlert ? 'Update alert' : 'Create alert') + ` — ${venuePfx}${kindLabel}`;
   document.getElementById('modalStatus').textContent = '';
   const cfg = a.config || {};
@@ -2875,7 +2884,7 @@ function renderOrderbookPage() {
       ${singleMarketBookTable(b)}`;
     return `
       <div class="card" style="padding:14px;">
-        <div class="ob-section-title" style="margin-bottom:8px;">${cap(s.exchange)} — ${s.coin.toUpperCase()}${b && b.market ? ` <span style="font-weight:400; color:var(--gray-500);">(${b.market})</span>` : ''}</div>
+        <div class="ob-section-title" style="margin-bottom:8px;">${exLabel(s.exchange)} — ${s.coin.toUpperCase()}${b && b.market ? ` <span style="font-weight:400; color:var(--gray-500);">(${b.market})</span>` : ''}</div>
         ${body}
       </div>`;
   }).join('');
