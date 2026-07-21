@@ -58,7 +58,7 @@
   }
 
   /* ---------------- Shell: sidebar + main ---------------- */
-  .app-shell { display: flex; align-items: flex-start; }
+  .app-shell { display: flex; align-items: flex-start; max-width: 1512px; margin: 0 auto; }
   .sidebar {
     width: 190px; flex: 0 0 190px; background: #fff; border-right: 1px solid var(--border);
     padding: 14px 0; position: sticky; top: 0;
@@ -363,14 +363,46 @@
   .summary-grid .lab { font-size: 10px; color: var(--gray-700); text-transform: uppercase; }
   .summary-grid .val { font-size: 14px; font-weight: 700; margin-top: 2px; }
 
+  /* ===== Responsive: laptop (default) · tablet · phone ===== */
+
+  /* Tablet: trim the sidebar + paddings, tighten the card grid so 2 columns fit. */
+  @media (max-width: 1024px) {
+    .sidebar { width: 168px; flex-basis: 168px; }
+    .main-area { padding: 12px 12px 40px; }
+    #cardList { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  }
+
+  /* Sub-tab bar (Direct/Loop/Intra) never wraps — it scrolls if space is tight. */
+  @media (max-width: 900px) {
+    .g-seg { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+    .g-seg::-webkit-scrollbar { display: none; }
+    .g-seg button { padding: 7px 12px; }
+  }
+
+  /* Phone: single column, horizontal sidebar tabs, compact toolbar + type. */
   @media (max-width: 760px) {
-    .app-shell { flex-direction: column; }
+    .app-shell { flex-direction: column; max-width: 100%; }
     .sidebar { width: 100%; flex: none; display:flex; overflow-x:auto; border-right:none; border-bottom:1px solid var(--border); padding: 8px 8px; gap:4px; position:static; -webkit-overflow-scrolling: touch; }
     .sidebar-group-label { display:none; }
     .sidebar-item { flex:0 0 auto; border-left:none; border-bottom:3px solid transparent; border-radius: 6px 6px 0 0; white-space:nowrap; }
     .sidebar-item.active { border-left-color:transparent; border-bottom-color: var(--primary); }
+    .main-area { padding: 10px 10px 40px; }
     .drawer { width: 100%; max-width: 100%; }
     .apply-filter-btn { margin-left: 0; }
+    .toolbar { gap: 12px; }
+    .topbar h1 { font-size: 15px; }
+    .topbar-status { font-size: 10.5px; gap: 10px; }
+  }
+
+  /* Small phones: shrink switches + fonts a touch more so a full toolbar row fits. */
+  @media (max-width: 430px) {
+    .toolbar { gap: 10px 14px; }
+    .toggle-wrap, .sort-wrap, .g-status { font-size: 11.5px; }
+    .switch { width: 42px; height: 25px; }
+    .slider::before { width: 19px; height: 19px; }
+    .switch input:checked + .slider::before { transform: translateX(17px); }
+    .g-seg button { font-size: 12px; padding: 6px 10px; }
+    #cardList { gap: 8px; }
   }
 </style>
 </head>
@@ -379,7 +411,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 56</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 57</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -390,13 +422,8 @@
 
 <div class="app-shell">
   <div class="sidebar">
-    <div class="sidebar-group-label">Arbitrages</div>
-    <div class="sidebar-item" id="nav-direct" onclick="selectPage('direct')">Direct</div>
-    <div class="sidebar-item" id="nav-loop" onclick="selectPage('loop')">Loop</div>
-    <div class="sidebar-item" id="nav-intraloop" onclick="selectPage('intraloop')">
-      Intra Loop <span class="new-badge">New</span>
-    </div>
-    <div class="sidebar-group-label" style="padding-top:14px;">Exchanges</div>
+    <div class="sidebar-group-label">Exchanges</div>
+    <div class="sidebar-item" id="nav-wazirx" onclick="selectPage('wazirx')">WazirX</div>
     <div class="sidebar-item" id="nav-giottus" onclick="selectPage('giottus')">
       Giottus <span class="new-badge" style="background:var(--success);">Lab</span>
     </div>
@@ -492,6 +519,10 @@ const VENUES = [
   { id: 'coindcx', label: 'CoinDCX', partner: 'Binance', api: '/api/coindcx' }
 ];
 VENUES.forEach(v => { PAGES[v.id] = { label: v.label, navId: 'nav-' + v.id, venue: v }; });
+// WazirX is a NATIVE venue: same single-tab / Direct-Loop-Intra sub-tab UI as
+// the others, but its data is the main scanner (allOpportunities) and Track Live
+// uses the classic /api/opportunities routes (no per-venue api).
+PAGES['wazirx'] = { label: 'WazirX', navId: 'nav-wazirx', venue: { id: 'wazirx', label: 'WazirX', partner: 'Binance', native: true } };
 
 // Exchange list is derived from live data (plus the two known defaults), so
 // when the backend starts tracking Giottus / CoinSwitch / ZebPay / etc.,
@@ -566,8 +597,12 @@ function loadUiState() {
         if (typeof s.gSettings[k] === 'number' && isFinite(s.gSettings[k])) gSettings[k] = s.gSettings[k];
       }
     }
-    // CoinSwitch is hidden now — if it was the last saved page, fall back to Direct.
-    if (s.page === 'coinswitch') return 'direct';
+    // Loop is always depth-walked — restore with volume ON.
+    if (vTab === 'loop') withVolume = true;
+    // CoinSwitch is hidden — fall back to the WazirX tab.
+    if (s.page === 'coinswitch') return 'wazirx';
+    // The old top-level Direct/Loop/Intra pages are now WazirX sub-tabs.
+    if (['direct','loop','intraloop'].includes(s.page)) { vTab = s.page; if (s.page === 'loop') withVolume = true; return 'wazirx'; }
     return (s.page && PAGES[s.page]) ? s.page : null;
   } catch (e) { return null; }
 }
@@ -705,11 +740,16 @@ function selectPage(page) {
   // backend note/error banner is about the scanner, not Giottus, so hide
   // both on this page (it has its own status + error handling).
   const isVenue = !!(PAGES[page] && PAGES[page].venue);
+  const isNativeVenue = isVenue && PAGES[page].venue.native; // WazirX IS the scanner
   const nb = document.getElementById('noteBox'), bs = document.getElementById('bannerSlot');
-  if (nb) nb.style.display = (page === 'giottus' || page === 'coinswitch' || isVenue) ? 'none' : '';
-  if (bs) bs.style.display = (page === 'giottus' || page === 'coinswitch' || isVenue) ? 'none' : '';
-  // Venue pages poll their own engine while open (like Giottus).
-  if (isVenue) {
+  // Keep the scanner note/banner on WazirX (native) — it's about that scanner;
+  // hide it only on the external-engine pages (Zebpay/CoinDCX/Giottus/CoinSwitch).
+  const hideScanner = (page === 'giottus' || page === 'coinswitch' || (isVenue && !isNativeVenue));
+  if (nb) nb.style.display = hideScanner ? 'none' : '';
+  if (bs) bs.style.display = hideScanner ? 'none' : '';
+  // External venues (Zebpay/CoinDCX) poll their own engine while open. WazirX
+  // (native) rides the global fullRefresh, so no separate timer.
+  if (isVenue && !isNativeVenue) {
     if (!vTimer) vTimer = setInterval(vRefresh, 10000);
     vRefresh();
   } else if (vTimer) { clearInterval(vTimer); vTimer = null; }
@@ -958,10 +998,12 @@ function sortControlsHtml() {
     </div>`;
 }
 
-function volumeToggleHtml() {
+function volumeToggleHtml(locked) {
+  // `locked` (loop sub-tab): forced ON and non-editable — loops are only
+  // meaningful depth-walked, so top-of-book mode is disabled there.
   return `
-    <label class="toggle-wrap"><span>With volume</span>
-      <label class="switch"><input type="checkbox" id="volumeToggle" ${withVolume?'checked':''} onchange="onVolumeToggle()"><span class="slider"></span></label>
+    <label class="toggle-wrap" title="${locked ? 'Loops are always depth-walked' : ''}"><span>With volume</span>
+      <label class="switch"><input type="checkbox" id="volumeToggle" ${withVolume?'checked':''} ${locked?'disabled':''} onchange="onVolumeToggle()"><span class="slider"></span></label>
     </label>`;
 }
 
@@ -970,15 +1012,15 @@ function renderToolbar() {
 
   const _v = venueCfg();
   if (_v) {
-    const st = venueState[_v.id] || {};
-    // Counts reflect the ACTIVE filters (wallets/USDT/coin), so flipping a
-    // toggle visibly moves the numbers — proof the filter applied.
-    const f = vFiltered(st.opps);
+    // WazirX (native) draws from the main scanner; others from their own snapshot.
+    const opps = _v.native ? allOpportunities : (venueState[_v.id] || {}).opps;
+    const st = _v.native ? { ts: lastFetchTs } : (venueState[_v.id] || {});
+    const f = vFiltered(opps);
     const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l} (${(f[k]||[]).length})</button>`;
     el.innerHTML = `
       <div class="g-seg">${tab('direct','Direct')}${tab('loop','Loop')}${tab('intraloop','Intra Loop')}</div>
-      ${volumeToggleHtml()}
-      ${vTab !== 'intraloop' ? `<label class="toggle-wrap"><span>Disabled Wallets</span>
+      ${volumeToggleHtml(vTab === 'loop')}
+      ${vTab === 'direct' ? `<label class="toggle-wrap"><span>Disabled Wallets</span>
         <label class="switch"><input type="checkbox" id="disabledToggle" ${showDisabledWallets?'checked':''} onchange="onDisabledToggle()"><span class="slider"></span></label>
       </label>` : ''}
       ${vTab === 'direct' ? `<label class="toggle-wrap"><span>USDT pairs</span>
@@ -989,7 +1031,7 @@ function renderToolbar() {
       ${venueFilterChips()}
       <span class="g-status" style="margin:0;">${
         st.err ? `error: ${st.err}`
-        : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner} · ${st.tracked||0} coins · updated ${Math.max(0, Math.round((Date.now()-st.ts)/1000))}s ago`
+        : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner}${_v.native ? '' : ` · ${st.tracked||0} coins`}${vTab === 'loop' ? ' · depth-walked (volume always on)' : ''} · updated ${Math.max(0, Math.round((Date.now()-st.ts)/1000))}s ago`
         : 'connecting…'}</span>
     `;
     return;
@@ -1140,8 +1182,10 @@ function applyVolumeInstant() {
 function onVolumeToggle() {
   withVolume = document.getElementById('volumeToggle').checked;
   saveUiState();
-  if (venueCfg()) { vRefresh(); return; } // venue pages fetch their own snapshot
-  applyVolumeInstant();
+  const v = venueCfg();
+  if (v && !v.native) { renderToolbar(); vRefresh(); return; } // external venue: refetch its snapshot
+  applyVolumeInstant(); // WazirX native venue OR classic pages
+  if (v && v.native) renderToolbar();
 }
 function onDisabledToggle() {
   showDisabledWallets = document.getElementById('disabledToggle').checked;
@@ -1690,28 +1734,43 @@ function vFiltered(opps) {
   const vf = venueFilter;
   for (const o of opps || []) {
     if (f[o.type] === undefined) continue;
-    // Disabled Wallets: OFF = transferable only, ON = wallet-blocked ONLY —
-    // a separate view, not a superset. Matches the WazirX Direct page exactly.
-    if (o.type === 'direct' || o.type === 'loop') {
-      if (showDisabledWallets ? o.walletEnabled !== false : o.walletEnabled === false) continue;
-    }
-    if (o.type === 'direct' && !showUsdtPairs && (o.quote || 'INR') === 'USDT') continue;
-    if (o.type === 'intraloop' && o.walked && o.walked.profit < 100) continue; // same noise floor as the WazirX page
-    // Apply Filter (drawer) fields, per sub-tab.
     if (o.type === 'direct') {
+      // Disabled Wallets: OFF = transferable only, ON = wallet-blocked ONLY.
+      if (showDisabledWallets ? o.walletEnabled !== false : o.walletEnabled === false) continue;
+      // Volume ON shows only walkable, non-negative trades; Volume OFF (₹1L fixed) shows all.
+      if (withVolume && (!o.walked || o.walked.profitPct < 0)) continue;
+      if (!showUsdtPairs && (o.quote || 'INR') === 'USDT') continue;
       if (vf.direct.coin && !o.coin.includes(vf.direct.coin)) continue;
       if (vf.direct.buyExchanges.length && !vf.direct.buyExchanges.includes(o.buyExchange)) continue;
     } else if (o.type === 'loop') {
+      // Loop is ALWAYS transferable-only and ALWAYS depth-walked (volume locked
+      // ON), positive, and ≥ ₹100 — no disabled-wallet toggle for loops.
+      if (o.walletEnabled === false) continue;
+      if (!o.walked || o.walked.profitPct < 0 || o.walked.profit < 100) continue;
       if (vf.loop.buyCoin && !o.coin1.includes(vf.loop.buyCoin)) continue;
       if (vf.loop.sellCoin && !o.coin2.includes(vf.loop.sellCoin)) continue;
     } else if (o.type === 'intraloop') {
+      if (o.walked && o.walked.profit < 100) continue; // noise floor
       if (vf.intraloop.coin && !o.coin.includes(vf.intraloop.coin)) continue;
     }
     f[o.type].push(o);
   }
   return f;
 }
-function vSetTab(t) { vTab = t; saveUiState(); renderToolbar(); renderVenuePage(); }
+function vSetTab(t) {
+  const forcedVol = (t === 'loop' && withVolume !== true);
+  vTab = t;
+  if (t === 'loop') withVolume = true; // loop is always depth-walked
+  saveUiState();
+  renderToolbar();
+  const v = venueCfg();
+  if (forcedVol) {
+    // Volume just flipped ON for the loop tab — load the volume-ON data.
+    if (v && !v.native) vRefresh(); else applyVolumeInstant();
+  } else {
+    renderVenuePage();
+  }
+}
 
 // Active-filter chips for the current venue sub-tab (with × to clear each).
 function venueFilterChips() {
@@ -1748,21 +1807,33 @@ async function vRefresh() {
 function renderVenuePage() {
   const v = venueCfg(); if (!v) return;
   const el = document.getElementById('cardList');
-  const st = venueState[v.id];
-  if (!st || (!st.ts && !st.err)) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Connecting to ${v.label}…</div>`; return; }
-  if (st.err && !(st.opps && st.opps.length)) {
-    el.innerHTML = `<div class="empty-state"><span class="emoji">⚠️</span>Couldn't reach the ${v.label} engine (${st.err}). If the backend was just deployed, give it a moment to discover markets.</div>`;
-    return;
+  let opps;
+  if (v.native) {
+    // WazirX: the main scanner feeds this tab.
+    if (!hasLoadedOnce) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading opportunities…</div>`; return; }
+    opps = allOpportunities;
+  } else {
+    const st = venueState[v.id];
+    if (!st || (!st.ts && !st.err)) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Connecting to ${v.label}…</div>`; return; }
+    if (st.err && !(st.opps && st.opps.length)) {
+      el.innerHTML = `<div class="empty-state"><span class="emoji">⚠️</span>Couldn't reach the ${v.label} engine (${st.err}). If the backend was just deployed, give it a moment to discover markets.</div>`;
+      return;
+    }
+    opps = st.opps;
   }
-  const list = sortList(vFiltered(st.opps)[vTab] || []);
+  const list = sortList(vFiltered(opps)[vTab] || []);
   if (!list.length) {
-    // Say WHY it's empty: intra-loop is same-exchange (never "⇄ Binance"),
-    // and an active filter is called out so a filtered-to-zero list isn't
-    // mistaken for "no data".
-    const filterNote = vCoinFilter ? ` matching “${vCoinFilter}”` : '';
+    // Call out an active filter so a filtered-to-zero list isn't mistaken for
+    // "no data"; note intra-loop is same-exchange (never "⇄ Binance").
+    const activeCoin = vTab === 'direct' ? venueFilter.direct.coin
+      : vTab === 'loop' ? (venueFilter.loop.buyCoin || venueFilter.loop.sellCoin)
+      : venueFilter.intraloop.coin;
+    const filterNote = activeCoin ? ` matching “${activeCoin.toUpperCase()}”` : '';
     const scope = vTab === 'intraloop'
       ? `No ${v.label} triangle (intra-loop) opportunities${filterNote} with ≥ ₹100 profit right now — all three legs run on ${v.label} itself.`
-      : `No ${vTab} opportunities${filterNote} on ${v.label} ⇄ ${v.partner} right now${!showDisabledWallets ? ' (blocked-wallet coins are hidden — flip “Disabled Wallets” to include them)' : ''}.`;
+      : vTab === 'loop'
+      ? `No profitable ${v.label} ⇄ ${v.partner} loops${filterNote} right now (loops are shown depth-walked, transferable, and ≥ ₹100).`
+      : `No direct opportunities${filterNote} on ${v.label} ⇄ ${v.partner} right now${!showDisabledWallets ? ' (blocked-wallet coins are hidden — flip “Disabled Wallets” to include them)' : ''}.`;
     el.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>${scope}</div>`;
     return;
   }
@@ -1772,7 +1843,9 @@ function renderVenuePage() {
 // Inject a sidebar tab for every venue (under the Exchanges group), so adding
 // to VENUES is all it takes for a new exchange to appear.
 function buildVenueNav() {
-  let after = document.getElementById('nav-giottus');
+  // Insert Zebpay/CoinDCX right after the WazirX tab, so the Exchanges group
+  // reads WazirX · Zebpay · CoinDCX · Giottus.
+  let after = document.getElementById('nav-wazirx') || document.getElementById('nav-giottus');
   if (after) {
     VENUES.forEach(v => {
       if (document.getElementById('nav-' + v.id)) return;
@@ -2991,6 +3064,9 @@ async function fullRefresh() {
   // never needs rebuilding on a data refresh — pages with live counts
   // (Giottus/CoinSwitch) refresh their own toolbars.
   renderCards();
+  // WazirX (native venue) shows live sub-tab counts in its toolbar, so refresh
+  // it here — the same cadence the external venues use for their toolbars.
+  if (venueCfg() && venueCfg().native) renderToolbar();
   document.getElementById('lastRefreshed').innerHTML = lastFetchTs
     ? `Last refreshed: <strong>${fmtTime(new Date(lastFetchTs))}</strong>` : 'Last refreshed: —';
   countdown = 10;
@@ -3843,8 +3919,8 @@ function renderGiottusPage() {
 // Restore the page + filters the user last had, so a full page reload
 // (browser refresh / mobile pull-to-refresh) keeps them where they were
 // instead of snapping back to Direct with cleared filters.
-buildVenueNav(); // inject the Zebpay (and future) exchange tabs before restoring the page
-selectPage(loadUiState() || 'direct');
+buildVenueNav(); // inject the Zebpay/CoinDCX exchange tabs before restoring the page
+selectPage(loadUiState() || 'wazirx');
 fullRefresh().finally(prefetchOtherVolume); // warm the other volume so the first toggle is instant
 setInterval(fullRefresh, 10000);
 setInterval(() => {
