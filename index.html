@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 82)
+     SWENIK — design system v2 (build 85)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -671,7 +671,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 82</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 85</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -2732,6 +2732,11 @@ function loopOrderBookTable(legs, opts) {
   opts = opts || {};
   const showBars = opts.showBars !== false;   // false → plain book (arb negative)
   const levels = opts.levels || null;         // {first:{pct,inr}, second:{pct,inr}}
+  // Drop the synthetic USDTUSDC book: on a stablecoin cash-out loop the middle
+  // Binance "buy USDT" leg is a 1:1 no-op, so its book (an inverted USDC/USDT
+  // reference) isn't part of the actual trade and only confuses. Real loops keep
+  // their genuine c2 Binance book (e.g. GALAUSDT).
+  legs = (legs || []).filter(l => (l.market || '').toLowerCase() !== 'usdtusdc');
   // Cap at 13 levels a side — deeper reads poorly on screen (user call).
   legs = legs.map(l => ({ ...l, asks: (l.asks || []).slice(0, 13), bids: (l.bids || []).slice(0, 13) }));
   const maxAsks = Math.max(...legs.map(l => l.asks.length));
@@ -2804,6 +2809,66 @@ function loopTouchedRows(label, arr, unit) {
   return (arr && arr.length) ? arr.map(t =>
     `<div class="leg-line"><span class="k">${label} — level ${t.level}</span><span class="v">${fmtCoin(t.qty,2)} ${unit} @ ${fmtNum(t.price,6)} (${t.pct.toFixed(1)}% of level)</span></div>`
   ).join('') : `<div class="leg-line"><span class="k">—</span><span class="v">no levels touched</span></div>`;
+}
+
+// A loop that cashes out in a stablecoin (c2 = USDT/USDC) has NO real middle
+// Binance leg — you already hold USDT after selling c1, so "buy c2 on Binance"
+// is a 1:1 no-op (the engine values it at exactly 1.0). For those loops we drop
+// that phantom leg and, crucially, surface the real first step — buying c1 on
+// the home venue — which the generic 3-leg layout otherwise hides in the rate
+// note. Normal loops (c2 = a real coin) keep the original three legs.
+function loopIsStableCashout(entry) {
+  return entry && (entry.coin2 === 'usdt' || entry.coin2 === 'usdc');
+}
+// Both shapes are always three top-level legs — Buy c1 → (middle) → Sell c2 —
+// matching the card and the KoinKnight layout:
+//   3-leg (stablecoin cash-out): buy c1 → sell c1 on Binance (→ USDT) → sell USDT on home
+//   4-leg (buy another coin):    buy c1 → CONVERT c1▶c2 on Binance → sell c2 on home
+// In the 4-leg case the middle "Convert" leg is a collapsed dropdown that
+// expands to reveal both Binance sub-legs (sell c1 for USDT, buy c2 with USDT).
+function loopLegLabels(entry) {
+  const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase(), vn = cardVenueName();
+  return loopIsStableCashout(entry)
+    ? [`Leg 1 — buy ${c1} on ${vn}`, `Leg 2 — sell ${c1} on Binance`, `Leg 3 — sell ${c2} on ${vn}`]
+    : [`Leg 1 — buy ${c1} on ${vn}`, `Leg 2 — convert ${c1} ▶ ${c2} on Binance`, `Leg 3 — sell ${c2} on ${vn}`];
+}
+// Index of the leg that should render COLLAPSED by default (the "extra" middle
+// convert leg). −1 = none collapsed (3-leg cash-out has no extra leg).
+function loopCollapsedLeg(entry) { return loopIsStableCashout(entry) ? -1 : 1; }
+function loopLegBodies(entry, l) {
+  const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
+  const u = entry.usdtInrUsed || {};
+  const rateVal = x => (x && typeof x === 'object') ? x.rate : x;
+  const entryRate = rateVal(u.entry);
+  // USDT actually spent buying c1 on the venue's coin/USDT market (finalCostInr
+  // valued at the same usdtinr rate the engine used) — this is the "which USDT
+  // price is considered" number.
+  const usdtInBuy = (entryRate && l.finalCostInr) ? l.finalCostInr / entryRate : null;
+  const line = (k, v) => `<div class="leg-line"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+
+  const buyBody =
+    line(`${c1} bought`, `${fmtAdaptive(l.trbQty)} ${c1}`) +
+    (usdtInBuy != null ? line('Paid (USDT)', `${fmtAdaptive(usdtInBuy)} USDT · ${fmtInr(l.finalCostInr, 2)}`)
+                       : line('Cost (incl. fees)', fmtInr(l.finalCostInr, 2))) +
+    (entryRate ? line('USDT/INR rate used', `₹${fmtNum(entryRate, 2)}`) : '') +
+    line(`${c1} transfer fee (INR-valued)`, fmtInr(l.trbTransferCharge, 2));
+
+  const sellUsdtBody =
+    loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2) +
+    line('INR received (net)', fmtInr(l.inrReceived, 2));
+
+  if (loopIsStableCashout(entry)) {
+    const sellC1Body =
+      loopTouchedRows(`Sell ${c1}`, l.sellTRBTouched, c1) +
+      line('USDT received', `${fmtAdaptive(l.usdtFromTRB)} USDT`);
+    return [buyBody, sellC1Body, sellUsdtBody];
+  }
+  const convertBody =
+    line(`Sell ${c1} → USDT`, `${fmtAdaptive(l.usdtFromTRB)} USDT`) +
+    loopTouchedRows(`Sell ${c1}`, l.sellTRBTouched, c1) +
+    line(`Buy ${c2} with USDT`, `${fmtAdaptive(l.galaQty)} ${c2}`) +
+    loopTouchedRows(`Buy ${c2}`, l.buyGALATouched, c2);
+  return [buyBody, convertBody, sellUsdtBody];
 }
 
 function loopRateNoteHtml(entry) {
@@ -2909,18 +2974,14 @@ function renderLoopModal() {
     </div>
     <div id="loopRateNote">${loopRateNoteHtml(entry)}</div>
 
-    <details class="leg-detail" style="margin-top:12px;" open>
-      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 1 — sell ${c1} on Binance</div></div><div></div></summary>
-      <div class="leg-detail-body" id="loopLeg1Body">${loopTouchedRows(`Sell ${c1}`, l.sellTRBTouched, c1)}</div>
-    </details>
-    <details class="leg-detail" open>
-      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 2 — buy ${c2} on Binance</div></div><div></div></summary>
-      <div class="leg-detail-body" id="loopLeg2Body">${loopTouchedRows(`Buy ${c2}`, l.buyGALATouched, c2)}</div>
-    </details>
-    <details class="leg-detail" open>
-      <summary><div class="leg-summary-left"><div class="leg-amount">Leg 3 — sell ${c2} on ${cardVenueName()}</div></div><div></div></summary>
-      <div class="leg-detail-body" id="loopLeg3Body">${loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2)}</div>
-    </details>
+    ${(() => {
+      const lab = loopLegLabels(entry), bod = loopLegBodies(entry, l), collapsed = loopCollapsedLeg(entry);
+      return lab.map((label, i) => `
+    <details class="leg-detail"${i === 0 ? ' style="margin-top:12px;"' : ''}${i === collapsed ? '' : ' open'}>
+      <summary><div class="leg-summary-left"><div class="leg-amount">${label}</div></div><div></div></summary>
+      <div class="leg-detail-body" id="loopLeg${i+1}Body">${bod[i]}</div>
+    </details>`).join('');
+    })()}
 
     <details class="leg-detail">
       <summary><div class="leg-summary-left"><div class="leg-amount">Full fee breakdown</div></div><div></div></summary>
@@ -2945,9 +3006,8 @@ function updateLoopModalLive(entry) {
   const roi = document.getElementById('loopSumRoi'); if (roi) roi.textContent = l.profitPct.toFixed(2) + '%';
   const ex  = document.getElementById('loopSumExec'); if (ex) ex.textContent = entry.executionMin.toFixed(2) + ' min';
   const rn  = document.getElementById('loopRateNote'); if (rn) rn.innerHTML = loopRateNoteHtml(entry);
-  const b1  = document.getElementById('loopLeg1Body'); if (b1) b1.innerHTML = loopTouchedRows(`Sell ${c1}`, l.sellTRBTouched, c1);
-  const b2  = document.getElementById('loopLeg2Body'); if (b2) b2.innerHTML = loopTouchedRows(`Buy ${c2}`, l.buyGALATouched, c2);
-  const b3  = document.getElementById('loopLeg3Body'); if (b3) b3.innerHTML = loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2);
+  const bod = loopLegBodies(entry, l);
+  bod.forEach((h, i) => { const el = document.getElementById(`loopLeg${i + 1}Body`); if (el) el.innerHTML = h; });
   const fb  = document.getElementById('loopFeeBody'); if (fb) fb.innerHTML = loopFeeBodyHtml(l, c1, c2, entry);
   slot.innerHTML = loopObSectionHtml(entry);
 }
@@ -4161,13 +4221,39 @@ function gLegTitle(L) {
   return `${base.toUpperCase()}/${L.quote.toUpperCase()}`;
 }
 
-// Order books straight from the engine's snapshot: the side each leg trades,
-// with "you take" amounts from the depth walk (same look as the lab books).
+// Order books for a tradable. Prefers LIVE Giottus depth (fetched client-side by
+// the open-book refresher every 3s) so the prices match the exchange for an
+// actual trade; the "you take" consumption bars are recomputed by re-walking the
+// SAME trade size (t.inrIn) against that live depth. Falls back per-leg to the
+// engine's snapshot book when live depth for a market isn't in hand yet.
 function gSrvBooksHtml(t) {
-  return '<div class="g-books">' + (t.legs || []).map(L => {
+  const legs = t.legs || [];
+  const IF = gSettings.feeInr / 100, BF = gSettings.feeUsdt / 100;
+  // Recompute the walk on live books, at the engine's trade size, to get fresh
+  // consumption bars. Needs every leg's live depth; otherwise we skip bars.
+  let liveUsed = null;
+  const haveAllLive = legs.length > 0 && legs.every(L => gDepth[L.market]);
+  if (haveAllLive && t.inrIn > 0) {
+    const walkLegs = legs.map(L => ({ side: L.side, fee: L.quote === 'inr' ? IF : BF,
+      levels: gLv(L.side === 'buy' ? gDepth[L.market].asks : gDepth[L.market].bids) }));
+    const w = gWalk(walkLegs, { stopWhenUnprofitable: false, targetIn: t.inrIn });
+    liveUsed = w && w.used;
+  }
+  return '<div class="g-books">' + legs.map((L, j) => {
     const title = `${gLegTitle(L)} — ${L.side === 'buy' ? 'asks' : 'bids'}`;
-    if (!L.levels || !L.levels.length) return `<div class="g-book"><div class="bt">${title}</div><table><tr><td class="h">no depth yet</td></tr></table></div>`;
     const cls = L.side === 'buy' ? 'ask' : 'bid';
+    const d = gDepth[L.market];
+    if (d) {
+      // Live depth for this market.
+      const lv = gLv(L.side === 'buy' ? d.asks : d.bids).slice(0, 13);
+      const u = (liveUsed && liveUsed[j]) || [];
+      const rows = lv.map((l, i) =>
+        `<tr class="${cls} ${u[i] > 1e-9 ? 'used' : ''}"><td>${l.p}</td><td>${l.q}</td><td class="take">${u[i] > 1e-9 ? '← ' + (+u[i].toPrecision(4)) : ''}</td></tr>`).join('');
+      return `<div class="g-book"><div class="bt">${title}</div>
+        <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${rows}</table></div>`;
+    }
+    // Snapshot fallback for this leg.
+    if (!L.levels || !L.levels.length) return `<div class="g-book"><div class="bt">${title}</div><table><tr><td class="h">no depth yet</td></tr></table></div>`;
     const rows = L.levels.map((lv, i) =>
       `<tr class="${cls} ${L.used && L.used[i] > 1e-9 ? 'used' : ''}"><td>${lv[0]}</td><td>${lv[1]}</td><td class="take">${L.used && L.used[i] > 1e-9 ? '← ' + (+L.used[i].toPrecision(4)) : ''}</td></tr>`).join('');
     return `<div class="g-book"><div class="bt">${title}</div>
@@ -4201,29 +4287,44 @@ async function gFetchSnapshotQuiet() {
 }
 
 // Request 5: once a tradable's order book is opened, update ONLY that book
-// every 2s (not the whole page). We pull the latest snapshot quietly and
-// replace just the open books' inner HTML, leaving the rest of the page and
-// scroll position untouched.
+// every 3s (not the whole page) — with LIVE Giottus depth so it's tradable.
+// We (a) refresh the engine snapshot quietly for structure + trade size, (b)
+// pull live depth for every market behind an open book straight from Giottus,
+// then (c) re-render each open book from that live depth with freshly-walked
+// consumption bars — leaving the rest of the page and scroll position untouched.
 async function gRefreshOpenBooks() {
   if (currentPage !== 'giottus' || !gOpenBooks.size) return;
-  const ok = await gFetchSnapshotQuiet();
-  if (!ok || currentPage !== 'giottus' || !gServerSnap) return;
+  await gFetchSnapshotQuiet();               // best-effort; keep last snapshot on failure
+  if (currentPage !== 'giottus' || !gServerSnap) return;
   const snap = gServerSnap;
   const findBy = (arr, label) => (arr || []).find(x => x.label === label);
+
+  // Resolve every open book to its tradable/watch object, collect its markets.
+  const open = [], markets = new Set();
   gOpenBooks.forEach(key => {
     const sep = key.indexOf(':');
     const which = key.slice(0, sep), label = key.slice(sep + 1);
-    const el = document.getElementById(gBookId(which, label));
-    if (!el) return; // that card isn't currently on screen
     const t = which === 'st' ? findBy(snap.tradable, label) : findBy(snap.watch, label);
-    if (t) el.innerHTML = gSrvBooksHtml(t);
+    if (t) { open.push({ which, label, t }); for (const L of (t.legs || [])) markets.add(L.market); }
   });
+
+  // Pull LIVE depth for those markets (respect Giottus rate-limit backoff).
+  if (markets.size && Date.now() >= gBackoffUntil) {
+    await Promise.all([...markets].map(m => gFetchDepth(m)));
+  }
+  if (currentPage !== 'giottus') return;
+
+  // Re-render each open book from the (now-live) depth + recomputed bars.
+  for (const o of open) {
+    const el = document.getElementById(gBookId(o.which, o.label));
+    if (el) el.innerHTML = gSrvBooksHtml(o.t);
+  }
 }
 
-// Run the 2s book refresher only while at least one book is open on this page.
+// Run the 3s book refresher only while at least one book is open on this page.
 function gSyncBookTimer() {
   const wantOn = currentPage === 'giottus' && gOpenBooks.size > 0;
-  if (wantOn && !gBookTimer) gBookTimer = setInterval(gRefreshOpenBooks, 2000);
+  if (wantOn && !gBookTimer) gBookTimer = setInterval(gRefreshOpenBooks, 3000);
   else if (!wantOn && gBookTimer) { clearInterval(gBookTimer); gBookTimer = null; }
 }
 
