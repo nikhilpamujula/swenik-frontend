@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 74)
+     SWENIK — design system v2 (build 75)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -278,7 +278,7 @@
   .kk-row { border-top: 1px solid var(--gray-100); }
   details.kk-row summary {
     list-style: none; cursor: pointer; display: flex; align-items: center;
-    gap: 10px; padding: 10px 16px; transition: background .12s;
+    gap: 10px; padding: 8px 16px; transition: background .12s;
   }
   details.kk-row summary:hover { background: #f8fafd; }
   details.kk-row summary::-webkit-details-marker { display: none; }
@@ -292,20 +292,22 @@
   .kk-mid .kk-price { font-size: 11.5px; color: var(--gray-700); margin-top: 1px; }
   .kk-mid .kk-price .kk-caret { display:inline-block; transition: transform .15s; color: var(--gray-500); }
   details.kk-row[open] .kk-caret { transform: rotate(180deg); }
-  .kk-ex { flex: 0 0 auto; text-align: right; font-size: 12px; }
-  .kk-ex .ex-name { font-weight: 600; color: #1c2637; }
+  .kk-ex { flex: 0 0 auto; text-align: right; font-size: 12px; line-height: 1.3; }
+  .kk-ex .ex-name { display: inline; font-weight: 600; color: #1c2637; vertical-align: middle; }
   .kk-ex .ex-market { color: var(--gray-500); font-size: 11px; }
   /* Exchange logo — real favicon, sits above the name, right-aligned, so each
      leg's venue is identifiable at a glance. .ex-ico-mono is the coloured
      initial shown if the logo can't load. */
+  /* Icon sits INLINE, just before the exchange name, so the venue is one line
+     (icon + name) with the market beneath — no tall stacked column. */
   .ex-ico {
-    display: inline-block; width: 20px; height: 20px; border-radius: 6px;
-    margin-bottom: 4px; vertical-align: middle; object-fit: contain;
+    display: inline-block; width: 17px; height: 17px; border-radius: 5px;
+    margin: 0 5px 0 0; vertical-align: middle; object-fit: contain;
     background: #fff; box-shadow: 0 1px 2px rgba(16,28,53,.18);
   }
   .ex-ico-mono {
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 800; line-height: 1;
+    font-size: 9.5px; font-weight: 800; line-height: 1;
   }
   .kk-mid .kk-unit { font-size: 11px; color: var(--gray-500); margin-top: 1px; font-variant-numeric: tabular-nums; }
   .kk-mid .kk-unit .kk-caret { color: var(--gray-500); }
@@ -517,9 +519,11 @@
   .leg-summary-right .ex-name { font-weight: 700; color: #1c2637; }
   .leg-summary-right .ex-market { color: var(--gray-500); }
   .leg-detail-body { padding: 7px 12px 9px; font-size: 12px; }
-  .leg-line { display: flex; justify-content: space-between; padding: 3px 0; }
-  .leg-line .k { color: var(--gray-700); }
-  .leg-line .v { font-weight: 700; color: #1c2637; font-variant-numeric: tabular-nums; }
+  /* Key on the left (can wrap), value on the right in a clean, non-wrapping,
+     right-aligned column so figures line up. */
+  .leg-line { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 3px 0; }
+  .leg-line .k { color: var(--gray-700); flex: 1; min-width: 0; }
+  .leg-line .v { font-weight: 700; color: #1c2637; font-variant-numeric: tabular-nums; flex: 0 0 auto; white-space: nowrap; text-align: right; }
 
   .arb-box { background: linear-gradient(135deg, #34b184, #23a06f); color: #fff; border-radius: var(--radius-xs); padding: 10px 14px; margin-bottom: 6px; }
   .arb-box .arb-pct { font-size: 15.5px; font-weight: 700; }
@@ -622,7 +626,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 74</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 75</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -1839,11 +1843,11 @@ function directCard(o) {
       (o.network ? ln('Transfer network', o.network) : ''),
       `openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')`)}`
   : `
-    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+    <div class="kk-row" style="padding:8px 16px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag buy">Buy<span class="kk-coin">${coin}</span></div>
       <div class="kk-mid"><div class="kk-price">${exLabel(o.buyExchange)} · ${o.buyMarket}</div></div>
     </div>
-    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+    <div class="kk-row" style="padding:8px 16px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag sell">Sell<span class="kk-coin">${coin}</span></div>
       <div class="kk-mid"><div class="kk-price">${exLabel(o.sellExchange)} · ${o.sellMarket}</div></div>
     </div>
@@ -1942,11 +1946,11 @@ function loopCard(o) {
       ln('Execution time', `${o.executionMin.toFixed(2)} mins`),
       `openCardModal('loop','','${o.coin1}','${o.coin2}','','','${o.entryVenue||''}','${o.exitVenue||''}')`)}`
   : `
-    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+    <div class="kk-row" style="padding:8px 16px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag buy">Buy<span class="kk-coin">${c1}</span></div>
       <div class="kk-mid"><div class="kk-price">${pageVenueName()} ${c1}/${entryQ} → Binance ${c1}/USDT</div></div>
     </div>
-    <div class="kk-row" style="padding:12px 14px; display:flex; gap:10px; align-items:center;">
+    <div class="kk-row" style="padding:8px 16px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag sell">Sell<span class="kk-coin">${c2}</span></div>
       <div class="kk-mid"><div class="kk-price">Binance ${c2}/USDT → ${pageVenueName()} ${c2}/${exitQ}</div></div>
     </div>
@@ -1971,7 +1975,7 @@ function intraLoopCard(o) {
   const l = o.walked;
   const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
   const rows = (l ? l.legs : []).map(leg => `
-    <div class="kk-row" style="padding:10px 14px; display:flex; gap:10px; align-items:center;">
+    <div class="kk-row" style="padding:8px 16px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag ${leg.action === 'Buy' ? 'buy' : leg.action === 'Sell' ? 'sell' : 'convert'}">${leg.action}<span class="kk-coin">${leg.action === 'Convert' ? '' : leg.asset.toUpperCase()}</span></div>
       <div class="kk-mid">
         <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtAdaptive(leg.qty) + ' ' + leg.asset.toUpperCase()}</div>
