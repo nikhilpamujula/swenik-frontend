@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 79)
+     SWENIK — design system v2 (build 80)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -664,7 +664,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 79</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 80</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -988,9 +988,27 @@ function pctOf(o) { return o.walked ? o.walked.profitPct : o.roughPct; }
 // instead of the toggle feeling dead until a slow network round-trip returns.
 let volSnapCache = {}; // { 'true': {opportunities, ts}, 'false': {opportunities, ts} }
 
+// Every network call goes through this so a hung/cold backend can't stall the
+// whole app. Without a timeout a stuck socket keeps `refreshInFlight` true, and
+// the guard in fullRefresh() then skips EVERY auto-refresh — the app freezes on
+// the stale seed snapshot (that was the "serious lag" + stuck-on-23 bug). A
+// timed-out fetch rejects fast, clears the in-flight flag, and the next tick
+// retries against a (by then usually warm) backend.
+function fetchWithTimeout(url, timeoutMs = 11000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { signal: ctrl.signal })
+    .finally(() => clearTimeout(t))
+    .catch(err => {
+      // Normalise an abort into a readable message the banner can show.
+      if (err && err.name === 'AbortError') throw new Error('timed out');
+      throw err;
+    });
+}
+
 async function fetchOpportunities(volume = withVolume) {
   const url = `${API_BASE}/api/opportunities?volume=${volume}&wallets=all&profit=all`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`API returned ${res.status}`);
   const data = await res.json();
   volSnapCache[String(volume)] = { opportunities: data.opportunities, ts: data.ts };
@@ -1008,7 +1026,7 @@ async function fetchLiveCoin(coin) {
   const url = (openCard && openCard.venueApi)
     ? `${API_BASE}${openCard.venueApi}/direct/${coin}/live`
     : `${API_BASE}/api/opportunities/${coin}/live`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`API returned ${res.status}`);
   return res.json();
 }
@@ -1328,7 +1346,13 @@ function renderToolbar() {
     const opps = _v.native ? allOpportunities : (venueState[_v.id] || {}).opps;
     const st = _v.native ? { ts: lastFetchTs } : (venueState[_v.id] || {});
     const f = vFiltered(opps);
-    const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l} (${(f[k]||[]).length})</button>`;
+    // The tab count must reflect LIVE, filtered data. While WazirX is still on
+    // the baked-in seed snapshot (no live fetch has landed yet), the seed count
+    // is stale and misleading (e.g. "Direct (23)" when live is 1), so show a
+    // pending "…" until real data arrives instead of a number we can't stand
+    // behind. External venues always fetch fresh, so they show the real count.
+    const staleCount = !!(_v.native && usingSeedData);
+    const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l} (${staleCount ? '…' : (f[k]||[]).length})</button>`;
     el.innerHTML = `
       <div class="g-seg">${tab('direct','Direct')}${tab('loop','Loop')}${tab('intraloop','Intra Loop')}</div>
       ${volumeToggleHtml(vTab === 'loop')}
@@ -2138,7 +2162,7 @@ async function vRefresh() {
   const v = venueCfg(); if (!v) return;
   const st = venueState[v.id] || (venueState[v.id] = { opps: [], ts: 0, tracked: 0, err: null });
   try {
-    const res = await fetch(`${API_BASE}${v.api}/opportunities?volume=${withVolume}&wallets=all&profit=all`);
+    const res = await fetchWithTimeout(`${API_BASE}${v.api}/opportunities?volume=${withVolume}&wallets=all&profit=all`);
     if (!res.ok) throw new Error(`API returned ${res.status}`);
     const data = await res.json();
     st.opps = data.opportunities || []; st.ts = data.ts; st.tracked = data.trackedPairs || 0; st.err = null;
@@ -3503,6 +3527,7 @@ function setBanner(msg) {
 }
 
 let refreshInFlight = false;
+let bootRetryT = null; // one-shot quick retry while still on the seed snapshot
 // Shows "Refreshing…" while a fetch is in flight, otherwise the countdown —
 // so on a slow connection the header reflects what's actually happening
 // instead of sitting frozen at "in 0s".
@@ -3541,6 +3566,14 @@ async function fullRefresh() {
     refreshInFlight = false;
   }
   hasLoadedOnce = true;
+
+  // If we still have never seen live data (cold/slow backend on first load),
+  // don't make the user sit on the stale seed until the next 10s tick — retry
+  // quickly. Backs off after the first fast retry so we don't hammer a down
+  // backend (the 10s interval takes over from there).
+  if (!ok && usingSeedData && !bootRetryT) {
+    bootRetryT = setTimeout(() => { bootRetryT = null; fullRefresh(); }, 3500);
+  }
 
   setBanner(ok ? null : (usingSeedData
     ? `Couldn't reach the scanner (${errMsg}). Showing a saved snapshot — prices and profits are NOT live.`
