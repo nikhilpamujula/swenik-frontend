@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 80)
+     SWENIK — design system v2 (build 82)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -234,6 +234,13 @@
   }
   /* An empty note box takes no space (the intro banner was removed). */
   .note-box:empty { display: none !important; padding: 0; margin: 0; border: none; }
+
+  /* Footer shown when the list is capped to the top N cards. Spans the full
+     card grid so it sits centred under both columns. */
+  .cap-note {
+    grid-column: 1 / -1; text-align: center; color: var(--gray-500);
+    font-size: 11.5px; font-weight: 600; padding: 6px 12px 2px;
+  }
 
   /* ---------------- Cards ---------------- */
   .card {
@@ -664,7 +671,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 80</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 82</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -2203,7 +2210,7 @@ function renderVenuePage() {
     el.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>${scope}</div>`;
     return;
   }
-  el.innerHTML = list.map(o => o.type === 'direct' ? directCard(o) : o.type === 'loop' ? loopCard(o) : intraLoopCard(o)).join('');
+  paintCappedCards(el, list, o => o.type === 'direct' ? directCard(o) : o.type === 'loop' ? loopCard(o) : intraLoopCard(o));
 }
 
 // Inject a sidebar tab for every venue (under the Exchanges group), so adding
@@ -2377,6 +2384,51 @@ async function refreshFuturesModal() {
   }
 }
 
+// Paint a card list without blocking the main thread. A big list (e.g. Direct
+// with volume OFF = 250+ cards) costs ~700ms to build+insert+lay-out in one
+// shot, which freezes the UI on every tab switch and refresh. Instead we paint
+// the first visible chunk instantly, then stream the rest one animation frame
+// at a time so the page stays responsive. Small lists (the common case) render
+// in a single pass — identical to before. A monotonic token cancels any
+// in-flight stream the moment a newer render starts (tab switch / refresh), and
+// the container's height is held during streaming so scroll never jumps.
+let __paintToken = 0;
+function paintCards(el, list, renderFn, chunk = 24) {
+  const token = ++__paintToken;
+  if (list.length <= chunk) { el.style.minHeight = ''; el.innerHTML = list.map(renderFn).join(''); return; }
+  const prevH = el.offsetHeight;
+  if (prevH) el.style.minHeight = prevH + 'px';
+  el.innerHTML = list.slice(0, chunk).map(renderFn).join('');
+  let i = chunk;
+  const step = () => {
+    if (token !== __paintToken) return; // superseded by a newer paint
+    const end = Math.min(i + chunk, list.length);
+    let html = '';
+    for (; i < end; i++) html += renderFn(list[i]);
+    el.insertAdjacentHTML('beforeend', html);
+    if (i < list.length) requestAnimationFrame(step);
+    else el.style.minHeight = '';
+  };
+  requestAnimationFrame(step);
+}
+
+// Only ever render the best CARD_CAP opportunities. The list is already sorted
+// best-first, so the top slice is exactly what's worth looking at; showing 250+
+// cards was the whole reason a render could be heavy. The tab count still shows
+// the TRUE total, and a footer tells the user how many were trimmed so nothing
+// feels silently hidden.
+const CARD_CAP = 30;
+function paintCappedCards(el, fullList, renderFn) {
+  const shown = fullList.slice(0, CARD_CAP);
+  const hidden = fullList.length - shown.length;
+  el.style.minHeight = '';
+  ++__paintToken; // cancel any in-flight streamed paint from before
+  const note = hidden > 0
+    ? `<div class="cap-note">Showing the top ${CARD_CAP} by ${sortBy === 'profit' ? 'rupee profit' : 'percentage'} · ${hidden} more not shown — add a coin filter to narrow.</div>`
+    : '';
+  el.innerHTML = shown.map(renderFn).join('') + note;
+}
+
 function renderCards() {
   const list0 = document.getElementById('cardList');
 
@@ -2404,7 +2456,7 @@ function renderCards() {
       list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No intra-loop opportunities match the current filters.</div>`;
       return;
     }
-    list0.innerHTML = list.map(intraLoopCard).join('');
+    paintCappedCards(list0, list, intraLoopCard);
     return;
   }
   if (!hasLoadedOnce) {
@@ -2420,7 +2472,7 @@ function renderCards() {
     list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No arbitrage was found for the selected filters. Try changing them.</div>`;
     return;
   }
-  list0.innerHTML = list.map(o => o.type === 'direct' ? directCard(o) : loopCard(o)).join('');
+  paintCappedCards(list0, list, o => o.type === 'direct' ? directCard(o) : loopCard(o));
 }
 
 // ================================================================
@@ -4129,7 +4181,8 @@ function gToggleBooksSrv(which, i) {
   const key = which + ':' + t.label;
   if (gOpenBooks.has(key)) gOpenBooks.delete(key); else gOpenBooks.add(key);
   renderGiottusPage();
-  gSyncBookTimer(); // start/stop the 5s book-only refresh
+  gSyncBookTimer(); // start/stop the 2s book-only refresh
+  if (gOpenBooks.has(key)) gRefreshOpenBooks(); // pull fresh depth immediately, don't wait for the first tick
 }
 
 // Stable, id-safe key for an open book's slot div so the 5s refresher can
@@ -4148,7 +4201,7 @@ async function gFetchSnapshotQuiet() {
 }
 
 // Request 5: once a tradable's order book is opened, update ONLY that book
-// every 5s (not the whole page). We pull the latest snapshot quietly and
+// every 2s (not the whole page). We pull the latest snapshot quietly and
 // replace just the open books' inner HTML, leaving the rest of the page and
 // scroll position untouched.
 async function gRefreshOpenBooks() {
@@ -4167,10 +4220,10 @@ async function gRefreshOpenBooks() {
   });
 }
 
-// Run the 5s book refresher only while at least one book is open on this page.
+// Run the 2s book refresher only while at least one book is open on this page.
 function gSyncBookTimer() {
   const wantOn = currentPage === 'giottus' && gOpenBooks.size > 0;
-  if (wantOn && !gBookTimer) gBookTimer = setInterval(gRefreshOpenBooks, 5000);
+  if (wantOn && !gBookTimer) gBookTimer = setInterval(gRefreshOpenBooks, 2000);
   else if (!wantOn && gBookTimer) { clearInterval(gBookTimer); gBookTimer = null; }
 }
 
