@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 77)
+     SWENIK — design system v2 (build 79)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -185,7 +185,10 @@
   }
 
   .main-area { flex: 1; min-width: 0; padding: 20px 22px 48px; max-width: 1320px; }
-  #cardList { display: grid; grid-template-columns: repeat(auto-fill, minmax(342px, 1fr)); gap: 16px; align-items: start; }
+  /* Cards need to be wide enough that the 3 fixed-column legs (action / amounts
+     / exchange) never wrap. 480px min keeps each card comfortable on desktop &
+     tablet; the phone breakpoint below drops to a single full-width column. */
+  #cardList { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 16px; align-items: start; }
   #cardList .card { margin-bottom: 0; }
   #cardList .empty-state, #cardList .banner-error, #cardList .coming-soon { grid-column: 1 / -1; }
   @media (max-width: 760px) { #cardList { grid-template-columns: 1fr; gap: 10px; } }
@@ -360,22 +363,26 @@
   .arb-fold { overflow: hidden; }
   .arb-fold > summary { list-style: none; cursor: pointer; }
   .arb-fold > summary::-webkit-details-marker { display: none; }
+  /* 3-column grid mirroring the leg rows above: [Arbitrage label] [%(₹) + mins]
+     [Track Live]. Label sits in column 1 (same x as Buy/Sell) vertically centred;
+     the value block lines up under the amounts column; Track Live pins right in
+     the exchange column — so the whole strip reads as one clean line-up. */
   .arb-sum {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    color: #fff; padding: 9px 16px;
+    display: grid; grid-template-columns: 76px minmax(0,1fr) auto;
+    align-items: center; column-gap: 12px;
+    color: #fff; padding: 10px 16px;
     background: linear-gradient(135deg, #34b184 0%, #23a06f 100%);
     -webkit-user-select: none; user-select: none;
   }
   .arb-sum.negative { background: linear-gradient(135deg, #e87f89 0%, #dd6070 100%); }
-  .arb-sum .arb-info { min-width: 0; flex: 1; }
-  .arb-sum .arb-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-  .arb-sum .arb-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .11em; opacity: .78; flex: 0 0 auto; }
-  .arb-sum .arb-main { font-size: 14.5px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-  .arb-sum .arb-sub { font-size: 10.5px; opacity: .85; margin-top: 1px; }
+  .arb-sum .arb-label { align-self: center; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; opacity: .82; line-height: 1.25; }
+  .arb-sum .arb-info { min-width: 0; }
+  .arb-sum .arb-main { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+  .arb-sum .arb-sub { font-size: 10.5px; opacity: .85; margin-top: 2px; }
   .arb-sum .arb-caret { display: inline-block; transition: transform .15s; font-size: 9px; opacity: .8; }
   .arb-fold[open] .arb-caret { transform: rotate(180deg); }
   .arb-sum .track-live-btn {
-    flex: 0 0 auto; background: #fff; color: #10233d; border: none; border-radius: 999px;
+    justify-self: end; background: #fff; color: #10233d; border: none; border-radius: 999px;
     padding: 8px 15px; font-size: 11.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
     min-height: 38px; position: relative; z-index: 2; box-shadow: 0 3px 10px rgba(6,42,26,.2);
     touch-action: manipulation; -webkit-user-select: none; user-select: none;
@@ -579,10 +586,36 @@
 
   /* ===== Responsive: laptop (default) · tablet · phone ===== */
 
-  @media (max-width: 1024px) {
-    .sidebar { width: 188px; flex-basis: 188px; }
-    .main-area { padding: 16px 14px 44px; }
-    #cardList { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  /* Tablet: two columns even in portrait. Trim the sidebar and the card
+     min-width so two cards fit side-by-side, then tighten the leg grid
+     (narrower action/exchange columns, smaller type) so all three columns
+     stay on a single line inside the slimmer card. */
+  @media (min-width: 761px) and (max-width: 1024px) {
+    .sidebar { width: 150px; flex-basis: 150px; }
+    .main-area { padding: 16px 12px 44px; }
+    #cardList { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+
+    details.kk-row summary,
+    .kk-row[style] {
+      grid-template-columns: 54px minmax(0,1fr) 84px !important;
+      column-gap: 8px !important; padding: 8px 12px !important;
+    }
+    .kk-tag, .kk-tag .kk-coin { font-size: 10.5px; }
+    .kk-mid .kk-qty { font-size: 11.5px; }
+    .kk-mid .kk-price { font-size: 10.5px; }
+    .kk-mid .kk-unit { font-size: 10px; }
+    .kk-ex { font-size: 11px; }
+    .kk-ex .ex-market { font-size: 10px; }
+    .ex-ico { width: 16px; height: 16px; }
+    .card .card-top { padding: 12px 12px 8px; }
+    .coin-pair { font-size: 14px; }
+
+    /* Arb strip keeps the same column line-up as the compacted leg rows. */
+    .arb-sum { grid-template-columns: 54px minmax(0,1fr) auto; column-gap: 8px; padding: 9px 12px; }
+    .arb-sum .arb-label { text-transform: none; letter-spacing: .01em; font-size: 9px; white-space: nowrap; }
+    .arb-sum .arb-main { font-size: 13.5px; }
+    .arb-sum .arb-sub { font-size: 10px; }
+    .arb-sum .track-live-btn { padding: 7px 13px; font-size: 11px; min-height: 36px; }
   }
 
   @media (max-width: 900px) {
@@ -631,7 +664,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 77</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 79</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -1747,8 +1780,9 @@ function walletBadge(o) {
 function arbFold(cls, main, sub, detail, onclickJs) {
   return `<details class="arb-fold">
       <summary class="arb-sum ${cls}">
+        <span class="arb-label">Arbitrage</span>
         <div class="arb-info">
-          <div class="arb-top"><span class="arb-label">Arbitrage</span><span class="arb-main">${main}</span></div>
+          <div class="arb-main">${main}</div>
           <div class="arb-sub">${sub} <span class="arb-caret">▾</span></div>
         </div>
         <button class="track-live-btn" onclick="event.stopPropagation(); ${onclickJs}">◉ Track Live</button>
