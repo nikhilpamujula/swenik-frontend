@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 70)
+     SWENIK — design system v2 (build 72)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -295,6 +295,20 @@
   .kk-ex { flex: 0 0 auto; text-align: right; font-size: 12px; }
   .kk-ex .ex-name { font-weight: 600; color: #1c2637; }
   .kk-ex .ex-market { color: var(--gray-500); font-size: 11px; }
+  /* Exchange logo — real favicon, sits above the name, right-aligned, so each
+     leg's venue is identifiable at a glance. .ex-ico-mono is the coloured
+     initial shown if the logo can't load. */
+  .ex-ico {
+    display: inline-block; width: 20px; height: 20px; border-radius: 6px;
+    margin-bottom: 4px; vertical-align: middle; object-fit: contain;
+    background: #fff; box-shadow: 0 1px 2px rgba(16,28,53,.18);
+  }
+  .ex-ico-mono {
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; line-height: 1;
+  }
+  .kk-mid .kk-unit { font-size: 11px; color: var(--gray-500); margin-top: 1px; font-variant-numeric: tabular-nums; }
+  .kk-mid .kk-unit .kk-caret { color: var(--gray-500); }
   .kk-body { padding: 4px 16px 14px 78px; font-size: 12px; background: #f9fbfd; }
   .kk-body .leg-line { padding: 3px 0; }
 
@@ -575,7 +589,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 70</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 72</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -837,6 +851,53 @@ function exLabel(id) {
   if (!id) return id;
   const v = (typeof VENUES !== 'undefined') ? VENUES.find(x => x.id === id) : null;
   return v ? v.label : (EX_LABELS[id] || cap(id));
+}
+// Small brand badge for an exchange, so each leg is identifiable at a glance
+// (WazirX blue vs Binance gold, etc.) — like KoinKnight. Accepts an id OR a
+// display label; matches by keyword so it works with pageVenueName()/'Binance'.
+// Real exchange logos via each site's favicon (Google's favicon service — the
+// same external-fetch model the page already uses for web fonts). If it can't
+// load (offline / blocked), it falls back to a brand-coloured monogram so a
+// badge always shows. domain = the exchange site; bg/fg/ch = fallback chip.
+const EX_BADGES = {
+  binance:    { domain: 'binance.com',   bg: '#F0B90B', fg: '#1b1c20', ch: 'B' },
+  wazirx:     { domain: 'wazirx.com',    bg: 'linear-gradient(135deg,#3d7bff,#2354e6)', fg: '#fff', ch: 'W' },
+  zebpay:     { domain: 'zebpay.com',    bg: 'linear-gradient(135deg,#19b7c6,#0e94a6)', fg: '#fff', ch: 'Z' },
+  coindcx:    { domain: 'coindcx.com',   bg: 'linear-gradient(135deg,#5b6bf5,#3b49c9)', fg: '#fff', ch: 'C' },
+  giottus:    { domain: 'giottus.com',   bg: 'linear-gradient(135deg,#8b5cf0,#6b3fc9)', fg: '#fff', ch: 'G' },
+  coinswitch: { domain: 'coinswitch.co', bg: '#5b3df5', fg: '#fff', ch: 'C' }
+};
+function exKey(x) {
+  const k = String(x || '').toLowerCase();
+  if (k.includes('wazir')) return 'wazirx';
+  if (k.includes('binance')) return 'binance';
+  if (k.includes('zeb')) return 'zebpay';
+  if (k.includes('dcx') || k.includes('coindcx')) return 'coindcx';
+  if (k.includes('giottus')) return 'giottus';
+  if (k.includes('coinswitch')) return 'coinswitch';
+  return null;
+}
+function exIcon(x) {
+  const key = exKey(x);
+  if (!key) return '';
+  const b = EX_BADGES[key];
+  const src = `https://www.google.com/s2/favicons?domain=${b.domain}&sz=64`;
+  return `<img class="ex-ico" src="${src}" alt="${key}" loading="lazy" onerror="exIcoFail(this,'${key}')">`;
+}
+function exIcoFail(img, key) {
+  const b = EX_BADGES[key]; if (!b) { img.style.display = 'none'; return; }
+  const s = document.createElement('span');
+  s.className = 'ex-ico ex-ico-mono';
+  s.style.background = b.bg; s.style.color = b.fg; s.textContent = b.ch;
+  img.replaceWith(s);
+}
+// Clear market-type label (INR Market / USDT Market) instead of the raw pair
+// symbol on the right of each leg — easier to read at a glance.
+function marketLabel(m) {
+  const s = String(m || '').toLowerCase();
+  if (s.endsWith('inr')) return 'INR Market';
+  if (s.endsWith('usdt') || s.endsWith('usdc')) return 'USDT Market';
+  return m || '';
 }
 function pctOf(o) { return o.walked ? o.walked.profitPct : o.roughPct; }
 
@@ -1649,10 +1710,11 @@ function directCard(o) {
       <summary>
         <div class="kk-tag buy">Buy<span class="kk-coin">${coin}</span></div>
         <div class="kk-mid">
-          <div class="kk-qty">${fmtCoin(d.buyQty,5)} ${coin}</div>
-          <div class="kk-price">${fmtInr(d.buyPrice,0)} <span class="kk-caret">▾</span></div>
+          <div class="kk-qty">${fmtAdaptive(d.buyQty)} ${coin}</div>
+          <div class="kk-price">${fmtInr(d.finalBuy,0)}</div>
+          <div class="kk-unit">@ ${fmtAdaptive(d.buyPrice)} / ${coin} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${exLabel(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
+        <div class="kk-ex">${exIcon(o.buyExchange)}<div class="ex-name">${exLabel(o.buyExchange)}</div><div class="ex-market">${marketLabel(o.buyMarket)}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Buy price:</span><span class="v">${fmtInr(d.buyPrice,4)}</span></div>
@@ -1664,10 +1726,11 @@ function directCard(o) {
       <summary>
         <div class="kk-tag sell">Sell<span class="kk-coin">${coin}</span></div>
         <div class="kk-mid">
-          <div class="kk-qty">${fmtCoin(d.sellQty,5)} ${coin}</div>
-          <div class="kk-price">${fmtInr(d.finalSell,0)} <span class="kk-caret">▾</span></div>
+          <div class="kk-qty">${fmtAdaptive(d.sellQty)} ${coin}</div>
+          <div class="kk-price">${fmtInr(d.finalSell,0)}</div>
+          <div class="kk-unit">@ ${fmtAdaptive(d.sellPrice)} / ${coin} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${exLabel(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
+        <div class="kk-ex">${exIcon(o.sellExchange)}<div class="ex-name">${exLabel(o.sellExchange)}</div><div class="ex-market">${marketLabel(o.sellMarket)}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Sell price:</span><span class="v">${fmtInr(d.sellPrice,4)}</span></div>
@@ -1691,9 +1754,10 @@ function directCard(o) {
         <div class="kk-tag buy">Buy<span class="kk-coin">${coin}</span></div>
         <div class="kk-mid">
           <div class="kk-qty">${fmtAdaptive(o.fixed.buyQty)} ${coin}</div>
-          <div class="kk-price">₹1,00,000 @ ${fmtAdaptive(o.fixed.buyPrice)} <span class="kk-caret">▾</span></div>
+          <div class="kk-price">₹1,00,000</div>
+          <div class="kk-unit">@ ${fmtAdaptive(o.fixed.buyPrice)} / ${coin} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${exLabel(o.buyExchange)}</div><div class="ex-market">${o.buyMarket}</div></div>
+        <div class="kk-ex">${exIcon(o.buyExchange)}<div class="ex-name">${exLabel(o.buyExchange)}</div><div class="ex-market">${marketLabel(o.buyMarket)}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">First ask price:</span><span class="v">${fmtAdaptive(o.fixed.buyPrice)}</span></div>
@@ -1705,9 +1769,10 @@ function directCard(o) {
         <div class="kk-tag sell">Sell<span class="kk-coin">${coin}</span></div>
         <div class="kk-mid">
           <div class="kk-qty">${fmtAdaptive(o.fixed.sellQty)} ${coin}</div>
-          <div class="kk-price">${fmtInr(o.fixed.sellRevenue,0)} @ ${fmtAdaptive(o.fixed.sellPrice)} <span class="kk-caret">▾</span></div>
+          <div class="kk-price">${fmtInr(o.fixed.sellRevenue,0)}</div>
+          <div class="kk-unit">@ ${fmtAdaptive(o.fixed.sellPrice)} / ${coin} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${exLabel(o.sellExchange)}</div><div class="ex-market">${o.sellMarket}</div></div>
+        <div class="kk-ex">${exIcon(o.sellExchange)}<div class="ex-name">${exLabel(o.sellExchange)}</div><div class="ex-market">${marketLabel(o.sellMarket)}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">First bid price:</span><span class="v">${fmtAdaptive(o.fixed.sellPrice)}</span></div>
@@ -1784,7 +1849,7 @@ function loopCard(o) {
           <div class="kk-qty">${fmtCoin(l.trbQty,4)} ${c1}</div>
           <div class="kk-price">${fmtInr(l.finalCostInr,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${pageVenueName()}</div><div class="ex-market">${entryMkt}</div></div>
+        <div class="kk-ex">${exIcon(pageVenueName())}<div class="ex-name">${pageVenueName()}</div><div class="ex-market">${entryMkt}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Final cost (incl. trading):</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
@@ -1798,7 +1863,7 @@ function loopCard(o) {
           <div class="kk-qty">${c1} ▶ ${c2}</div>
           <div class="kk-price">${fmtNum(l.usdtFromTRB,3)} USDT <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">Binance</div><div class="ex-market">USDT Market</div></div>
+        <div class="kk-ex">${exIcon('binance')}<div class="ex-name">Binance</div><div class="ex-market">USDT Market</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">${c1} arrived (after transfer fee):</span><span class="v">${fmtCoin(l.trbArrived,4)} ${c1}</span></div>
@@ -1815,7 +1880,7 @@ function loopCard(o) {
           <div class="kk-qty">${fmtCoin(l.galaArrived,4)} ${c2}</div>
           <div class="kk-price">${fmtInr(l.inrReceived,0)} <span class="kk-caret">▾</span></div>
         </div>
-        <div class="kk-ex"><div class="ex-name">${pageVenueName()}</div><div class="ex-market">${exitMkt}</div></div>
+        <div class="kk-ex">${exIcon(pageVenueName())}<div class="ex-name">${pageVenueName()}</div><div class="ex-market">${exitMkt}</div></div>
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">INR received (net):</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
@@ -1869,7 +1934,7 @@ function intraLoopCard(o) {
         <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtCoin(leg.qty, 4) + ' ' + leg.asset.toUpperCase()}</div>
         <div class="kk-price">${fmtInr(leg.valueInr, 0)} · @ ${fmtNum(leg.price, 6)}</div>
       </div>
-      <div class="kk-ex"><div class="ex-name">${exLabel(o.exchange || 'wazirx')}</div><div class="ex-market">${leg.market}</div></div>
+      <div class="kk-ex">${exIcon(o.exchange || 'wazirx')}<div class="ex-name">${exLabel(o.exchange || 'wazirx')}</div><div class="ex-market">${marketLabel(leg.market)}</div></div>
     </div>`).join('');
   return `
     <div class="card">
