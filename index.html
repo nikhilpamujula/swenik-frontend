@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 73)
+     SWENIK — design system v2 (build 74)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -622,7 +622,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 73</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 74</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -1895,7 +1895,7 @@ function loopCard(o) {
       <summary>
         <div class="kk-tag buy">Buy<span class="kk-coin">${c1}</span></div>
         <div class="kk-mid">
-          <div class="kk-qty">${fmtCoin(l.trbQty,4)} ${c1}</div>
+          <div class="kk-qty">${fmtAdaptive(l.trbQty)} ${c1}</div>
           <div class="kk-price">${fmtInr(l.finalCostInr,0)} <span class="kk-caret">▾</span></div>
         </div>
         <div class="kk-ex">${exIcon(pageVenueName())}<div class="ex-name">${pageVenueName()}</div><div class="ex-market">${entryMkt}</div></div>
@@ -1910,15 +1910,15 @@ function loopCard(o) {
         <div class="kk-tag convert">Convert</div>
         <div class="kk-mid">
           <div class="kk-qty">${c1} ▶ ${c2}</div>
-          <div class="kk-price">${fmtNum(l.usdtFromTRB,3)} USDT <span class="kk-caret">▾</span></div>
+          <div class="kk-price">${fmtAdaptive(l.usdtFromTRB)} USDT <span class="kk-caret">▾</span></div>
         </div>
         <div class="kk-ex">${exIcon('binance')}<div class="ex-name">Binance</div><div class="ex-market">USDT Market</div></div>
       </summary>
       <div class="kk-body">
-        <div class="leg-line"><span class="k">${c1} arrived (after transfer fee):</span><span class="v">${fmtCoin(l.trbArrived,4)} ${c1}</span></div>
+        <div class="leg-line"><span class="k">${c1} arrived (after transfer fee):</span><span class="v">${fmtAdaptive(l.trbArrived)} ${c1}</span></div>
         <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
-        <div class="leg-line"><span class="k">Sell ${c1} → USDT:</span><span class="v">${fmtNum(l.usdtFromTRB,4)} USDT</span></div>
-        <div class="leg-line"><span class="k">Buy ${c2} with USDT:</span><span class="v">${fmtCoin(l.galaQty,4)} ${c2}</span></div>
+        <div class="leg-line"><span class="k">Sell ${c1} → USDT:</span><span class="v">${fmtAdaptive(l.usdtFromTRB)} USDT</span></div>
+        <div class="leg-line"><span class="k">Buy ${c2} with USDT:</span><span class="v">${fmtAdaptive(l.galaQty)} ${c2}</span></div>
         <div class="leg-line"><span class="k">${c2} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.galaTransferCharge,2)}</span></div>
       </div>
     </details>
@@ -1926,7 +1926,7 @@ function loopCard(o) {
       <summary>
         <div class="kk-tag sell">Sell<span class="kk-coin">${c2}</span></div>
         <div class="kk-mid">
-          <div class="kk-qty">${fmtCoin(l.galaArrived,4)} ${c2}</div>
+          <div class="kk-qty">${fmtAdaptive(l.galaArrived)} ${c2}</div>
           <div class="kk-price">${fmtInr(l.inrReceived,0)} <span class="kk-caret">▾</span></div>
         </div>
         <div class="kk-ex">${exIcon(pageVenueName())}<div class="ex-name">${pageVenueName()}</div><div class="ex-market">${exitMkt}</div></div>
@@ -1974,8 +1974,8 @@ function intraLoopCard(o) {
     <div class="kk-row" style="padding:10px 14px; display:flex; gap:10px; align-items:center;">
       <div class="kk-tag ${leg.action === 'Buy' ? 'buy' : leg.action === 'Sell' ? 'sell' : 'convert'}">${leg.action}<span class="kk-coin">${leg.action === 'Convert' ? '' : leg.asset.toUpperCase()}</span></div>
       <div class="kk-mid">
-        <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtCoin(leg.qty, 4) + ' ' + leg.asset.toUpperCase()}</div>
-        <div class="kk-price">${fmtInr(leg.valueInr, 0)} · @ ${fmtNum(leg.price, 6)}</div>
+        <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtAdaptive(leg.qty) + ' ' + leg.asset.toUpperCase()}</div>
+        <div class="kk-price">${fmtInr(leg.valueInr, 0)} · @ ${fmtAdaptive(leg.price)}</div>
       </div>
       <div class="kk-ex">${exIcon(o.exchange || 'wazirx')}<div class="ex-name">${exLabel(o.exchange || 'wazirx')}</div><div class="ex-market">${marketLabel(leg.market)}</div></div>
     </div>`).join('');
@@ -1986,14 +1986,13 @@ function intraLoopCard(o) {
         <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${exLabel(o.exchange || 'wazirx')}</span></div>
       </div>
       ${rows || `<div class="kk-row" style="padding:12px 14px;"><div class="kk-mid"><div class="kk-price">${o.pathLabel || ''}</div></div></div>`}
-      <div class="arb-bar ${barClass}">
-        <div class="arb-label">Arbitrage</div>
-        <div class="arb-mid">
-          <div class="arb-main">${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}</div>
-          <div class="arb-sub">${l ? `max ${fmtCoin(l.qty,2)} ${o.coin.toUpperCase()} at top-of-book · instant, no transfer` : 'top-of-book spread'}</div>
-        </div>
-        <button class="track-live-btn" onclick="openCardModal('intraloop','${o.coin}','','','','')">◉ Track Live</button>
-      </div>
+      ${arbFold(barClass, `${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}`, l ? 'instant · no transfer' : 'top-of-book',
+        ln('Route', o.pathLabel || o.coin.toUpperCase()) +
+        ln('Exchange', exLabel(o.exchange || 'wazirx')) +
+        (l ? ln('Max size', `${fmtAdaptive(l.qty)} ${o.coin.toUpperCase()} at top-of-book`) : '') +
+        (l ? ln('Net profit', fmtInr(l.profit,2)) : '') +
+        ln('Transfers', 'none · all trades on one exchange'),
+        `openCardModal('intraloop','${o.coin}','','','','')`)}
     </div>`;
 }
 
