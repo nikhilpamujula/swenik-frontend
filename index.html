@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 86)
+     SWENIK — design system v2 (build 87)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -671,7 +671,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 86</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 87</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -744,6 +744,35 @@
 // CONFIG
 // ================================================================
 const API_BASE = 'https://swenik-ldokv.ondigitalocean.app';
+
+// ---- Backend reachability failover ----
+// Some Indian mobile ISPs intermittently block *.ondigitalocean.app at the
+// network level, so every fetch dies with "Failed to fetch" even though the
+// backend is up and this page (served from vercel.app) loads fine. vercel.json
+// now proxies /api/* on THIS domain straight to the backend, giving us a second
+// route the ISP can't distinguish from the website itself. This wrapper makes
+// every backend call self-healing: try the current route; on a NETWORK-level
+// failure (not an HTTP error) retry once via the other route, and if that works
+// remember it for all future calls. Served from file:// there is no same-origin
+// proxy, so the wrapper only engages on http(s).
+let apiViaProxy = false; // false = direct DigitalOcean, true = same-origin Vercel proxy
+const __origFetch = window.fetch.bind(window);
+const __canProxy = location.protocol === 'https:' || location.protocol === 'http:';
+window.fetch = async function (input, init) {
+  const url = typeof input === 'string' ? input : (input && input.url);
+  if (!__canProxy || typeof url !== 'string' || !url.startsWith(API_BASE)) {
+    return __origFetch(input, init);
+  }
+  const direct = url, proxied = url.slice(API_BASE.length); // relative → Vercel proxy
+  const order = apiViaProxy ? [proxied, direct] : [direct, proxied];
+  try {
+    return await __origFetch(order[0], init);
+  } catch (e) {
+    const res = await __origFetch(order[1], init); // throws if this route is dead too
+    apiViaProxy = !apiViaProxy;                    // the other route worked — stick with it
+    return res;
+  }
+};
 
 // ================================================================
 // SEED DATA — a real snapshot from the live API (captured earlier
@@ -4651,6 +4680,14 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', kickTouchReflow);
   window.visualViewport.addEventListener('scroll', () => reseatHitMap());
 }
+
+// Mobile browsers throttle/suspend timers in background tabs, so coming back to
+// the app could mean staring at data from whenever the phone was locked until
+// the next (throttled) tick got around to firing. Refresh the moment the page
+// becomes visible again so what you see is never older than the screen-on time.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { fullRefresh(); kickTouchReflow(); }
+});
 // Just-in-time: re-seat right as the finger lands (throttled) so the ensuing
 // click always resolves against a fresh hit map — passive, so it never blocks
 // scrolling, and the scroll nudge reverts within the same frame (no jitter).
