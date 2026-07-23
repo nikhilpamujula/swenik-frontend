@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 85)
+     SWENIK — design system v2 (build 86)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -671,7 +671,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 85</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 86</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -4612,29 +4612,49 @@ setInterval(() => {
 }, 1000);
 
 // ---- Split-screen / foldable touch-offset fix ----
-// Some Android browsers (notably on foldables entering multi-window) don't
+// Some Android browsers (notably foldables in multi-window / split-screen) don't
 // refresh their touch hit-test map after the window is resized, so taps land
-// offset from what's drawn. Forcing a synchronous reflow on every viewport
-// change rebuilds that map. We nudge the scroll by a pixel and read layout,
-// which reliably invalidates the stale hit regions without any visible jump.
-let __reflowT = null;
+// offset from what's drawn — e.g. aiming at a button and hitting the Sort
+// dropdown higher up. The offset PERSISTS the whole time you're split-screened,
+// not just right after the resize, and plain scrolling fires no resize event to
+// re-trigger a one-shot fix. So we re-seat the map two ways:
+//   1) after every viewport change, several times, to catch the layout once the
+//      OS finishes the split-screen animation;
+//   2) throttled, at the start of every touch, so the map is guaranteed fresh
+//      the instant before a tap resolves — this is what kills the persistent
+//      offset while scrolling and tapping inside split-screen.
+// The re-seat forces a synchronous layout and nudges scroll by 1px and back
+// (temporarily adding scroll room so the nudge takes effect even when the page
+// fits), which invalidates the stale hit regions with no visible movement.
+let __lastReseat = 0;
+function reseatHitMap(force) {
+  const now = Date.now();
+  if (!force && now - __lastReseat < 250) return;   // throttle: at most ~4×/s
+  __lastReseat = now;
+  const se = document.scrollingElement || document.documentElement;
+  const y = se.scrollTop || 0;
+  const body = document.body;
+  const prevMin = body.style.minHeight;
+  body.style.minHeight = (se.scrollHeight + 4) + 'px'; // guarantee 1px of scroll room
+  se.scrollTop = y + 1;
+  void body.offsetHeight;                              // commit the intermediate scroll
+  se.scrollTop = y;
+  body.style.minHeight = prevMin;
+}
 function kickTouchReflow() {
-  // Coalesce bursts of resize events into one reflow.
-  if (__reflowT) return;
-  __reflowT = setTimeout(() => {
-    __reflowT = null;
-    const y = window.scrollY || 0;
-    document.body.style.minHeight = window.innerHeight + 'px';
-    void document.body.offsetHeight;          // force synchronous layout
-    document.body.style.minHeight = '';
-    window.scrollTo(0, y + 1); window.scrollTo(0, y); // re-seat the hit-test map
-  }, 60);
+  // Fire now and again as the OS settles the new window size (animations).
+  [0, 180, 400, 700].forEach(d => setTimeout(() => reseatHitMap(true), d));
 }
 window.addEventListener('resize', kickTouchReflow);
 window.addEventListener('orientationchange', () => setTimeout(kickTouchReflow, 120));
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', kickTouchReflow);
+  window.visualViewport.addEventListener('scroll', () => reseatHitMap());
 }
+// Just-in-time: re-seat right as the finger lands (throttled) so the ensuing
+// click always resolves against a fresh hit map — passive, so it never blocks
+// scrolling, and the scroll nudge reverts within the same frame (no jitter).
+document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, passive: true });
 </script>
 </body>
 </html>
