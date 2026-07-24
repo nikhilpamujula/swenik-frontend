@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 87)
+     SWENIK — design system v2 (build 88)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -473,6 +473,11 @@
   .g-mini tr:last-child td { border-bottom:none; }
   .g-mini td:last-child { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; white-space:nowrap; }
   .g-books { display:flex; gap:12px; overflow-x:auto; padding:12px 16px; background:#f9fbfd; border-top:1px solid var(--gray-100); -webkit-overflow-scrolling:touch; }
+  /* Live verdict shown above an open Giottus book: what THIS instant's book
+     says, since the card header (engine) can lag ~15s behind. */
+  .g-live-note { font-size:11.5px; font-weight:700; padding:7px 16px 6px; border-top:1px solid var(--gray-100); }
+  .g-live-note.ok { color:#0b8a56; background:var(--success-soft); }
+  .g-live-note.dead { color:#c02a40; background:var(--danger-soft); }
   .g-book { border:1px solid var(--border); border-radius:var(--radius-xs); overflow:hidden; flex:0 0 auto; background:#fff; }
   .g-book .bt { font-size:10.5px; font-weight:700; padding:6px 11px; background:var(--primary); color:#fff; white-space:nowrap; letter-spacing: .03em; }
   .g-book table { border-collapse:collapse; font-size:11px; }
@@ -671,7 +676,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 87</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 88</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -4258,17 +4263,27 @@ function gLegTitle(L) {
 function gSrvBooksHtml(t) {
   const legs = t.legs || [];
   const IF = gSettings.feeInr / 100, BF = gSettings.feeUsdt / 100;
-  // Recompute the walk on live books, at the engine's trade size, to get fresh
-  // consumption bars. Needs every leg's live depth; otherwise we skip bars.
-  let liveUsed = null;
+  // Recompute the walk on LIVE books with the profit-stop ON (capped at the
+  // engine's trade size). If the live books no longer pay, the walk comes back
+  // empty — then we show the books CLEAN (no green/red "you take" marks, which
+  // would imply a trade that no longer exists) plus an explicit "arb gone at
+  // live prices" verdict. The card header above comes from the 24/7 engine and
+  // can lag ~15s+, so this line is the truth at this instant.
+  let liveUsed = null, liveVerdict = '';
   const haveAllLive = legs.length > 0 && legs.every(L => gDepth[L.market]);
   if (haveAllLive && t.inrIn > 0) {
     const walkLegs = legs.map(L => ({ side: L.side, fee: L.quote === 'inr' ? IF : BF,
       levels: gLv(L.side === 'buy' ? gDepth[L.market].asks : gDepth[L.market].bids) }));
-    const w = gWalk(walkLegs, { stopWhenUnprofitable: false, targetIn: t.inrIn });
-    liveUsed = w && w.used;
+    const w = gWalk(walkLegs, { targetIn: t.inrIn }); // stopWhenUnprofitable: true
+    if (w && w.profit > 0.01) {
+      liveUsed = w.used;
+      liveVerdict = `<div class="g-live-note ok">Live book · still profitable: ${gInrFmt(w.profit)} (${w.pct.toFixed(2)}%) on ${gInrFmt(w.inrIn)}</div>`;
+    } else {
+      liveUsed = [];  // explicitly NO marks — nothing profitable to take
+      liveVerdict = `<div class="g-live-note dead">⚠ Arb gone at live prices — no profitable size on this book right now. The card above updates from the 24/7 engine (~15s behind).</div>`;
+    }
   }
-  return '<div class="g-books">' + legs.map((L, j) => {
+  return liveVerdict + '<div class="g-books">' + legs.map((L, j) => {
     const title = `${gLegTitle(L)} — ${L.side === 'buy' ? 'asks' : 'bids'}`;
     const cls = L.side === 'buy' ? 'ask' : 'bid';
     const d = gDepth[L.market];
