@@ -1,0 +1,2359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Swenik — Trader Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#0c1730">
+<link rel="manifest" href="./trader-manifest.json">
+<link rel="apple-touch-icon" href="./icon-trader-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  /* ============================================================
+     SWENIK AUTO TRADER — build S9
+     Design system v2 (matches scanner build 89): light fintech
+     dashboard, deep-navy command deck, indigo accent, emerald profit.
+     Charts follow the house dataviz spec: 2px lines, ≥8px end
+     markers with a 2px surface ring, hairline solid gridlines,
+     single-hue series, status never carried by colour alone.
+     ============================================================ */
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+  :root {
+    --primary:#0f1c33; --primary-light:#1b2f52;
+    --accent:#3b5bdb; --accent-600:#2f49b8; --accent-soft:#eef1fd; --accent-line:#c9d4f8;
+    --success:#0f9d63; --success-soft:#e6f6ee;
+    --danger:#e23d54; --danger-soft:#fdedf0;
+    --warning:#b97416; --warning-soft:#fdf3e2;
+    --light:#f3f5fa; --gray-100:#eef1f6; --gray-200:#e2e7ef;
+    --gray-500:#8b96a8; --gray-700:#586576; --gray-800:#2f3a4c;
+    --border:#e4e9f1;
+    --radius:16px; --radius-sm:12px; --radius-xs:9px;
+    --shadow-sm:0 1px 2px rgba(16,28,53,.05),0 1px 3px rgba(16,28,53,.07);
+    --shadow-md:0 8px 22px rgba(16,28,53,.09),0 2px 6px rgba(16,28,53,.05);
+    --shadow-lg:0 20px 48px rgba(16,28,53,.16);
+    --ring:0 0 0 3px rgba(59,91,219,.30);
+    /* order-book tints — same values as the SWENIK scanner */
+    --ask-bg:#fdeef1; --bid-bg:#e7f7ef; --spread-bg:#fbf4dd;
+    --ease:cubic-bezier(.22,.61,.36,1);
+  }
+  body {
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+    background:
+      radial-gradient(1100px 520px at 100% -8%, #e7eefc 0%, rgba(231,238,252,0) 62%),
+      radial-gradient(900px 480px at -10% 4%, #eef0fb 0%, rgba(238,240,251,0) 55%),
+      var(--light);
+    background-attachment:fixed;
+    color:#26303f; font-size:13.5px; line-height:1.45; letter-spacing:-0.011em;
+    -webkit-font-smoothing:antialiased; font-feature-settings:"cv05" 1;
+    overflow-x:clip;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    -webkit-tap-highlight-color:rgba(0,0,0,.08);
+  }
+  input, textarea, select, .selectable, .selectable * {
+    -webkit-user-select:text; user-select:text; -webkit-touch-callout:default;
+  }
+  a { color:var(--accent); text-decoration:none; }
+  :focus-visible { outline:none; box-shadow:var(--ring); border-radius:6px; }
+  .num { font-variant-numeric:tabular-nums; }
+  .pos { color:var(--success); } .neg { color:var(--danger); } .mut { color:var(--gray-500); }
+
+  /* ---------- topbar ---------- */
+  .topbar {
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;
+    gap:10px; padding:15px 20px; color:#fff;
+    background:linear-gradient(120deg,#0b1529 0%,#152947 58%,#203961 100%);
+    border-bottom:1px solid rgba(255,255,255,.07);
+  }
+  .brandline { display:flex; align-items:center; gap:12px; }
+  .brand-ic {
+    width:38px; height:38px; border-radius:12px; flex:none;
+    background:linear-gradient(135deg,#3b5bdb,#7a5df0);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 14px rgba(59,91,219,.45);
+  }
+  .brand-ic svg { width:20px; height:20px; }
+  .topbar h1 { font-size:17px; font-weight:800; letter-spacing:-.02em; line-height:1.15; }
+  .subtitle { font-size:11px; opacity:.72; margin-top:1px; }
+  .backlink {
+    color:#dfe7ff; font-size:12px; font-weight:700; padding:8px 14px;
+    border:1px solid rgba(255,255,255,.22); border-radius:10px; transition:background .15s;
+  }
+  .backlink:active { background:rgba(255,255,255,.12); }
+
+  /* ---------- sandbox bar ---------- */
+  #sandboxBar { display:none; background:linear-gradient(90deg,#2b1c4d,#40276b); color:#efe9ff; padding:10px 16px; }
+  #sandboxBar .sb-inner { max-width:1120px; margin:0 auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  #sandboxBar .sb-tag {
+    font-size:10px; font-weight:900; letter-spacing:.12em; background:#efe9ff; color:#40276b;
+    padding:4px 9px; border-radius:999px;
+  }
+  #sandboxBar .sb-note { font-size:11.5px; opacity:.9; margin-right:6px; }
+  .sb-btn {
+    font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; color:#efe9ff;
+    background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.28);
+    padding:6px 11px; border-radius:9px; transition:background .15s;
+  }
+  .sb-btn:active { background:rgba(255,255,255,.26); }
+  .sb-btn.on { background:#efe9ff; color:#40276b; }
+
+  /* ---------- hero / command deck ---------- */
+  .hero-wrap { max-width:1120px; margin:18px auto 0; padding:0 16px; }
+  .hero {
+    position:relative; overflow:hidden; color:#fff;
+    background:linear-gradient(125deg,#0d1a31 0%,#14284a 55%,#1d3560 100%);
+    border-radius:20px; box-shadow:var(--shadow-lg);
+    padding:20px 22px;
+  }
+  .hero::after {
+    content:""; position:absolute; right:-90px; top:-120px; width:340px; height:340px;
+    background:radial-gradient(circle, rgba(59,91,219,.35) 0%, rgba(59,91,219,0) 70%);
+    pointer-events:none;
+  }
+  .hero-row { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; position:relative; z-index:1; }
+  .hero-left { display:flex; align-items:center; gap:16px; }
+  .orb { position:relative; width:52px; height:52px; flex:none; }
+  .orb .core {
+    position:absolute; inset:10px; border-radius:50%;
+    background:#5b6b85; transition:background .3s;
+  }
+  .orb.on .core { background:var(--success); box-shadow:0 0 18px rgba(15,157,99,.8); }
+  .orb .halo { position:absolute; inset:0; border-radius:50%; border:2px solid rgba(255,255,255,.14); }
+  .orb.on .halo { border-color:rgba(15,157,99,.45); animation:pulse 2s ease-out infinite; }
+  @keyframes pulse {
+    0% { transform:scale(.86); opacity:1; }
+    100% { transform:scale(1.35); opacity:0; }
+  }
+  .arm-state { font-size:20px; font-weight:900; letter-spacing:-.02em; }
+  .arm-sub { font-size:11.5px; opacity:.75; margin-top:2px; max-width:420px; }
+  .hero-right { display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
+  .bigbtn {
+    border:none; cursor:pointer; font:inherit; font-weight:900; font-size:13.5px;
+    padding:13px 26px; border-radius:13px; color:#fff; letter-spacing:.02em;
+    transition:transform .08s, box-shadow .2s;
+  }
+  .bigbtn.arm { background:linear-gradient(135deg,#0f9d63,#0c7f50); box-shadow:0 6px 18px rgba(15,157,99,.4); }
+  .bigbtn.kill { background:linear-gradient(135deg,#e23d54,#c22740); box-shadow:0 6px 18px rgba(226,61,84,.4); }
+  .bigbtn:active { transform:translateY(1px); }
+  .hero-meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end; }
+  .keychip {
+    display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px;
+    background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.14);
+    font-size:11px; font-weight:700; color:#e6ecff;
+  }
+  .dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:#2ee59a; box-shadow:0 0 6px rgba(46,229,154,.8); }
+  .dot.bad { background:#ff7387; } .dot.unk { background:#9aa7bd; }
+  .ghostbtn {
+    font:inherit; font-size:11px; font-weight:700; cursor:pointer; color:#dfe7ff;
+    background:transparent; border:1px solid rgba(255,255,255,.25); padding:5px 11px; border-radius:999px;
+  }
+  .heroselect {
+    font:inherit; font-size:11px; font-weight:700; color:#dfe7ff; background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.22); padding:5px 9px; border-radius:999px;
+  }
+  .heroselect option { color:#26303f; }
+  .lastscan { font-size:10.5px; opacity:.6; }
+
+  /* ---------- tab bar ---------- */
+  .tabbar-wrap { position:sticky; top:0; z-index:30; background:rgba(243,245,250,.86); backdrop-filter:blur(10px); border-bottom:1px solid var(--border); margin-top:16px; }
+  @media (pointer:coarse) { .tabbar-wrap { position:static; } }
+  .tabbar { max-width:1120px; margin:0 auto; padding:8px 16px; display:flex; gap:6px; overflow-x:auto; }
+  .tabbtn {
+    font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; white-space:nowrap;
+    color:var(--gray-700); background:transparent; border:none; padding:8px 15px; border-radius:999px;
+    transition:background .15s,color .15s;
+  }
+  .tabbtn.active { background:var(--primary); color:#fff; box-shadow:var(--shadow-sm); }
+  .tabbtn .cnt { font-size:10px; font-weight:800; background:var(--gray-200); color:var(--gray-700); border-radius:999px; padding:1px 7px; margin-left:5px; }
+  .tabbtn.active .cnt { background:rgba(255,255,255,.2); color:#fff; }
+
+  /* ---------- layout ---------- */
+  .wrap { max-width:1120px; margin:0 auto; padding:16px 16px 80px; }
+  .tabpane { display:none; animation:fadeup .22s ease; }
+  .tabpane.active { display:block; }
+  @keyframes fadeup { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .tabpane.active { animation:fadeup .28s var(--ease); }
+  .livecard, .rule, .order, .tile, .panel { transition:box-shadow .18s var(--ease), border-color .18s var(--ease), transform .18s var(--ease); }
+  .pctbtn, .btn, .bigbtn, .fbtn, .tabbtn { transition:background .14s var(--ease), color .14s var(--ease), border-color .14s var(--ease), transform .08s; }
+  .mexec { animation:fadeup .24s var(--ease); }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }
+
+  .panel { background:#fff; border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm); margin-bottom:14px; }
+  .panel-h { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px 0; }
+  .panel-h h2 { font-size:14px; font-weight:800; letter-spacing:-.01em; }
+  .panel-b { padding:14px 18px 18px; }
+  .hint { font-size:11px; color:var(--gray-500); }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:14px; }
+  .tile {
+    background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm);
+    box-shadow:var(--shadow-sm); padding:13px 15px; position:relative; overflow:hidden;
+  }
+  .tile .k { font-size:10.5px; font-weight:700; color:var(--gray-500); letter-spacing:.02em; }
+  .tile .v { font-size:21px; font-weight:800; margin-top:3px; letter-spacing:-.02em; }
+  .tile .d { font-size:10.5px; color:var(--gray-500); margin-top:2px; }
+  .tile.accentbar::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent); }
+
+  /* ---------- chart ---------- */
+  .chartbox { position:relative; }
+  .chartbox svg { display:block; width:100%; height:190px; }
+  .charttip {
+    position:absolute; pointer-events:none; display:none; z-index:5;
+    background:#0f1c33; color:#fff; font-size:11px; font-weight:600;
+    padding:6px 9px; border-radius:8px; box-shadow:var(--shadow-md); white-space:nowrap;
+  }
+  .judgment { border-top:1px solid var(--gray-100); margin-top:12px; padding-top:11px; }
+  .judgment .jrow { display:flex; gap:8px; font-size:11.5px; color:var(--gray-700); padding:3px 0; align-items:baseline; }
+  .judgment .jrow::before { content:"·"; color:var(--gray-500); }
+  .tgmsg { border:1px solid var(--border); border-radius:9px; padding:7px 10px; margin:6px 0; font-size:11.5px; white-space:pre-line; background:#fff; }
+  .tgmsg.muted { opacity:.45; }
+  .tgmsg .tgtag { font-size:9px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; margin-right:6px; }
+  .tgmsg.muted .tgtag::after { content:" · muted by your alert filter"; color:var(--gray-500); }
+  .livecard { background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm); box-shadow:var(--shadow-sm); margin-bottom:9px; overflow:hidden; transition:box-shadow .15s,border-color .15s; }
+  .livecard.open { border-color:var(--accent-line); box-shadow:var(--shadow-md); }
+  .livecard-hd { padding:12px 14px; cursor:pointer; }
+  .livecard-hd:hover { background:#fafbfe; }
+  .livecard .caret { display:inline-block; color:var(--gray-500); font-size:10px; transition:transform .18s; margin-right:2px; }
+  .livecard.open .caret { transform:rotate(90deg); }
+  .mexec { border-top:1px solid var(--gray-100); background:#fbfcfe; padding:14px; animation:fadeup .18s ease; }
+  .obook { border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:12px; background:#fff; }
+  .obook-hd { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:var(--gray-100); font-size:11.5px; font-weight:800; color:var(--gray-800); }
+  .obook-hd .oh-cols { font-size:9.5px; font-weight:700; color:var(--gray-500); text-transform:uppercase; letter-spacing:.04em; }
+  table.ob-table { width:100%; border-collapse:collapse; font-size:11.5px; }
+  table.ob-table td { padding:4px 12px; border:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  tr.kk-ask-row td { background:var(--ask-bg); }
+  tr.kk-bid-row td { background:var(--bid-bg); }
+  tr.kk-spread-row td { background:var(--spread-bg); color:var(--gray-700); font-weight:800; text-align:center; font-size:10px; letter-spacing:.03em; padding:5px 12px; }
+  .ob-size-cell { text-align:left; vertical-align:middle; }
+  .ob-price-cell { text-align:right; vertical-align:middle; font-weight:700; }
+  tr.kk-ask-row .ob-price-cell { color:var(--danger); }
+  tr.kk-bid-row .ob-price-cell { color:var(--success); }
+  .kk-ob-size { font-weight:700; color:var(--gray-800); }
+  .kk-ob-bar { display:flex; align-items:center; gap:5px; margin-top:1px; }
+  .kk-ob-track { flex:1; max-width:70px; height:6px; border:1.5px solid currentColor; border-radius:5px; position:relative; overflow:hidden; background:#fff; }
+  .kk-ob-fill { position:absolute; left:0; top:0; height:100%; }
+  .kk-ob-pct { font-size:10px; font-weight:700; }
+  .kk-ob-consumed { font-size:9px; }
+  .execwrap { margin-top:4px; }
+  .execrow { margin-bottom:10px; }
+  .execrow-hd { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:800; margin-bottom:6px; }
+  .execrow-hd .mtag { font-size:9.5px; font-weight:800; padding:2px 7px; border-radius:999px; }
+  .preview { margin-top:8px; background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:10px; padding:9px 12px; font-size:12px; display:flex; flex-direction:column; gap:8px; animation:fadeup .15s ease; }
+  .preview .pv-line { color:var(--gray-800); font-weight:600; }
+  .preview .pv-line b { color:var(--accent-600); }
+  .preview .pv-actions { display:flex; gap:8px; }
+  .preview .pv-exec { flex:1; background:var(--accent); color:#fff; border:none; font:inherit; font-weight:800; font-size:13px; padding:10px; border-radius:9px; cursor:pointer; }
+  .preview .pv-exec.sell { background:var(--danger); } .preview .pv-exec.hedge { background:var(--accent-600); }
+  .preview .pv-cancel { background:#fff; border:1px solid var(--border); border-radius:9px; padding:10px 14px; font:inherit; font-weight:700; font-size:12px; color:var(--gray-700); cursor:pointer; }
+  .pctbtn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .pctbtn.active small { color:rgba(255,255,255,.75); }
+  .livecard-top { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .live-coin { font-weight:800; font-size:14px; }
+  .edge-pill { font-size:11px; font-weight:800; padding:3px 9px; border-radius:999px; }
+  .edge-pill.buy { background:var(--success-soft); color:var(--success); }
+  .edge-pill.sell { background:var(--accent-soft); color:var(--accent-600); }
+  .edge-pill.flat { background:var(--gray-100); color:var(--gray-500); }
+  .live-meta { font-size:11px; color:var(--gray-700); margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
+  .live-meta b { color:var(--gray-800); }
+  .bookgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:6px 0 4px; }
+  .bookbox { background:var(--gray-100); border-radius:10px; padding:10px 12px; }
+  .bookbox .bl { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--gray-500); }
+  .bookbox .bv { font-size:14px; font-weight:800; margin-top:3px; }
+  .bookbox .bs { font-size:11px; color:var(--gray-700); margin-top:2px; }
+  .mrow { display:grid; grid-template-columns:1fr; gap:7px; margin-bottom:11px; }
+  .mrow-label { font-size:12px; font-weight:800; display:flex; align-items:center; gap:7px; }
+  .mrow-label .mtag { font-size:9.5px; font-weight:800; padding:2px 7px; border-radius:999px; }
+  .mtag.buy { background:var(--success-soft); color:var(--success); }
+  .mtag.sell { background:var(--danger-soft); color:var(--danger); }
+  .mtag.hedge { background:var(--accent-soft); color:var(--accent-600); }
+  .pctrow { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+  .pctbtn { font:inherit; font-weight:800; font-size:13px; cursor:pointer; padding:11px 4px; border-radius:10px; border:1px solid var(--border); background:#fff; color:var(--gray-800); text-align:center; line-height:1.2; transition:background .12s,transform .06s; }
+  .pctbtn small { display:block; font-size:9.5px; font-weight:600; color:var(--gray-500); margin-top:2px; }
+  .pctbtn:active { transform:translateY(1px); }
+  .pctbtn.buy:hover { background:var(--success-soft); border-color:var(--success); }
+  .pctbtn.sell:hover { background:var(--danger-soft); border-color:var(--danger); }
+  .pctbtn.hedge:hover { background:var(--accent-soft); border-color:var(--accent); }
+  .pctbtn:disabled { opacity:.4; cursor:not-allowed; }
+  .pctbtn:disabled small { color:var(--gray-500); }
+
+  /* ---------- rules ---------- */
+  .rule {
+    background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm);
+    box-shadow:var(--shadow-sm); padding:14px 16px; margin-bottom:11px;
+    transition:box-shadow .15s;
+  }
+  .rule.tripped { border-color:rgba(226,61,84,.45); }
+  .rule-top { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .rule-name { font-weight:800; font-size:14px; letter-spacing:-.01em; }
+  .chip { font-size:9.5px; font-weight:800; letter-spacing:.05em; padding:3.5px 9px; border-radius:999px; text-transform:uppercase; }
+  .chip.paper { background:var(--accent-soft); color:var(--accent-600); }
+  .chip.live { background:var(--danger-soft); color:var(--danger); }
+  .chip.strat { background:var(--gray-100); color:var(--gray-700); }
+  .chip.trip { background:var(--danger); color:#fff; }
+  .facts { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .fact {
+    font-size:11px; color:var(--gray-700); background:var(--gray-100);
+    padding:4px 9px; border-radius:8px; font-weight:600;
+  }
+  .fact b { color:var(--gray-800); }
+  .fact.depth { background:var(--accent-soft); color:var(--accent-600); }
+  .fact.warn { background:var(--danger-soft); color:var(--danger); }
+  .trip-reason { margin-top:9px; font-size:11.5px; color:var(--danger); background:var(--danger-soft); border-radius:9px; padding:8px 11px; }
+  .rule-actions { display:flex; gap:8px; margin-top:11px; flex-wrap:wrap; }
+
+  .switch { position:relative; width:44px; height:25px; flex:none; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider { position:absolute; inset:0; background:var(--gray-200); border-radius:999px; cursor:pointer; transition:.15s; }
+  .slider::before { content:""; position:absolute; width:19px; height:19px; border-radius:50%; background:#fff; top:3px; left:3px; transition:.15s; box-shadow:var(--shadow-sm); }
+  .switch input:checked + .slider { background:var(--success); }
+  .switch input:checked + .slider::before { transform:translateX(19px); }
+
+  .btn {
+    font:inherit; font-weight:700; font-size:12.5px; cursor:pointer;
+    padding:9px 16px; border-radius:10px; border:1px solid var(--border); background:#fff; color:var(--gray-800);
+    transition:background .15s;
+  }
+  .btn:active { transform:translateY(1px); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 3px 10px rgba(59,91,219,.3); }
+  .btn.danger { background:#fff; color:var(--danger); border-color:rgba(226,61,84,.4); }
+  .notice { background:var(--warning-soft); border:1px solid rgba(224,151,58,.35); color:#8a5a17; border-radius:10px; padding:10px 13px; font-size:12px; margin-bottom:13px; }
+  .empty { color:var(--gray-500); font-size:12.5px; padding:22px 0; text-align:center; }
+
+  /* ---------- activity ---------- */
+  .filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .fbtn {
+    font:inherit; font-size:11.5px; font-weight:700; cursor:pointer;
+    color:var(--gray-700); background:#fff; border:1px solid var(--border);
+    padding:6px 13px; border-radius:999px;
+  }
+  .fbtn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+  .order {
+    background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm);
+    box-shadow:var(--shadow-sm); margin-bottom:9px; overflow:hidden; position:relative;
+  }
+  .order::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--gray-200); }
+  .order.s-done::before { background:var(--success); }
+  .order.s-failed::before { background:var(--danger); }
+  .order.s-hedged::before { background:var(--accent); }
+  .order.s-running::before { background:#d9a53f; }
+  .order-row { display:flex; align-items:center; gap:9px; padding:11px 14px 11px 16px; cursor:pointer; flex-wrap:wrap; }
+  .order-row:hover { background:#fafbfe; }
+  .st { font-size:9.5px; font-weight:800; letter-spacing:.04em; padding:3.5px 9px; border-radius:999px; text-transform:uppercase; flex:none; }
+  .st.done { background:var(--success-soft); color:var(--success); }
+  .st.failed { background:var(--danger-soft); color:var(--danger); }
+  .st.skipped { background:var(--gray-100); color:var(--gray-500); }
+  .st.missed { background:var(--warning-soft); color:var(--warning); }
+  .st.running { background:var(--warning-soft); color:var(--warning); }
+  .st.hedged { background:var(--accent-soft); color:var(--accent-600); }
+  .o-coin { font-weight:800; font-size:13px; }
+  .o-path { font-size:11.5px; color:var(--gray-700); flex:1 1 170px; min-width:0; }
+  .o-profit { font-weight:800; font-size:13px; }
+  .o-time { font-size:10.5px; color:var(--gray-500); flex:none; }
+  .o-err { font-size:11px; color:var(--danger); padding:0 14px 10px 16px; }
+  .caret { flex:none; color:var(--gray-500); transition:transform .18s; font-size:11px; }
+  .order.open .caret { transform:rotate(90deg); }
+
+  .timeline { border-top:1px solid var(--gray-100); padding:12px 16px 14px; background:#fbfcfe; display:none; }
+  .order.open .timeline { display:block; }
+  .tl-ev { display:flex; gap:10px; padding:0 0 2px; font-size:11.5px; position:relative; }
+  .tl-rail { display:flex; flex-direction:column; align-items:center; flex:none; width:14px; }
+  .tl-dot { width:10px; height:10px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px var(--gray-200); background:var(--success); flex:none; margin-top:3px; }
+  .tl-dot.bad { background:var(--danger); }
+  .tl-line { width:2px; flex:1; background:var(--gray-200); min-height:8px; }
+  .tl-body { padding-bottom:11px; min-width:0; }
+  .tl-stage { font-weight:800; font-size:11.5px; }
+  .tl-t { color:var(--gray-500); font-size:10px; margin-left:6px; font-weight:500; }
+  .tl-det { color:var(--gray-700); word-break:break-word; margin-top:2px; line-height:1.5; }
+  .depthstory {
+    margin-top:4px; font-size:11px; color:var(--accent-600);
+    background:var(--accent-soft); border-radius:7px; padding:4px 9px; display:inline-block;
+  }
+
+  /* ---------- positions ---------- */
+  .poscard { background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm); box-shadow:var(--shadow-sm); padding:13px 15px; margin-bottom:10px; }
+  .posgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; margin-top:9px; }
+  .posgrid .pk { font-size:10px; font-weight:700; color:var(--gray-500); text-transform:uppercase; letter-spacing:.04em; }
+  .posgrid .pv { font-size:13px; font-weight:700; margin-top:1px; }
+
+  /* ---------- modal / rule editor ---------- */
+  .modal-overlay { position:fixed; inset:0; background:rgba(11,21,41,.55); display:flex; align-items:flex-end; justify-content:center; z-index:60; }
+  @media(min-width:640px){ .modal-overlay { align-items:center; padding:20px; } }
+  .modal-overlay.hidden { display:none; }
+  .modal {
+    background:#fff; width:100%; max-width:640px; max-height:94vh; overflow:auto;
+    border-radius:20px 20px 0 0; box-shadow:var(--shadow-lg); animation:sheetup .22s ease;
+  }
+  @media(min-width:640px){ .modal { border-radius:20px; } }
+  @keyframes sheetup { from { transform:translateY(24px); opacity:.6; } to { transform:none; opacity:1; } }
+  .modal-hd {
+    display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
+    border-bottom:1px solid var(--gray-100); font-weight:800; font-size:15px;
+    position:sticky; top:0; background:#fff; z-index:2;
+  }
+  .modal-bd { padding:6px 20px 20px; }
+  .close-x { border:none; background:var(--gray-100); width:30px; height:30px; border-radius:50%; font-size:16px; cursor:pointer; color:var(--gray-700); }
+  .fsec { margin-top:18px; }
+  .fsec-h { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--gray-500); margin-bottom:10px; }
+  .fsec-h::after { content:""; flex:1; height:1px; background:var(--gray-100); }
+  .frm { display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; }
+  .frm .full { grid-column:1/-1; }
+  .f label { display:block; font-size:10.5px; font-weight:700; color:var(--gray-700); margin-bottom:4px; }
+  .f input, .f select {
+    width:100%; font:inherit; font-size:13.5px; padding:10px 11px;
+    border:1px solid var(--border); border-radius:10px; background:#fff; color:#26303f;
+  }
+  .f input:focus, .f select:focus { outline:none; box-shadow:var(--ring); }
+  .f .sub { font-size:10.5px; color:var(--gray-500); margin-top:3px; line-height:1.4; }
+  @media (max-width:430px){ .frm { grid-template-columns:1fr; } }
+
+  /* depth preview widget */
+  .dpv { background:var(--gray-100); border-radius:12px; padding:12px 14px; }
+  .dpv-title { font-size:11px; font-weight:800; color:var(--gray-700); margin-bottom:8px; }
+  .dpv-row { display:flex; align-items:center; gap:8px; padding:2.5px 0; }
+  .dpv-lbl { font-size:10px; font-weight:700; color:var(--gray-500); width:22px; flex:none; }
+  .dpv-bar { height:14px; border-radius:4px 4px 4px 4px; background:var(--gray-200); position:relative; flex:1; overflow:hidden; }
+  .dpv-fill { position:absolute; inset:0; width:0%; border-radius:4px; background:var(--accent); opacity:.85; transition:width .2s, background .2s; }
+  .dpv-fill.off { background:var(--gray-200); opacity:1; }
+  .dpv-pct { font-size:10.5px; font-weight:700; width:56px; text-align:right; flex:none; }
+  .dpv-note { font-size:11px; color:var(--gray-700); margin-top:9px; line-height:1.5; }
+  .dpv-note b { color:var(--accent-600); }
+
+  .savebar { display:flex; gap:10px; margin-top:20px; justify-content:flex-end; position:sticky; bottom:0; background:#fff; padding:12px 0 4px; }
+
+  .banner { max-width:1120px; margin:12px auto 0; padding:0 16px; }
+  .banner-inner { background:var(--danger-soft); color:var(--danger); border:1px solid rgba(226,61,84,.3); border-radius:10px; padding:9px 13px; font-size:12px; font-weight:600; }
+  .toast {
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%); z-index:80;
+    background:#0f1c33; color:#fff; font-size:12px; font-weight:600;
+    padding:10px 16px; border-radius:11px; box-shadow:var(--shadow-lg); display:none; max-width:88vw;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brandline">
+    <div class="brand-ic">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M3 17l5-6 4 3 6-8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="6" r="2.4" fill="#fff"/></svg>
+    </div>
+    <div>
+      <h1>Trader Sandbox</h1>
+      <div class="subtitle">Fake market · practice arena — nothing is real · <span style="opacity:.95;font-weight:800;">build S9</span></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="backlink" id="installBtn" style="display:none;border-style:dashed;cursor:pointer;font:inherit;background:transparent;" onclick="installApp()">📲 Install app</button>
+    <a class="backlink" href="./index.html">← Scanner</a>
+  </div>
+</div>
+
+<div id="sandboxBar">
+  <div class="sb-inner">
+    <span class="sb-tag">SANDBOX</span>
+    <span class="sb-note">Fake market · fake money · nothing touches any exchange.</span>
+    <button class="sb-btn on" id="sbAuto" onclick="sbToggleAuto()">Auto market: ON</button>
+    <button class="sb-btn" onclick="sbScenario('intra')">Inject intra-loop arb</button>
+    <button class="sb-btn" onclick="sbScenario('hedge')">Inject direct arb</button>
+    <button class="sb-btn" onclick="sbScenario('looppair')">Loop pair (SHIB vs XLM)</button>
+    <button class="sb-btn" onclick="sbScenario('sellarb')">Sell-side arb (ARB2)</button>
+    <button class="sb-btn" onclick="sbScenario('fundflip')">Flip funding adverse</button>
+    <button class="sb-btn" onclick="sbScenario('clash')">Direct vs Loop clash</button>
+    <button class="sb-btn" onclick="sbScenario('fade')">Arb that fades mid-trade</button>
+    <button class="sb-btn" onclick="sbScenario('nofill')">Order won't fill</button>
+    <button class="sb-btn" onclick="sbScenario('hedgefail')">Hedge failure</button>
+    <button class="sb-btn" onclick="sbScenario('breaker')">Trip a breaker</button>
+    <button class="sb-btn" onclick="sbReset()">↺ Reset sandbox</button>
+  </div>
+</div>
+
+<div class="banner" id="bannerSlot" style="display:none;"><div class="banner-inner" id="bannerMsg"></div></div>
+
+<!-- COMMAND DECK -->
+<div class="hero-wrap">
+  <div class="hero">
+    <div class="hero-row">
+      <div class="hero-left">
+        <div class="orb" id="orb"><span class="halo"></span><span class="core"></span></div>
+        <div>
+          <div class="arm-state" id="armState">DISARMED</div>
+          <div class="arm-sub" id="armSub">Engine is idle — no rule will trade, paper or live.</div>
+          <div class="lastscan" id="engineTick"></div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <button class="bigbtn arm" id="armBtn" onclick="toggleArm()">ARM ENGINE</button>
+        <div class="hero-meta">
+          <span class="keychip"><span class="dot unk" id="kWzx"></span>WazirX</span>
+          <span class="keychip"><span class="dot unk" id="kBin"></span>Binance Fut</span>
+          <button class="ghostbtn" onclick="testKeys()" id="testKeysBtn">Test keys</button>
+          <button class="ghostbtn" onclick="setTraderBase()" title="Set the trader server URL">⚙ Server</button>
+          <select id="notifySel" class="heroselect" onchange="setNotify()">
+            <option value="all">🔔 all outcomes</option>
+            <option value="fails">🔔 failures only</option>
+            <option value="off">🔕 off</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabbar-wrap">
+  <div class="tabbar">
+    <button class="tabbtn active" id="tb-overview" onclick="setTab('overview')">Overview</button>
+    <button class="tabbtn" id="tb-rules" onclick="setTab('rules')">Rules<span class="cnt" id="cntRules">0</span></button>
+    <button class="tabbtn" id="tb-activity" onclick="setTab('activity')">Activity<span class="cnt" id="cntOrders">0</span></button>
+    <button class="tabbtn" id="tb-manual" onclick="setTab('manual')">Track Live<span class="cnt" id="cntLive">0</span></button>
+    <button class="tabbtn" id="tb-positions" onclick="setTab('positions')">Positions<span class="cnt" id="cntPos">0</span></button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- OVERVIEW -->
+  <div class="tabpane active" id="tab-overview">
+    <div class="tiles" id="tilesRow"></div>
+    <div class="panel">
+      <div class="panel-h"><h2>Profit curve</h2><span class="hint" id="eqHint">cumulative ₹, paper + live, last 7 days</span></div>
+      <div class="panel-b">
+        <div class="chartbox" id="chartBox">
+          <svg id="eqSvg" viewBox="0 0 720 190" preserveAspectRatio="none"></svg>
+          <div class="charttip" id="chartTip"></div>
+        </div>
+        <div class="judgment">
+          <div style="font-size:11px;font-weight:800;color:var(--gray-500);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;">The machine's recent judgment</div>
+          <div id="judgeFeed" class="selectable"><div class="jrow">waiting for the first scan…</div></div>
+        </div>
+        <div class="judgment" id="tgPanel" style="display:none;">
+          <div style="font-size:11px;font-weight:800;color:var(--gray-500);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;">Telegram preview — what would reach your phone</div>
+          <div id="tgFeed" class="selectable"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RULES -->
+  <div class="tabpane" id="tab-rules">
+    <div class="panel" id="gsPanel" style="display:none;">
+      <div class="panel-h"><h2>Global Settings — apply to EVERY rule</h2><span class="hint">duplicate guard · ignores · alert filters</span></div>
+      <div class="panel-b">
+        <div class="frm">
+          <div class="f"><label>Ignore coins (all rules)</label><input id="gs_ignore" placeholder="e.g. shib, doge"><div class="sub">these coins never trade, whatever any rule says</div></div>
+          <div class="f"><label>Min order value ₹</label><input id="gs_minval" type="number" step="100" value="500"><div class="sub">skip any trade deploying less than this</div></div>
+          <div class="f"><label>Duplicate guard (sec)</label><input id="gs_lock" type="number" min="0" step="5" value="30"><div class="sub">after ANY rule trades or attempts a coin, every rule waits this long on that coin</div></div>
+          <div class="f"><label>Block while position open</label>
+            <select id="gs_block"><option value="true">Yes — one position per coin</option><option value="false">No</option></select>
+            <div class="sub">an open hedge on a coin blocks all new entries on it</div>
+          </div>
+          <div class="f full"><label>Telegram alerts — send only what matters</label>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px;font-size:12.5px;">
+              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="ga_done" checked> ✅ done</label>
+              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="ga_missed"> ◻️ missed</label>
+              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="ga_skipped"> · skipped</label>
+              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="ga_failed" checked> ⚠️ failed</label>
+              <label style="display:flex;align-items:center;gap:5px;opacity:.6;"><input type="checkbox" checked disabled> 🚨 critical (always on)</label>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px;"><button class="btn primary" onclick="saveSettings()">Save global settings</button></div>
+      </div>
+    </div>
+    <div class="notice">New rules always start in <b>Paper</b> mode. Watch a rule behave in Activity first, then switch it to Live from its card. Repeated failures trip the rule's circuit breaker and disarm it automatically.</div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+      <button class="btn primary" onclick="openRuleForm()">+ New rule</button>
+    </div>
+    <div id="rulesList"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- ACTIVITY -->
+  <div class="tabpane" id="tab-activity">
+    <div class="filters" id="actFilters">
+      <button class="fbtn active" data-f="all" onclick="setActFilter('all')">All</button>
+      <button class="fbtn" data-f="done" onclick="setActFilter('done')">Done</button>
+      <button class="fbtn" data-f="open" onclick="setActFilter('open')">Open hedges</button>
+      <button class="fbtn" data-f="skipped" onclick="setActFilter('skipped')">Skipped</button>
+      <button class="fbtn" data-f="missed" onclick="setActFilter('missed')">Missed</button>
+      <button class="fbtn" data-f="failed" onclick="setActFilter('failed')">Failed</button>
+    </div>
+    <div id="ordersBox"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- TRACK LIVE (manual execution) -->
+  <div class="tabpane" id="tab-manual">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:11px;">
+      <span class="hint" style="flex:1;min-width:220px;">Live opportunities across your coins. Tap one for the depth book and fire by hand — Buy/Sell @WazirX, Hedge @Binance, sized by % of order-book depth.</span>
+      <button class="btn" id="mmodeBtn" onclick="toggleManualMode()" style="display:none;">Manual: PAPER</button>
+    </div>
+    <div id="liveList"><div class="empty">Loading live opportunities…</div></div>
+  </div>
+
+  <!-- POSITIONS -->
+  <div class="tabpane" id="tab-positions">
+    <div class="panel" id="walletPanel" style="display:none;">
+      <div class="panel-h"><h2>WazirX Wallet (fake)</h2><span class="hint">ARB2 sells from here — edit to test "less coins than the arb"</span></div>
+      <div class="panel-b">
+        <div class="frm" id="walletGrid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px;"><button class="btn primary" onclick="saveWallet()">Apply wallet</button></div>
+        <div class="hint" id="fundingLine" style="margin-top:10px;"></div>
+      </div>
+    </div>
+    <div class="hint" style="margin-bottom:11px;">Hedged positions: ARB1 = long spot + short perp · ARB2 = sold spot (wallet) + long perp. Unwind manually when the gap converges.</div>
+    <div id="positionsBox"><div class="empty">None</div></div>
+  </div>
+
+</div>
+
+<!-- RULE EDITOR -->
+<div class="modal-overlay hidden" id="ruleModal">
+  <div class="modal">
+    <div class="modal-hd"><span id="ruleModalTitle">New rule</span><button class="close-x" onclick="closeRuleForm()">×</button></div>
+    <div class="modal-bd">
+
+      <div class="fsec" style="margin-top:12px;">
+        <div class="fsec-h">Entry signal</div>
+        <div class="frm">
+          <div class="f full"><label>Rule name</label><input id="rf_name" placeholder="e.g. TRX intra loop, small size"></div>
+          <div class="f"><label>Strategy</label>
+            <select id="rf_strategy" onchange="stratHint()">
+              <option value="intraloop">Intra loop (WazirX triangle)</option>
+              <option value="direct_hedge">Direct arb + futures short</option>
+              <option value="loop_pair">Loop arbitrage — auto ARB1/ARB2 (source vs support)</option>
+            </select>
+          </div>
+          <div class="f" id="pathWrap"><label>Intra path</label>
+            <select id="rf_path">
+              <option value="any">Both paths</option>
+              <option value="A">A: INR → coin → USDT → INR</option>
+              <option value="B">B: INR → USDT → coin → INR</option>
+            </select>
+          </div>
+          <div class="f"><label>Min net profit %</label><input id="rf_minpct" type="number" step="0.05" value="0.5"><div class="sub">re-checked at live depth at the moment of execution</div></div>
+          <div class="f"><label>Min profit ₹ (at your size)</label><input id="rf_mininr" type="number" step="10" value="50"></div>
+          <div class="f"><label>Coins (blank = any)</label><input id="rf_coins" placeholder="trx, xrp, shib"></div>
+          <div class="f"><label>Exclude coins</label><input id="rf_excl" placeholder=""></div>
+          <div class="f full"><label>Signal must persist (ms)</label><input id="rf_persist" type="number" min="0" step="50" value="250"><div class="sub">the arb must stay alive this many milliseconds before firing — one-tick flickers never trade. 0 = fire on first sight</div></div>
+        </div>
+      </div>
+
+      <div class="fsec">
+        <div class="fsec-h">Depth — how deep may this rule walk the book</div>
+        <div class="frm">
+          <div class="f"><label>Max levels per leg</label>
+            <select id="rf_maxlvl" onchange="drawDepthPreview()">
+              <option value="1">1 — top of book only</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </div>
+          <div class="f"><label>Marginal % cutoff</label><input id="rf_dstop" type="number" step="0.05" value="0.10" oninput="drawDepthPreview()"><div class="sub">stop taking depth the moment the NEXT level's marginal net % drops below this</div></div>
+          <div class="f full"><label>Max share of any level</label><input id="rf_share" type="number" min="5" max="100" step="5" value="50" oninput="drawDepthPreview()"><div class="sub">% of a level's shown size you allow yourself to take — don't be the whole book</div></div>
+          <div class="f full">
+            <div class="dpv">
+              <div class="dpv-title">DEPTH PREVIEW — example book, marginal % by level</div>
+              <div id="dpvRows"></div>
+              <div class="dpv-note" id="dpvNote"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fsec">
+        <div class="fsec-h">Size &amp; risk</div>
+        <div class="frm">
+          <div class="f"><label>Max ₹ per trade</label><input id="rf_max" type="number" step="100" value="1000"></div>
+          <div class="f"><label>Max % of free INR balance</label><input id="rf_balpct" type="number" step="5" value="25"><div class="sub">live mode checks your real balance first</div></div>
+          <div class="f"><label>Daily ₹ cap</label><input id="rf_daily" type="number" step="500" value="10000"></div>
+          <div class="f"><label>Breaker: fails in a row</label><input id="rf_breaker" type="number" min="1" max="10" value="3"><div class="sub">then the rule disarms itself</div></div>
+        </div>
+      </div>
+
+      <div class="fsec">
+        <div class="fsec-h">Timing</div>
+        <div class="frm">
+          <div class="f"><label>Active from (IST hour)</label>
+            <select id="rf_from"></select>
+          </div>
+          <div class="f"><label>Active until (IST hour)</label>
+            <select id="rf_to"></select><div class="sub">same value on both = always on; windows may wrap midnight</div>
+          </div>
+          <div class="f"><label>Max trades per day</label><input id="rf_maxday" type="number" min="0" value="0"><div class="sub">0 = unlimited</div></div>
+          <div class="f"><label>Cooldown per coin (sec)</label><input id="rf_cool" type="number" step="10" value="120"></div>
+        </div>
+      </div>
+
+      <div class="fsec">
+        <div class="fsec-h">Execution — IOC style: never rest in the book</div>
+        <div class="frm">
+          <div class="f"><label>Entry attempts</label><input id="rf_entryatt" type="number" min="1" max="3" value="1"><div class="sub">1 = one shot: if the first WazirX order isn't taken, cancel instantly and walk away (a miss, not a failure)</div></div>
+          <div class="f"><label>Entry timeout (ms)</label><input id="rf_entryto" type="number" min="300" step="100" value="900"></div>
+          <div class="f"><label>Mid-leg attempts</label><input id="rf_midatt" type="number" min="1" max="5" value="3"><div class="sub">after the entry fills: cancel → re-place at the NEXT best price level, up to this many times, then CRITICAL alert</div></div>
+          <div class="f"><label>Mid-leg timeout (ms)</label><input id="rf_midto" type="number" min="300" step="100" value="1200"></div>
+          <div class="f full"><label>Price aggression (bps)</label><input id="rf_aggr" type="number" min="0" max="50" value="0"><div class="sub">pads limit prices past the plan's level so the whole size crosses (10 bps = 0.1%). 0 = exactly the planned price</div></div>
+        </div>
+      </div>
+
+      <div class="fsec" id="hedgeSec" style="display:none;">
+        <div class="fsec-h">Hedge (Binance futures)</div>
+        <div class="frm">
+          <div class="f"><label>Futures leverage</label><input id="rf_lev" type="number" min="1" max="20" value="1"><div class="sub">margin efficiency only — profit is the basis, and high leverage adds liquidation risk on pumps</div></div>
+          <div class="f"><label>Max open positions</label><input id="rf_maxpos" type="number" min="1" max="10" value="1"><div class="sub">no new entries while this many hedges are open</div></div>
+          <div class="f full" id="fundWrap" style="display:none;"><label>Max adverse funding (%/8h)</label><input id="rf_fund" type="number" step="0.01" value="0.03"><div class="sub">ARB1 shorts skip when funding is more negative than this (shorts would pay); ARB2 longs skip when it's more positive. The validated event always shows the live funding + perp basis it used.</div></div>
+        </div>
+      </div>
+
+      <div class="savebar">
+        <button class="btn" onclick="closeRuleForm()">Cancel</button>
+        <button class="btn primary" id="ruleSaveBtn" onclick="saveRule()">Save rule (starts in Paper)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ================================================================
+// SANDBOX SIMULATOR — a fake exchange + fake trader engine that lives
+// entirely in this page. It mirrors the real backend's behaviour
+// (validation at live depth, staged legs, retries, breaker, cooldowns,
+// persistence, depth cutoff) but touches NOTHING real: no network, no
+// keys, no money. Scenario buttons in the purple bar drive it.
+// ================================================================
+window.SimBackend = (function () {
+  'use strict';
+  const nowIso = () => new Date().toISOString();
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // ---------------- state ----------------
+  const S = {
+    armed: false, notify: 'all', inFlight: false,
+    rules: [], orders: [], events: [], seq: { r: 0, o: 0, e: 0 },
+    lastTick: { at: 0, considered: 0, skipped: [], error: null },
+    cooldowns: {}, persistence: {},
+    auto: true,
+    pendingScenario: null,   // 'fade' | 'nofill' | 'hedgefail'
+    gaps: {},                // coin -> {intra: pct, hedge: pct, sell: pct, ttl: ticks}
+    coinLocks: {},           // coin -> {until: ts|null(null=trade running), reason}
+    tgFeed: [],              // composed telegram messages (sandbox preview)
+  };
+  // GLOBAL settings — apply across ALL rules (duplicate guard, ignores, alerts).
+  const SETTINGS = {
+    ignoreCoins: [],             // never trade these, any rule
+    minOrderValueInr: 500,       // skip trades deploying less than this
+    globalCoinCooldownSec: 30,   // after ANY rule trades/attempts a coin, every rule waits
+    blockWhilePositionOpen: true,// an open hedge on a coin blocks ALL new entries on it
+    alerts: { done: true, missed: false, skipped: false, failed: true, critical: true },
+  };
+
+  // ---------------- fake market ----------------
+  const COINS = {
+    trx:  { fair: 6.82,      usdt: 0.0812 },
+    xrp:  { fair: 48.6,      usdt: 0.578 },
+    ada:  { fair: 58.9,      usdt: 0.701 },
+    xlm:  { fair: 8.05,      usdt: 0.0952 },
+    shib: { fair: 0.001165,  usdt: 0.0000138 },
+  };
+  // Funding rate %/8h per perp (positive = longs pay shorts) + perp basis drift.
+  const FUNDING = {};
+  for (const c of Object.keys(COINS)) FUNDING[c] = +(rnd(-0.03, 0.03)).toFixed(4);
+  setInterval(() => { for (const c of Object.keys(COINS)) FUNDING[c] = +(Math.max(-0.09, Math.min(0.09, FUNDING[c] + rnd(-0.01, 0.01)))).toFixed(4); }, 30000);
+  // Fake WazirX wallet — editable from the Positions tab. ARB2 sells from here.
+  const WALLET = { inr: 100000, usdt: 150, trx: 0, xrp: 500, ada: 0, xlm: 4000, shib: 2000000 };
+  const UI_RATE = 86.1; // usdtinr fair
+  function drift() {
+    for (const c of Object.values(COINS)) { c.fair *= 1 + rnd(-0.0012, 0.0012); c.usdt *= 1 + rnd(-0.0012, 0.0012); }
+  }
+  // Build 6 levels a side around a mid price; sizes decay.
+  function ladder(px, up, n) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const step = px * 0.0016 * (i + (up ? 1 : 1));
+      out.push({ price: up ? px + step * (i + 1) : px - step * (i + 1), size: Math.round(rnd(600, 1600) * Math.pow(0.72, i) * (40 / Math.sqrt(px))) + 3 });
+    }
+    return out;
+  }
+  // Current books for a coin, honoring any injected arb gap.
+  function booksFor(coin) {
+    const c = COINS[coin];
+    const gap = S.gaps[coin] || {};
+    const triFair = c.usdt * UI_RATE;
+    // buy-side gap (intra/hedge): WazirX asks priced BELOW fair — coin is CHEAP here.
+    // sell-side gap: WazirX bids priced ABOVE fair — coin is RICH here (ARB2 case).
+    const askMid = triFair * (1 - (gap.intra || 0) / 100);
+    const bidMid = triFair * 0.998 * (1 + (gap.sell || 0) / 100);
+    const perp = c.usdt * (1 + (gap.hedge || 0) / 100);
+    const sz = (arr, m) => arr.map(l => ({ price: l.price, size: l.size * m }));
+    return {
+      inrAsks: ladder(askMid, true, 6), inrBids: ladder(bidMid, false, 6),
+      cuBids: ladder(c.usdt * 0.9995, false, 6), cuAsks: ladder(c.usdt * 1.0005, true, 6),
+      uiBids: sz(ladder(UI_RATE * 0.9995, false, 6), 30),
+      uiAsks: sz(ladder(UI_RATE * 1.0005, true, 6), 30),
+      futBids: sz(ladder(perp, false, 6), 8),
+      futAsks: sz(ladder(perp * 1.0006, true, 6), 8),
+      basisPct: +(((perp / c.usdt) - 1) * 100).toFixed(3),
+    };
+  }
+
+  // ---------------- depth planner (same logic as backend depth.js) ----------------
+  function cursor(levels, maxLevels, sharePct) {
+    const share = Math.min(100, Math.max(1, sharePct)) / 100;
+    return {
+      levels, i: 0, cap: Math.max(1, maxLevels),
+      remaining: levels.length ? levels[0].size * share : 0,
+      price() { return this.i < Math.min(this.levels.length, this.cap) ? this.levels[this.i].price : null; },
+      take(q) {
+        this.remaining -= q;
+        if (this.remaining <= 1e-12) { this.i += 1; this.remaining = this.i < this.levels.length ? this.levels[this.i].size * share : 0; }
+      },
+      avail() { return this.price() === null ? 0 : this.remaining; },
+    };
+  }
+  function planIntraA(inrAsks, cuBids, uiBids, budget, o) {
+    const A = cursor(inrAsks, o.maxLevels, o.share), B = cursor(cuBids, o.maxLevels, o.share), C = cursor(uiBids, o.maxLevels, o.share);
+    let qty = 0, cost = 0, out = 0, stoppedBy = 'depth', marginal = null, g = 0;
+    while (g++ < 120) {
+      const pa = A.price(), pb = B.price(), pc = C.price();
+      if (pa == null || pb == null || pc == null) { stoppedBy = 'depth cap reached'; break; }
+      marginal = ((pb * pc) / pa - 1) * 100;
+      if (marginal < o.stopPct) { stoppedBy = 'marginal % fell below cutoff (' + marginal.toFixed(2) + '% < ' + o.stopPct + '%)'; break; }
+      if (cost >= budget - 1e-9) { stoppedBy = 'budget filled'; break; }
+      const step = Math.min(A.avail(), B.avail(), C.avail() / pb, (budget - cost) / pa);
+      if (!(step > 1e-9)) { stoppedBy = 'no size'; break; }
+      qty += step; cost += step * pa; const u = step * pb; out += u * pc;
+      A.take(step); B.take(step); C.take(u);
+    }
+    if (!(qty > 0)) return null;
+    return { qty, costInr: cost, expectInr: out, netPct: (out / cost - 1) * 100, profitInr: out - cost,
+      stoppedBy, legsUsed: [{ leg: 'buy coin/INR', levelsUsed: A.i + 1 }, { leg: 'sell coin/USDT', levelsUsed: B.i + 1 }, { leg: 'sell USDT/INR', levelsUsed: C.i + 1 }] };
+  }
+  function planHedge(spotAsks, futBids, budget, o) {
+    const Sc = cursor(spotAsks, o.maxLevels, o.share), F = cursor(futBids, o.maxLevels, o.share);
+    let qty = 0, cost = 0, out = 0, stoppedBy = 'depth', marginal = null, g = 0;
+    while (g++ < 120) {
+      const ps = Sc.price(), pf = F.price();
+      if (ps == null || pf == null) { stoppedBy = 'depth cap reached'; break; }
+      marginal = ((pf * UI_RATE * 0.9995) / ps - 1) * 100;
+      if (marginal < o.stopPct) { stoppedBy = 'marginal basis fell below cutoff (' + marginal.toFixed(2) + '% < ' + o.stopPct + '%)'; break; }
+      if (cost >= budget - 1e-9) { stoppedBy = 'budget filled'; break; }
+      const step = Math.min(Sc.avail(), F.avail(), (budget - cost) / ps);
+      if (!(step > 1e-9)) { stoppedBy = 'no size'; break; }
+      qty += step; cost += step * ps; out += step * pf * UI_RATE * 0.9995;
+      Sc.take(step); F.take(step);
+    }
+    if (!(qty > 0)) return null;
+    return { qty, costInr: cost, expectInr: out, netPct: (out / cost - 1) * 100, profitInr: out - cost,
+      stoppedBy, legsUsed: [{ leg: 'buy spot', levelsUsed: Sc.i + 1 }, { leg: 'short perp', levelsUsed: F.i + 1 }] };
+  }
+
+  // ARB2 planner: sell the coin on WazirX (rich bids) while buying the perp
+  // (long) — marginal = wazirx bid vs perp ask in INR. qtyCap = wallet holdings.
+  function planSellHedge(inrBids, futAsks, budget, qtyCap, o) {
+    const B = cursor(inrBids, o.maxLevels, o.share), F = cursor(futAsks, o.maxLevels, o.share);
+    let qty = 0, proceeds = 0, perpCost = 0, stoppedBy = 'depth', g = 0;
+    while (g++ < 120) {
+      const pb = B.price(), pf = F.price();
+      if (pb == null || pf == null) { stoppedBy = 'depth cap reached'; break; }
+      const perpInr = pf * UI_RATE * 1.0005;
+      const marginal = ((pb - perpInr) / perpInr) * 100;
+      if (marginal < o.stopPct) { stoppedBy = 'marginal % fell below cutoff (' + marginal.toFixed(2) + '% < ' + o.stopPct + '%)'; break; }
+      if (proceeds >= budget - 1e-9) { stoppedBy = 'budget filled'; break; }
+      if (qty >= qtyCap - 1e-9) { stoppedBy = 'wallet holdings fully used'; break; }
+      const step = Math.min(B.avail(), F.avail(), (budget - proceeds) / pb, qtyCap - qty);
+      if (!(step > 1e-9)) { stoppedBy = 'no size'; break; }
+      qty += step; proceeds += step * pb; perpCost += step * perpInr;
+      B.take(step); F.take(step);
+    }
+    if (!(qty > 0)) return null;
+    return { qty, costInr: perpCost, expectInr: proceeds, netPct: (proceeds / perpCost - 1) * 100, profitInr: proceeds - perpCost,
+      stoppedBy, legsUsed: [{ leg: 'sell spot (wallet)', levelsUsed: B.i + 1 }, { leg: 'long perp', levelsUsed: F.i + 1 }] };
+  }
+
+  // Telegram preview: compose the REAL message text; 'sent' honours the
+  // per-event toggles (critical is never mutable — it always sends).
+  function pushTg(kind, text) {
+    const sent = kind === 'critical' ? true : SETTINGS.alerts[kind] !== false;
+    S.tgFeed.unshift({ ts: nowIso(), kind, text, sent });
+    if (S.tgFeed.length > 12) S.tgFeed.pop();
+  }
+
+  // ---------------- store helpers ----------------
+  const cfgOf = r => r.config || {};
+  function addEvent(orderId, stage, ok, detail) {
+    S.events.push({ id: ++S.seq.e, order_id: orderId, ts: nowIso(), stage, ok, detail: detail || null });
+  }
+  function createOrder(o) {
+    const row = Object.assign({ id: ++S.seq.o, ok: null, planned: null, result: null, error: null,
+      spent_inr: 0, profit_inr: null, created_at: nowIso() }, o);
+    S.orders.push(row);
+    if (S.orders.length > 80) {
+      const drop = S.orders.splice(0, S.orders.length - 80);
+      for (const d of drop) S.events = S.events.filter(e => e.order_id !== d.id);
+    }
+    return row;
+  }
+  function patch(o, p) { Object.assign(o, p); }
+  function bumpFail(rule, reason) {
+    rule.consec_fails = (rule.consec_fails || 0) + 1;
+    if (rule.consec_fails >= rule.max_consec_fails) {
+      rule.tripped = true; rule.tripped_reason = reason; rule.enabled = false;
+    }
+  }
+  function statsOf() {
+    const out = { paper: { done: 0, failed: 0, skipped: 0, missed: 0, running: 0, profit: 0 }, live: { done: 0, failed: 0, skipped: 0, missed: 0, running: 0, profit: 0 } };
+    for (const o of S.orders) {
+      const b = out[o.mode] || out.paper;
+      if (o.ok === true) { b.done++; b.profit += Number(o.profit_inr || 0); }
+      else if (o.status === 'skipped') b.skipped++;
+      else if (o.status === 'missed') b.missed++;
+      else if (o.ok === false) b.failed++;
+      else b.running++;
+    }
+    out.paper.profit = Math.round(out.paper.profit * 100) / 100;
+    out.live.profit = Math.round(out.live.profit * 100) / 100;
+    return out;
+  }
+
+  // ---------------- the sim engine tick ----------------
+  function inWindow(cfg) {
+    const f = cfg.activeFrom, t = cfg.activeTo;
+    if (f == null || t == null || f === t) return true;
+    const h = new Date(Date.now() + 5.5 * 3600000).getUTCHours();
+    return f < t ? (h >= f && h < t) : (h >= f || h < t);
+  }
+  function coinOk(cfg, coin) {
+    const inc = (cfg.coins || []).filter(Boolean), exc = (cfg.excludeCoins || []).filter(Boolean);
+    if (exc.includes(coin)) return false;
+    if (inc.length && !inc.includes(coin)) return false;
+    return true;
+  }
+
+  async function tick() {
+    drift();
+    // decay injected gaps
+    for (const [c, gap] of Object.entries(S.gaps)) { if (--gap.ttl <= 0) delete S.gaps[c]; }
+    // auto market: occasionally a small real-looking arb appears
+    if (S.auto && Math.random() < 0.14) {
+      const coin = ['trx', 'xrp', 'ada'][Math.floor(Math.random() * 3)];
+      const kind = Math.random() < 0.6 ? 'intra' : 'hedge';
+      S.gaps[coin] = { intra: kind === 'intra' ? rnd(0.7, 2.2) : 0, hedge: kind === 'hedge' ? rnd(0.8, 2.0) : 0, ttl: 3 + Math.floor(rnd(0, 3)) };
+    }
+    if (!S.armed || S.inFlight) return;
+
+    const skipped = [];
+    let considered = 0;
+    let active = S.rules.filter(r => r.enabled && !r.tripped);
+    if (S.pendingScenario === 'hedgefail') active = active.slice().sort((a, b) => (a.strategy === 'direct_hedge' ? -1 : 1) - (b.strategy === 'direct_hedge' ? -1 : 1));
+    if (S.pendingScenario === 'fade' || S.pendingScenario === 'nofill') active = active.slice().sort((a, b) => (a.strategy === 'intraloop' ? -1 : 1) - (b.strategy === 'intraloop' ? -1 : 1));
+    for (const rule of active) {
+      const cfg = cfgOf(rule);
+      if (!inWindow(cfg)) { skipped.push(rule.name + ': outside trading hours'); continue; }
+      const dOpts = { maxLevels: cfg.maxLevels || 3, stopPct: cfg.depthStopPct != null ? cfg.depthStopPct : 0.1, share: cfg.maxLevelSharePct || 50 };
+
+      for (const coin of Object.keys(COINS)) {
+        if (!coinOk(cfg, coin)) continue;
+        if (SETTINGS.ignoreCoins.includes(coin)) continue; // global ignore list
+        // Duplicate-trade guard: one coin, one trade — across ALL rules.
+        const lk = S.coinLocks[coin];
+        if (lk && (lk.until === null || Date.now() < lk.until)) {
+          skipped.push(coin.toUpperCase() + ': locked — ' + lk.reason);
+          continue;
+        }
+        if (SETTINGS.blockWhilePositionOpen && S.orders.some(x => x.coin === coin && x.status === 'hedged_open')) {
+          skipped.push(coin.toUpperCase() + ': position already open — no duplicate entries');
+          continue;
+        }
+        const bk = booksFor(coin);
+        considered++;
+        let plan = null, loopSide = null, loopCompare = null;
+        if (rule.strategy === 'intraloop') {
+          plan = planIntraA(bk.inrAsks, bk.cuBids, bk.uiBids, Number(rule.max_inr_per_trade), dOpts);
+        } else if (rule.strategy === 'direct_hedge') {
+          plan = planHedge(bk.inrAsks, bk.futBids, Number(rule.max_inr_per_trade), dOpts);
+        } else if (rule.strategy === 'loop_pair') {
+          // Evaluate EVERY watched coin's buy-edge and sell-edge; the best edge
+          // is the SOURCE of the arb, the rest are support — logged for you.
+          const maxFund = cfg.maxAdverseFunding != null ? Number(cfg.maxAdverseFunding) : 0.03;
+          const edges = [];
+          for (const c2 of Object.keys(COINS)) {
+            if (!coinOk(cfg, c2)) continue;
+            if (SETTINGS.ignoreCoins.includes(c2)) continue;
+            const lk2 = S.coinLocks[c2];
+            if (lk2 && (lk2.until === null || Date.now() < lk2.until)) continue;
+            if (SETTINGS.blockWhilePositionOpen && S.orders.some(x => x.coin === c2 && x.status === 'hedged_open')) continue;
+            const b2 = booksFor(c2);
+            const pBuy = planHedge(b2.inrAsks, b2.futBids, Number(rule.max_inr_per_trade), dOpts);
+            if (pBuy) edges.push({ coin: c2, side: 'buy', plan: pBuy, funding: FUNDING[c2], basis: b2.basisPct });
+            const held = WALLET[c2] || 0;
+            if (held > 0) {
+              const pSell = planSellHedge(b2.inrBids, b2.futAsks, Number(rule.max_inr_per_trade), held, dOpts);
+              if (pSell) edges.push({ coin: c2, side: 'sell', plan: pSell, funding: FUNDING[c2], basis: b2.basisPct, held });
+            }
+          }
+          edges.sort((a, b) => b.plan.netPct - a.plan.netPct);
+          if (!edges.length) continue;
+          const best = edges[0];
+          if (best.coin !== coin) continue; // that coin's own evaluation will take it
+          // funding gate: shorts suffer when funding < 0, longs when funding > 0
+          const adverse = best.side === 'buy' ? -best.funding : best.funding;
+          if (adverse > maxFund) {
+            skipped.push(best.coin.toUpperCase() + ': funding against the ' + (best.side === 'buy' ? 'short' : 'long') + ' (' + best.funding + '%/8h) — ' + rule.name);
+            continue;
+          }
+          plan = best.plan; loopSide = best.side;
+          loopCompare = edges.slice(0, 3).map(e => (e.side === 'buy' ? 'ARB1 buy ' : 'ARB2 sell ') + e.coin.toUpperCase() + ' ' + e.plan.netPct.toFixed(2) + '%' + (e === best ? ' ← SOURCE' : ''));
+        }
+        if (!plan || plan.netPct < Number(rule.min_net_pct)) continue;
+        if (plan.costInr < SETTINGS.minOrderValueInr) {
+          skipped.push(coin.toUpperCase() + ': order value ₹' + Math.round(plan.costInr) + ' under global minimum ₹' + SETTINGS.minOrderValueInr);
+          continue;
+        }
+
+        const pKey = rule.id + ':' + coin;
+        const needMs = cfg.persistMs != null ? cfg.persistMs : (cfg.persistTicks ? (cfg.persistTicks - 1) * 2500 : 250);
+        const firstSeen = S.persistence[pKey];
+        if (!firstSeen) { S.persistence[pKey] = Date.now(); skipped.push(coin.toUpperCase() + ': persisting ' + needMs + 'ms (' + rule.name + ')'); continue; }
+        if (Date.now() - firstSeen < needMs) { skipped.push(coin.toUpperCase() + ': persisting (' + rule.name + ')'); continue; }
+
+        if ((S.cooldowns[pKey] || 0) > Date.now() - rule.cooldown_sec * 1000) { skipped.push(coin.toUpperCase() + ': cooldown (' + rule.name + ')'); continue; }
+        const today = S.orders.filter(o => o.rule_id === rule.id && o.status !== 'skipped' && new Date(o.created_at).toDateString() === new Date().toDateString()).length;
+        if ((cfg.maxTradesPerDay || 0) > 0 && today >= cfg.maxTradesPerDay) { skipped.push(rule.name + ': max trades/day reached'); continue; }
+        if (rule.strategy === 'direct_hedge') {
+          const open = S.orders.filter(o => o.rule_id === rule.id && o.status === 'hedged_open').length;
+          if (open >= (cfg.maxOpenPositions || 1)) { skipped.push(rule.name + ': max open positions'); continue; }
+        }
+
+        delete S.persistence[pKey];
+        S.cooldowns[pKey] = Date.now();
+        execute(rule, cfg, coin, plan, dOpts, { loopSide, loopCompare, funding: FUNDING[coin], basis: booksFor(coin).basisPct }); // async — inFlight guards
+        S.lastTick = { at: Date.now(), considered, skipped: skipped.slice(0, 12), error: null };
+        return;
+      }
+    }
+    S.lastTick = { at: Date.now(), considered, skipped: skipped.slice(0, 12), error: null };
+  }
+
+  // ---------------- staged execution ----------------
+  async function execute(rule, cfg, coin, plan, dOpts, extra) {
+    S.inFlight = true;
+    extra = extra || {};
+    // lock the coin for EVERY rule the moment we attempt it
+    S.coinLocks[coin] = { until: null, reason: "trade in progress ('" + rule.name + "')" };
+    const isIntra = rule.strategy === 'intraloop';
+    const isArb2 = rule.strategy === 'loop_pair' && extra.loopSide === 'sell';
+    const isArb1 = rule.strategy === 'loop_pair' && extra.loopSide === 'buy';
+    // a pending scenario only applies to the strategy it was written for —
+    // an unrelated trade must not swallow it
+    let scenario = null;
+    if (S.pendingScenario === 'hedgefail' && !isIntra) { scenario = S.pendingScenario; S.pendingScenario = null; }
+    if ((S.pendingScenario === 'fade' || S.pendingScenario === 'nofill') && isIntra) { scenario = S.pendingScenario; S.pendingScenario = null; }
+    const C = coin.toUpperCase();
+    const o = createOrder({
+      rule_id: rule.id, rule_name: rule.name, strategy: rule.strategy, mode: rule.mode, coin,
+      path_label: isIntra ? ('INR → ' + C + ' → USDT → INR')
+        : isArb2 ? ('ARB2 · Sell ' + C + ' @WazirX (wallet) + Long ' + C + 'USDT @Binance-Fut')
+        : isArb1 ? ('ARB1 · Buy ' + C + ' @WazirX + Short ' + C + 'USDT @Binance-Fut')
+        : ('Buy ' + C + ' @WazirX (INR) + Short ' + C + 'USDT @Binance-Fut'),
+      status: 'validating', stage: 'validate',
+    });
+    const r2 = n => Math.round(n * 100) / 100;
+    try {
+      await sleep(500);
+      const vDetail = {
+        plan: { qty: r2(plan.qty), costInr: r2(plan.costInr), expectInr: r2(plan.expectInr), netPct: r2(plan.netPct), profitInr: r2(plan.profitInr) },
+        depth: { legsUsed: plan.legsUsed, stoppedBy: plan.stoppedBy, maxLevels: dOpts.maxLevels, cutoffPct: dOpts.stopPct, maxLevelSharePct: dOpts.share },
+      };
+      if (rule.strategy === 'loop_pair') {
+        vDetail.edgeComparison = extra.loopCompare;
+        vDetail.funding = extra.funding + '%/8h' + (extra.loopSide === 'buy' ? ' (short ' + (extra.funding >= 0 ? 'RECEIVES' : 'pays') + ')' : ' (long ' + (extra.funding <= 0 ? 'RECEIVES' : 'pays') + ')');
+        vDetail.perpBasis = extra.basis + '% vs spot';
+        vDetail.note = 'edge measured WazirX vs Binance SPOT · hedge executes on FUTURES';
+        vDetail.leverage = (cfg.futLeverage || 1) + 'x';
+        if (isArb2) {
+          const held = WALLET[coin] || 0;
+          const walletLimited = /wallet holdings/.test(plan.stoppedBy || '') || plan.qty >= held * 0.999;
+          vDetail.wallet = walletLimited
+            ? 'holding ' + r2(held) + ' ' + C + ' — arb wants more: FULLY EXECUTING wallet coins (' + r2(plan.qty) + ')'
+            : 'holding ' + r2(held) + ' ' + C + ' — selling only the arb size ' + r2(plan.qty) + ', rest stays';
+        }
+      }
+      addEvent(o.id, 'validated', true, vDetail);
+      patch(o, { status: 'executing', stage: 'validated' });
+
+      if (isIntra) {
+        const legs = [
+          { n: 1, label: 'leg1_buy_' + coin + 'inr', side: 'buy' },
+          { n: 2, label: 'leg2_sell_' + coin + 'usdt', side: 'sell' },
+          { n: 3, label: 'leg3_sell_usdtinr', side: 'sell' },
+        ];
+        for (const leg of legs) {
+          patch(o, { status: 'leg ' + leg.n + '/3', stage: leg.label });
+          await sleep(rnd(550, 900));
+          if (scenario === 'nofill' && leg.n === 1) {
+            addEvent(o.id, leg.label, true, { attempt: 1, action: 'placed', qty: r2(plan.qty), placeMs: 62 });
+            await sleep(Math.min(900, cfg.entryTimeoutMs || 900));
+            addEvent(o.id, leg.label, false, { attempt: 1, action: 'ioc_cancelled', filledQty: 0, waitedMs: cfg.entryTimeoutMs || 900, note: 'not taken — cancelled instantly, nothing resting' });
+            throw { stage: leg.label, missed: true, message: 'entry not filled within ' + (cfg.entryTimeoutMs || 900) + 'ms — competitor likely took it; cancelled, nothing resting' };
+          }
+          if (scenario === 'fade' && leg.n === 2) {
+            delete S.gaps[coin]; // the arb vanishes mid-trade
+            const midA = cfg.midAttempts || 3;
+            for (let a = 1; a <= midA; a++) {
+              addEvent(o.id, leg.label, true, { attempt: a, action: 'placed', qty: r2(plan.qty), note: a === 1 ? 'plan price' : 'next best price (level ' + a + ')' });
+              await sleep(500);
+              addEvent(o.id, leg.label, false, { attempt: a, action: 'ioc_cancelled', filledQty: 0, waitedMs: cfg.midTimeoutMs || 1200 });
+            }
+            throw { stage: leg.label, critical: true, message: 'all ' + midA + ' attempts failed at ' + leg.label + ' — HOLDING ' + r2(plan.qty) + ' ' + C + ' on WazirX. No fill even at deeper price levels.' };
+          }
+          addEvent(o.id, leg.label, true, { action: rule.mode === 'live' ? 'filled' : 'paper_filled', qty: r2(plan.qty), attempt: 1 });
+        }
+        const slip = rnd(0.9, 1.0);
+        const profit = r2(plan.profitInr * slip);
+        patch(o, {
+          status: 'done', stage: 'done', ok: true,
+          result: { inrIn: r2(plan.costInr), inrOut: r2(plan.costInr + profit), depth: { legsUsed: plan.legsUsed, stoppedBy: plan.stoppedBy },
+            latency: { signalAgeMs: Math.round(rnd(40, 120)), totalMs: Math.round(rnd(1600, 2600)) } },
+          spent_inr: rule.mode === 'live' ? r2(plan.costInr) : 0, profit_inr: profit,
+        });
+        rule.consec_fails = 0;
+      } else if (isArb2) {
+        // ---- ARB2: sell the rich coin from the WazirX wallet, go LONG the perp ----
+        patch(o, { status: 'selling spot', stage: 'spot_sell' });
+        await sleep(rnd(500, 800));
+        addEvent(o.id, 'spot_sell', true, { action: rule.mode === 'live' ? 'filled' : 'paper_filled', qty: r2(plan.qty), avgPrice: r2(plan.expectInr / plan.qty), note: 'sold from wallet' });
+        WALLET[coin] = Math.max(0, (WALLET[coin] || 0) - plan.qty);
+        WALLET.inr += plan.expectInr;
+        patch(o, { status: 'going long', stage: 'perp_long' });
+        await sleep(rnd(350, 600));
+        if (scenario === 'hedgefail') {
+          for (let a = 1; a <= 3; a++) { addEvent(o.id, 'perp_long', false, { attempt: a, error: 'Binance Futures 400: Margin is insufficient.' }); await sleep(300); }
+          throw { stage: 'perp_long', critical: true, message: 'spot SOLD but the long failed 3× — your ' + C + ' exposure is GONE until you re-buy. Re-buy on WazirX or open the long manually NOW.' };
+        }
+        addEvent(o.id, 'perp_long', true, { action: 'filled', qty: Math.floor(plan.qty), symbol: C + 'USDT', leverage: (cfg.futLeverage || 1) + 'x' });
+        patch(o, {
+          status: 'hedged_open', stage: 'done', ok: true,
+          result: {
+            spot: { symbol: coin + 'inr', qty: r2(plan.qty), avgPrice: r2(plan.expectInr / plan.qty), side: 'sell (from wallet)' },
+            hedge: { symbol: C + 'USDT', qty: Math.floor(plan.qty), avgPrice: r2(COINS[coin].usdt), side: 'LONG' },
+            depth: { legsUsed: plan.legsUsed, stoppedBy: plan.stoppedBy },
+            latency: { signalAgeMs: Math.round(rnd(40, 120)), totalMs: Math.round(rnd(900, 1500)) },
+            note: 'ARB2 open: coin sold rich on WazirX, exposure kept via the perp long. Unwind when WazirX price normalises.',
+          },
+          spent_inr: 0, profit_inr: r2(plan.profitInr),
+        });
+        rule.consec_fails = 0;
+      } else {
+        patch(o, { status: 'buying spot', stage: 'spot_buy' });
+        await sleep(rnd(600, 900));
+        addEvent(o.id, 'spot_buy', true, { action: rule.mode === 'live' ? 'filled' : 'paper_filled', qty: r2(plan.qty), attempt: 1 });
+        if (isArb1) { WALLET[coin] = (WALLET[coin] || 0) + plan.qty; WALLET.inr = Math.max(0, WALLET.inr - plan.costInr); }
+        patch(o, { status: 'hedging', stage: 'hedge_short' });
+        await sleep(rnd(400, 700));
+        if (scenario === 'hedgefail') {
+          for (let a = 1; a <= 3; a++) { addEvent(o.id, 'hedge_short', false, { attempt: a, error: 'Binance Futures 400: Margin is insufficient.' }); await sleep(350); }
+          throw { stage: 'hedge_short', message: 'spot leg FILLED but hedge failed 3×: Margin is insufficient. — HOLDING ' + r2(plan.qty) + ' ' + C + ' UNHEDGED on WazirX' };
+        }
+        addEvent(o.id, 'hedge_short', true, { action: 'filled', qty: Math.floor(plan.qty), symbol: C + 'USDT' });
+        patch(o, {
+          status: 'hedged_open', stage: 'done', ok: true,
+          result: {
+            spot: { symbol: coin + 'inr', qty: r2(plan.qty), avgPrice: r2(plan.costInr / plan.qty) },
+            hedge: { symbol: C + 'USDT', qty: Math.floor(plan.qty), avgPrice: r2(COINS[coin].usdt) },
+            depth: { legsUsed: plan.legsUsed, stoppedBy: plan.stoppedBy },
+            latency: { signalAgeMs: Math.round(rnd(40, 120)), totalMs: Math.round(rnd(900, 1600)) },
+            note: 'Position open: long spot, short perp. Unwind manually when the basis converges.',
+          },
+          spent_inr: rule.mode === 'live' ? r2(plan.costInr) : 0, profit_inr: r2(plan.profitInr),
+        });
+        rule.consec_fails = 0;
+      }
+    } catch (err) {
+      if (err.missed) {
+        patch(o, { status: 'missed', stage: 'entry', ok: false, error: err.message || String(err) });
+        // a miss is NOT a failure: no breaker bump, tiny cooldown
+        S.cooldowns[rule.id + ':' + coin] = Date.now() - (rule.cooldown_sec * 1000) + 2000;
+        pushTg('missed', '◻️ Missed (' + rule.name + ') ' + C + ' — ' + (err.message || ''));
+      } else {
+        patch(o, { status: err.critical ? 'stuck' : 'failed', stage: err.stage || 'unknown', ok: false, error: err.message || String(err) });
+        bumpFail(rule, (err.stage || '?') + ': ' + (err.message || err));
+        if (err.critical) {
+          const t = '🚨🚨 CRITICAL — MANUAL ACTION NEEDED (' + rule.name + ', ' + rule.mode + ')\n' + C + ' · stuck at ' + (err.stage || '?') + '\n' + (err.message || '');
+          pushTg('critical', t); pushTg('critical', t); // high alert = twice
+        } else {
+          pushTg('failed', '⚠️ Auto-trade FAILED (' + rule.name + ', ' + rule.mode + ')\n' + C + ' · stuck at ' + (err.stage || '?') + '\n' + (err.message || ''));
+        }
+      }
+    } finally {
+      S.inFlight = false;
+      // release into the GLOBAL duplicate-guard cooldown
+      const guardMs = (o.status === 'missed' ? 2 : SETTINGS.globalCoinCooldownSec) * 1000;
+      S.coinLocks[coin] = {
+        until: Date.now() + guardMs,
+        reason: o.status === 'missed'
+          ? "just attempted by '" + rule.name + "' (duplicate guard)"
+          : "taken by '" + rule.name + "' (duplicate guard, " + SETTINGS.globalCoinCooldownSec + 's)',
+      };
+      if (o.ok === true) {
+        pushTg('done', (o.status === 'hedged_open' ? '✅ Hedged position OPEN (' : '✅ Auto-trade DONE (') + rule.name + ', ' + rule.mode + ')\n' + (o.path_label || '') + '\nprofit ₹' + (o.profit_inr != null ? o.profit_inr : '—') + (o.result && o.result.latency ? ' · ⏱ ' + o.result.latency.totalMs + 'ms' : ''));
+      } else if (o.status === 'skipped') {
+        pushTg('skipped', '· skipped (' + rule.name + ') ' + C + ' — ' + (o.error || ''));
+      }
+    }
+  }
+
+  // ---------------- scenario controls ----------------
+  function scenario(kind) {
+    S.cooldowns = {}; // sandbox convenience: an injected scenario should fire promptly
+    if (kind === 'intra') { S.gaps.trx = { intra: rnd(1.4, 2.4), hedge: 0, ttl: 5 }; return 'Injected an intra-loop arb on TRX (~+' + S.gaps.trx.intra.toFixed(1) + '%). If an intraloop rule is armed, watch Activity.'; }
+    if (kind === 'hedge') { S.gaps.xrp = { intra: 0, hedge: rnd(1.2, 2.0), ttl: 5 }; return 'Injected a direct-arb basis on XRP. A direct+hedge rule will pick it up.'; }
+    if (kind === 'fade') { S.gaps.trx = { intra: 2.0, hedge: 0, ttl: 6 }; S.pendingScenario = 'fade'; return 'Arb injected on TRX — it will VANISH mid-trade. Watch the machine abandon instead of chasing.'; }
+    if (kind === 'nofill') { S.gaps.trx = { intra: 2.0, hedge: 0, ttl: 6 }; S.pendingScenario = 'nofill'; return 'Arb injected — but the first order will never fill. Watch cancel → retry → clean failure.'; }
+    if (kind === 'hedgefail') { S.gaps.xrp = { intra: 0, hedge: 1.8, ttl: 6 }; S.pendingScenario = 'hedgefail'; return 'Direct arb injected — the hedge will fail 3×. Watch the UNHEDGED alarm.'; }
+    if (kind === 'looppair') {
+      S.gaps.shib = { hedge: rnd(1.5, 2.0), ttl: 6 };
+      S.gaps.xlm = { sell: rnd(0.9, 1.3), ttl: 6 };
+      return 'Loop pair injected: SHIB buy-edge vs XLM sell-edge. The engine compares both and takes the stronger as SOURCE — check the validated event.';
+    }
+    if (kind === 'sellarb') {
+      S.gaps.xlm = { sell: rnd(1.3, 1.9), ttl: 6 };
+      return 'Sell-side arb on XLM (rich on WazirX). A Loop rule will sell from your wallet + go long the perp (ARB2). Check your wallet holdings first!';
+    }
+    if (kind === 'clash') {
+      // one coin, cheap on WazirX: BOTH a direct rule and a loop rule want it.
+      S.gaps.trx = { hedge: rnd(1.5, 2.0), intra: rnd(1.2, 1.6), ttl: 6 };
+      return 'TRX is now cheap — direct, intraloop AND loop rules all want it. Watch ONE trade happen and the rest get "locked — duplicate guard".';
+    }
+    if (kind === 'fundflip') {
+      for (const c of Object.keys(FUNDING)) FUNDING[c] = -0.06;
+      return 'Funding flipped to −0.06%/8h everywhere — shorts now PAY. Watch ARB1 entries get skipped by the funding gate.';
+    }
+    if (kind === 'breaker') {
+      const r = S.rules.find(x => x.enabled && !x.tripped);
+      if (!r) return 'No enabled rule to trip.';
+      r.consec_fails = r.max_consec_fails - 1;
+      S.gaps[r.strategy === 'intraloop' ? 'trx' : 'xrp'] = r.strategy === 'intraloop' ? { intra: 2.0, hedge: 0, ttl: 6 } : { intra: 0, hedge: 1.8, ttl: 6 };
+      S.pendingScenario = r.strategy === 'intraloop' ? 'nofill' : 'hedgefail';
+      return '"' + r.name + '" is one failure from its breaker — the next trade will fail and trip it.';
+    }
+    return '';
+  }
+
+  function seedRules() {
+    S.rules = [
+      { id: ++S.seq.r, name: 'TRX intra loop — practice', strategy: 'intraloop', enabled: true, mode: 'paper',
+        min_net_pct: 0.5, min_profit_inr: 20, max_inr_per_trade: 5000, balance_pct: 25, daily_inr_cap: 50000,
+        cooldown_sec: 20, max_attempts: 2, max_consec_fails: 3, consec_fails: 0, tripped: false, tripped_reason: null,
+        created_at: nowIso(), config: { coins: [], excludeCoins: [], path: 'any', persistMs: 250, maxLevels: 3, depthStopPct: 0.1, maxLevelSharePct: 50, entryAttempts: 1, entryTimeoutMs: 900, midAttempts: 3, midTimeoutMs: 1200, aggressionBps: 0 } },
+      { id: ++S.seq.r, name: 'Direct + hedge — practice', strategy: 'direct_hedge', enabled: true, mode: 'paper',
+        min_net_pct: 0.8, min_profit_inr: 30, max_inr_per_trade: 8000, balance_pct: 25, daily_inr_cap: 50000,
+        cooldown_sec: 30, max_attempts: 2, max_consec_fails: 3, consec_fails: 0, tripped: false, tripped_reason: null,
+        created_at: nowIso(), config: { coins: [], excludeCoins: [], persistMs: 250, maxLevels: 3, depthStopPct: 0.1, maxLevelSharePct: 50, entryAttempts: 1, entryTimeoutMs: 900, midAttempts: 3, midTimeoutMs: 1200, aggressionBps: 0, futLeverage: 1, maxOpenPositions: 2 } },
+      { id: ++S.seq.r, name: 'Loop ARB1/ARB2 — practice', strategy: 'loop_pair', enabled: true, mode: 'paper',
+        min_net_pct: 0.6, min_profit_inr: 30, max_inr_per_trade: 10000, balance_pct: 25, daily_inr_cap: 100000,
+        cooldown_sec: 25, max_attempts: 3, max_consec_fails: 3, consec_fails: 0, tripped: false, tripped_reason: null,
+        created_at: nowIso(), config: { coins: [], excludeCoins: [], persistMs: 250, maxLevels: 3, depthStopPct: 0.1, maxLevelSharePct: 50, entryAttempts: 1, entryTimeoutMs: 900, midAttempts: 3, midTimeoutMs: 1200, aggressionBps: 0, futLeverage: 10, maxOpenPositions: 3, maxAdverseFunding: 0.03 } },
+    ];
+  }
+  function reset() {
+    S.orders = []; S.events = []; S.seq.o = 0; S.seq.e = 0; S.seq.r = 0;
+    S.cooldowns = {}; S.persistence = {}; S.gaps = {}; S.pendingScenario = null;
+    S.armed = false; S.inFlight = false;
+    seedRules();
+  }
+  seedRules();
+  setInterval(() => { tick().catch(() => {}); }, 2000);
+
+  // ---------------- MANUAL / TRACK-LIVE support ----------------
+  const MANUAL_BUDGET = 10000; // ₹ that 100% "Buy @WazirX" deploys (sandbox)
+  function liveOpps() {
+    const dOpts = { maxLevels: 3, stopPct: -99, share: 100 };
+    const out = [];
+    for (const coin of Object.keys(COINS)) {
+      if (SETTINGS.ignoreCoins.includes(coin)) continue;
+      const bk = booksFor(coin);
+      const buy = planHedge(bk.inrAsks, bk.futBids, MANUAL_BUDGET, dOpts);
+      const held = WALLET[coin] || 0;
+      const sell = held > 0 ? planSellHedge(bk.inrBids, bk.futAsks, MANUAL_BUDGET, held, dOpts) : null;
+      const L = (arr) => arr.slice(0, 7).map(l => ({ price: +l.price.toFixed(8), size: Math.round(l.size) }));
+      out.push({
+        coin,
+        wzxAsk: +bk.inrAsks[0].price.toFixed(6), wzxBid: +bk.inrBids[0].price.toFixed(6),
+        perpBid: +bk.futBids[0].price.toFixed(6), perpAsk: +bk.futAsks[0].price.toFixed(6),
+        basisPct: bk.basisPct, funding: FUNDING[coin], held: +held.toFixed(4),
+        buyEdgePct: buy ? +buy.netPct.toFixed(3) : null,
+        sellEdgePct: sell ? +sell.netPct.toFixed(3) : null,
+        // FULL books for the depth view (ascending asks, descending bids)
+        wzxAsks: L(bk.inrAsks), wzxBids: L(bk.inrBids),
+        perpAsks: L(bk.futAsks), perpBids: L(bk.futBids),
+      });
+    }
+    return out;
+  }
+
+  // Manual leg: action in {buy_wazirx, sell_wazirx, hedge_binance}, pct in {25,50,75,100}.
+  //  • buy_wazirx  pct%  = deploy pct% of MANUAL_BUDGET at the WazirX ask (adds coin, spends INR)
+  //  • sell_wazirx pct%  = sell pct% of your wallet holding at the WazirX bid (removes coin, adds INR)
+  //  • hedge_binance pct% = SHORT pct% of your current spot holding on the perp (hedges what you hold)
+  // Walk `levels` to `targetQty`, returning {qty, cost, avg, levelsUsed}.
+  function walkDepth(levels, targetQty) {
+    let filled = 0, cost = 0, used = 0;
+    for (const l of levels) {
+      if (filled >= targetQty - 1e-9) break;
+      const take = Math.min(l.size, targetQty - filled);
+      filled += take; cost += take * l.price; used++;
+    }
+    return { qty: filled, cost, avg: filled > 0 ? cost / filled : 0, levelsUsed: used };
+  }
+  const depthTotal = (levels) => levels.reduce((a, l) => a + l.size, 0);
+
+  // MANUAL execution sized by % of ORDER-BOOK DEPTH:
+  //  • buy_wazirx  pct% = consume pct% of the WazirX ASK depth (walk asks), capped by INR
+  //  • sell_wazirx pct% = consume pct% of the WazirX BID depth (walk bids), capped by holding
+  //  • hedge_binance pct% = short pct% of the perp BID depth, capped by holding
+  function manualExecute(coin, action, pct) {
+    const C = coin.toUpperCase();
+    const bk = booksFor(coin);
+    const frac = Math.max(0, Math.min(100, Number(pct))) / 100;
+    const lk = S.coinLocks[coin];
+    if (lk && lk.until === null) return { error: 'a trade is already running on ' + C };
+
+    if (action === 'buy_wazirx') {
+      const asks = bk.inrAsks;
+      let target = depthTotal(asks) * frac;
+      // cap to what your INR can afford (walk to the INR budget if depth costs more)
+      const affordable = walkDepth(asks, target);
+      let plan = affordable;
+      if (affordable.cost > WALLET.inr) {
+        // re-walk to a qty whose cost fits the wallet
+        let f = 0, c = 0; for (const l of asks) { const step = Math.min(l.size, (WALLET.inr - c) / l.price); if (step <= 0) break; f += step; c += step * l.price; }
+        plan = { qty: f, cost: c, avg: f > 0 ? c / f : 0, levelsUsed: asks.length };
+      }
+      if (!(plan.qty > 0)) return { error: 'no INR / no ask depth to buy' };
+      const o = createOrder({ rule_id: null, rule_name: 'Manual', strategy: 'manual', mode: 'paper', coin,
+        path_label: 'MANUAL · Buy ' + C + ' @WazirX (' + pct + '% of ask depth)', status: 'buying', stage: 'manual_buy' });
+      addEvent(o.id, 'manual_buy', true, { action: 'filled', qty: +plan.qty.toFixed(4), avgPrice: +plan.avg.toFixed(6), costInr: +plan.cost.toFixed(2), depthPct: pct + '%', levelsWalked: plan.levelsUsed });
+      WALLET[coin] = (WALLET[coin] || 0) + plan.qty; WALLET.inr -= plan.cost;
+      patch(o, { status: 'done', stage: 'done', ok: true, spent_inr: 0, profit_inr: 0,
+        result: { manual: 'buy', symbol: coin + 'inr', qty: +plan.qty.toFixed(4), avgPrice: +plan.avg.toFixed(6), costInr: +plan.cost.toFixed(2), levelsWalked: plan.levelsUsed,
+          note: 'Bought ' + plan.qty.toFixed(2) + ' ' + C + ' walking ' + plan.levelsUsed + ' ask level(s), avg ₹' + plan.avg.toFixed(4) + '. Hedge on Binance to go market-neutral.' } });
+      pushTg('done', '✅ MANUAL Buy ' + C + ' ' + pct + '% depth @WazirX — ' + plan.qty.toFixed(2) + ' ' + C + ' avg ₹' + plan.avg.toFixed(4));
+      return { ok: true, id: o.id };
+    }
+    if (action === 'sell_wazirx') {
+      const held = WALLET[coin] || 0;
+      if (!(held > 0)) return { error: 'no ' + C + ' in your wallet to sell' };
+      const bids = bk.inrBids;
+      let target = Math.min(held, depthTotal(bids) * frac);
+      const plan = walkDepth(bids, target);
+      if (!(plan.qty > 0)) return { error: 'no bid depth to sell into' };
+      const o = createOrder({ rule_id: null, rule_name: 'Manual', strategy: 'manual', mode: 'paper', coin,
+        path_label: 'MANUAL · Sell ' + C + ' @WazirX (' + pct + '% of bid depth)', status: 'selling', stage: 'manual_sell' });
+      addEvent(o.id, 'manual_sell', true, { action: 'filled', qty: +plan.qty.toFixed(4), avgPrice: +plan.avg.toFixed(6), proceedsInr: +plan.cost.toFixed(2), depthPct: pct + '%', levelsWalked: plan.levelsUsed });
+      WALLET[coin] = held - plan.qty; WALLET.inr += plan.cost;
+      patch(o, { status: 'done', stage: 'done', ok: true, spent_inr: 0, profit_inr: 0,
+        result: { manual: 'sell', symbol: coin + 'inr', qty: +plan.qty.toFixed(4), avgPrice: +plan.avg.toFixed(6), proceedsInr: +plan.cost.toFixed(2), levelsWalked: plan.levelsUsed,
+          note: 'Sold ' + plan.qty.toFixed(2) + ' ' + C + ' walking ' + plan.levelsUsed + ' bid level(s), avg ₹' + plan.avg.toFixed(4) + '. Close any matching perp.' } });
+      pushTg('done', '✅ MANUAL Sell ' + C + ' ' + pct + '% depth @WazirX — ' + plan.qty.toFixed(2) + ' ' + C + ' avg ₹' + plan.avg.toFixed(4));
+      return { ok: true, id: o.id };
+    }
+    if (action === 'hedge_binance') {
+      const held = WALLET[coin] || 0;
+      const bids = bk.futBids;
+      let target = Math.min(held || Infinity, depthTotal(bids) * frac);
+      const plan = walkDepth(bids, target);
+      const qty = Math.floor(plan.qty);
+      if (!(qty > 0)) return { error: held > 0 ? 'no perp bid depth to short into' : 'buy ' + C + ' first — hedge sizes against your holding' };
+      const o = createOrder({ rule_id: null, rule_name: 'Manual', strategy: 'manual', mode: 'paper', coin,
+        path_label: 'MANUAL · Short ' + qty + ' ' + C + 'USDT @Binance-Fut (' + pct + '% of perp depth)', status: 'hedging', stage: 'perp_short' });
+      addEvent(o.id, 'perp_short', true, { action: 'filled', qty, symbol: C + 'USDT', avgPrice: +plan.avg.toFixed(6), depthPct: pct + '%', levelsWalked: plan.levelsUsed });
+      patch(o, { status: 'hedged_open', stage: 'done', ok: true, spent_inr: 0, profit_inr: 0,
+        result: { manual: 'hedge', spot: { symbol: coin + 'inr', qty: +held.toFixed(4), side: 'held in wallet' },
+          hedge: { symbol: C + 'USDT', qty, avgPrice: +plan.avg.toFixed(6), side: 'SHORT', levelsWalked: plan.levelsUsed },
+          note: 'Shorted ' + qty + ' ' + C + ' perp walking ' + plan.levelsUsed + ' bid level(s), avg ' + plan.avg.toFixed(6) + '.' } });
+      pushTg('done', '✅ MANUAL Hedge ' + C + ' — short ' + qty + ' perp (' + pct + '% of perp depth)');
+      return { ok: true, id: o.id };
+    }
+    return { error: 'unknown action' };
+  }
+
+  // ---------------- fake fetch handler ----------------
+  const ok = data => ({ ok: true, status: 200, json: async () => data });
+  const notFound = () => ({ ok: false, status: 404, json: async () => ({ error: 'not found' }) });
+
+  function handle(path, opts) {
+    const method = (opts.method || 'GET').toUpperCase();
+    const body = opts.body ? JSON.parse(opts.body) : {};
+    const u = path.split('?')[0];
+
+    if (u === '/api/trader/status') {
+      const settled = S.orders.filter(x => x.result && x.result.latency);
+      const avg = settled.length ? Math.round(settled.slice(-20).reduce((a, x) => a + x.result.latency.totalMs, 0) / Math.min(20, settled.length)) : null;
+      return ok({
+        armed: S.armed, notify: S.notify, inFlight: S.inFlight, engine: 'fast-event-driven', tickMs: 0,
+        keys: { wazirx: true, binanceFutures: true },
+        evalPerSec: S.armed ? 18 : 0,
+        latency: { samples: settled.length, avgTotalMs: avg },
+        lastTick: S.lastTick, rules: S.rules, stats: statsOf(), sandbox: true, ts: Date.now(),
+        tgFeed: S.tgFeed.slice(0, 8),
+        coinLocks: Object.fromEntries(Object.entries(S.coinLocks).filter(([, l]) => l.until === null || Date.now() < l.until).map(([c, l]) => [c, l.reason])),
+      });
+    }
+    if (u === '/api/trader/control') { S.armed = !!body.armed; return ok({ ok: true, armed: S.armed }); }
+    if (u === '/api/trader/notify') { S.notify = body.mode || 'all'; return ok({ ok: true, mode: S.notify }); }
+    if (u === '/api/trader/rules' && method === 'GET') return ok(S.rules);
+    if (u === '/api/trader/rules' && method === 'POST') {
+      const r = Object.assign({ id: ++S.seq.r, enabled: false, consec_fails: 0, tripped: false, tripped_reason: null, created_at: nowIso() }, body, { mode: 'paper' });
+      S.rules.push(r); return ok(r);
+    }
+    const mR = u.match(/^\/api\/trader\/rules\/(\d+)$/);
+    if (mR) {
+      const r = S.rules.find(x => x.id === Number(mR[1]));
+      if (!r) return notFound();
+      if (method === 'DELETE') { S.rules = S.rules.filter(x => x !== r); return ok({ deleted: true }); }
+      for (const k of ['name', 'enabled', 'mode', 'min_net_pct', 'min_profit_inr', 'max_inr_per_trade', 'balance_pct', 'daily_inr_cap', 'cooldown_sec', 'max_attempts', 'max_consec_fails', 'config']) {
+        if (body[k] !== undefined && body[k] !== null) r[k] = body[k];
+      }
+      if (body.resetBreaker) { r.consec_fails = 0; r.tripped = false; r.tripped_reason = null; }
+      return ok(r);
+    }
+    if (u === '/api/trader/orders') return ok(S.orders.slice().reverse());
+    const mO = u.match(/^\/api\/trader\/orders\/(\d+)$/);
+    if (mO) {
+      const o = S.orders.find(x => x.id === Number(mO[1]));
+      if (!o) return notFound();
+      return ok(Object.assign({}, o, { events: S.events.filter(e => e.order_id === o.id) }));
+    }
+    if (u === '/api/trader/positions') {
+      const hedged = S.orders.filter(x => x.status === 'hedged_open');
+      return ok({
+        hedgedOrders: hedged,
+        binanceFutures: hedged.map(h => ({
+          symbol: (h.coin || 'trx').toUpperCase() + 'USDT',
+          positionAmt: -(h.result && h.result.hedge ? h.result.hedge.qty : 0),
+          entryPrice: h.result && h.result.hedge ? h.result.hedge.avgPrice : 0,
+          unRealizedProfit: Math.round(rnd(-2, 6) * 100) / 100,
+        })),
+      });
+    }
+    if (u === '/api/trader/settings' && method === 'GET') return ok({ ...SETTINGS });
+    if (u === '/api/trader/settings' && method === 'POST') {
+      const b = body || {};
+      if (Array.isArray(b.ignoreCoins)) SETTINGS.ignoreCoins = b.ignoreCoins.map(x => String(x).toLowerCase()).filter(Boolean);
+      if (isFinite(Number(b.minOrderValueInr))) SETTINGS.minOrderValueInr = Number(b.minOrderValueInr);
+      if (isFinite(Number(b.globalCoinCooldownSec))) SETTINGS.globalCoinCooldownSec = Number(b.globalCoinCooldownSec);
+      if (typeof b.blockWhilePositionOpen === 'boolean') SETTINGS.blockWhilePositionOpen = b.blockWhilePositionOpen;
+      if (b.alerts && typeof b.alerts === 'object') for (const k of ['done','missed','skipped','failed']) if (typeof b.alerts[k] === 'boolean') SETTINGS.alerts[k] = b.alerts[k];
+      return ok({ ...SETTINGS });
+    }
+    if (u === '/api/trader/live' && method === 'GET') return ok({ opps: liveOpps(), ts: Date.now() });
+    if (u === '/api/trader/manual' && method === 'POST') {
+      const r = manualExecute(body.coin, body.action, body.pct);
+      return r.error ? { ok: false, status: 400, json: async () => ({ error: r.error }) } : ok(r);
+    }
+    if (u === '/api/trader/wallet' && method === 'GET') return ok({ wallet: { ...WALLET }, funding: { ...FUNDING } });
+    if (u === '/api/trader/wallet' && method === 'POST') {
+      for (const [k, v] of Object.entries(body || {})) if (k in WALLET && isFinite(Number(v))) WALLET[k] = Number(v);
+      return ok({ wallet: { ...WALLET } });
+    }
+    if (u === '/api/trader/keys/test') return ok({
+      wazirx: { ok: true, inrFree: 50000, note: 'sandbox — pretend keys' },
+      binanceFutures: { ok: true, usdtAvailable: 250, note: 'sandbox — pretend keys' },
+    });
+    return notFound();
+  }
+
+  return { handle, scenario, reset,
+    toggleAuto() { S.auto = !S.auto; return S.auto; } };
+})();
+
+// scenario bar hooks (referenced from the main script's HTML)
+function sbScenario(kind) {
+  const msg = window.SimBackend.scenario(kind);
+  if (msg) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t.__h); t.__h = setTimeout(() => { t.style.display = 'none'; }, 4200); }
+}
+function sbReset() {
+  window.SimBackend.reset();
+  const t = document.getElementById('toast'); t.textContent = 'Sandbox reset — fresh market, fresh rules, disarmed.'; t.style.display = 'block';
+  clearTimeout(t.__h); t.__h = setTimeout(() => { t.style.display = 'none'; }, 3000);
+}
+function sbToggleAuto() {
+  const on = window.SimBackend.toggleAuto();
+  const b = document.getElementById('sbAuto');
+  b.textContent = 'Auto market: ' + (on ? 'ON' : 'OFF');
+  b.classList.toggle('on', on);
+}
+
+</script>
+
+<script>
+// ================================================================
+// CONFIG
+// ================================================================
+const SANDBOX = true;
+// The trader runs as its OWN DigitalOcean app (separate from the scanner).
+// Routing order: saved URL (⚙ Server button) → same-origin /trader-api
+// (vercel.json rewrite) → whichever worked last.
+function traderBase() {
+  try { return localStorage.getItem('swenik_trader_url') || ''; } catch (e) { return ''; }
+}
+function setTraderBase() {
+  const cur = traderBase();
+  const v = prompt('Trader server URL (from DigitalOcean, e.g. https://swenik-trader-xxxxx.ondigitalocean.app)\n\nLeave empty to use the site proxy (/trader-api via vercel.json):', cur || '');
+  if (v === null) return;
+  try { localStorage.setItem('swenik_trader_url', v.trim().replace(/\/$/, '')); } catch (e) {}
+  location.reload();
+}
+async function api(path, opts) {
+  if (SANDBOX) return window.SimBackend.handle(path, opts || {});
+  const o = Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts);
+  const direct = traderBase();
+  const routes = [];
+  if (direct) routes.push(direct + path);
+  if (location.protocol !== 'file:') routes.push('/trader-api' + path.replace(/^\/api/, ''));
+  if (!routes.length) throw new Error('no trader server set — tap ⚙ Server and paste your DigitalOcean trader URL');
+  let lastErr = null;
+  for (const url of routes) {
+    try { return await fetch(url, o); } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+async function apiJson(path, opts) {
+  const r = await api(path, opts);
+  if (!r.ok) {
+    let msg = 'API returned ' + r.status;
+    try { const j = await r.json(); if (j && j.error) msg += ' — ' + j.error; } catch (e) {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+// ---------------- utils ----------------
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const inr = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const inr2 = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const ago = t => {
+  const s = Math.max(0, (Date.now() - new Date(t).getTime()) / 1000);
+  if (s < 60) return Math.round(s) + 's ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+};
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t.__h); t.__h = setTimeout(() => { t.style.display = 'none'; }, 2600);
+}
+function banner(msg) {
+  $('bannerSlot').style.display = msg ? '' : 'none';
+  if (msg) $('bannerMsg').textContent = msg;
+}
+
+// ---------------- state ----------------
+let ST = null;
+let orders = [];
+let editingRuleId = null;
+let actFilter = 'all';
+const openTimelines = new Set();
+
+// ---------------- tabs ----------------
+function setTab(name) {
+  for (const t of ['overview', 'rules', 'activity', 'manual', 'positions']) {
+    $('tab-' + t).classList.toggle('active', t === name);
+    $('tb-' + t).classList.toggle('active', t === name);
+  }
+  if (name === 'manual') refreshLive();
+}
+
+// ---------------- status / master ----------------
+async function refreshStatus() {
+  try { ST = await apiJson('/api/trader/status'); banner(null); }
+  catch (e) { banner("Couldn't reach the trader (" + e.message + ')'); return; }
+  const armed = ST.armed;
+  $('orb').classList.toggle('on', armed);
+  $('armState').textContent = armed ? 'ARMED' : 'DISARMED';
+  $('armSub').textContent = armed
+    ? (ST.inFlight ? 'Executing a trade right now…' : 'Watching live order books every ' + (ST.tickMs / 1000) + 's. It trades only what your rules allow.')
+    : 'Engine is idle — no rule will trade, paper or live.';
+  const b = $('armBtn');
+  b.textContent = armed ? 'KILL SWITCH — DISARM' : 'ARM ENGINE';
+  b.className = 'bigbtn ' + (armed ? 'kill' : 'arm');
+  $('notifySel').value = ST.notify || 'all';
+  $('kWzx').className = 'dot ' + (ST.keys && ST.keys.wazirx ? 'ok' : 'bad');
+  $('kBin').className = 'dot ' + (ST.keys && ST.keys.binanceFutures ? 'ok' : 'bad');
+  const latBits = [];
+  if (ST.lastTick && ST.lastTick.at) latBits.push('last signal ' + ago(ST.lastTick.at));
+  if (ST.evalPerSec) latBits.push(ST.evalPerSec + ' evals/s');
+  if (ST.latency && ST.latency.avgTotalMs != null) latBits.push('⏱ avg signal→done ' + ST.latency.avgTotalMs + 'ms');
+  if (ST.lastTick && ST.lastTick.error) latBits.push('⚠ ' + ST.lastTick.error);
+  $('engineTick').textContent = latBits.join(' · ');
+  $('cntRules').textContent = (ST.rules || []).length;
+  renderTiles();
+  renderJudgment();
+  renderTgFeed();
+  renderRules();
+}
+
+async function toggleArm() {
+  const target = !(ST && ST.armed);
+  if (target) {
+    const liveRules = ((ST && ST.rules) || []).filter(r => r.enabled && r.mode === 'live');
+    const w = liveRules.length
+      ? 'ARM the engine?\n\n' + liveRules.length + ' LIVE rule(s) are enabled — REAL MONEY can trade:\n· ' + liveRules.map(r => r.name).join('\n· ')
+      : 'ARM the engine? Only paper rules are enabled — no real money moves.';
+    if (!confirm(w)) return;
+  }
+  try {
+    await apiJson('/api/trader/control', { method: 'POST', body: JSON.stringify({ armed: target }) });
+    await refreshStatus();
+    toast(target ? 'Engine armed' : 'Engine disarmed — kill switch engaged');
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function setNotify() {
+  try { await apiJson('/api/trader/notify', { method: 'POST', body: JSON.stringify({ mode: $('notifySel').value }) }); }
+  catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function testKeys() {
+  const btn = $('testKeysBtn');
+  btn.textContent = 'Testing…'; btn.disabled = true;
+  try {
+    const r = await apiJson('/api/trader/keys/test');
+    $('kWzx').className = 'dot ' + (r.wazirx && r.wazirx.ok ? 'ok' : 'bad');
+    $('kBin').className = 'dot ' + (r.binanceFutures && r.binanceFutures.ok ? 'ok' : 'bad');
+    const lines = [];
+    lines.push(r.wazirx && r.wazirx.ok
+      ? '✓ WazirX OK — free INR: ' + (r.wazirx.inrFree == null ? '—' : inr2(r.wazirx.inrFree))
+      : '✗ WazirX: ' + (r.wazirx ? r.wazirx.error : 'no response'));
+    lines.push(r.binanceFutures && r.binanceFutures.ok
+      ? '✓ Binance Futures OK — available: ' + (r.binanceFutures.usdtAvailable == null ? '—' : r.binanceFutures.usdtAvailable + ' USDT')
+      : '✗ Binance Futures: ' + (r.binanceFutures ? r.binanceFutures.error : 'no response'));
+    alert(lines.join('\n'));
+  } catch (e) { alert('Key test failed: ' + e.message); }
+  btn.textContent = 'Test keys'; btn.disabled = false;
+}
+
+// ---------------- overview: tiles + chart + judgment ----------------
+function tile(k, v, d, cls, accent) {
+  return '<div class="tile' + (accent ? ' accentbar' : '') + '"><div class="k">' + esc(k) + '</div>' +
+    '<div class="v ' + (cls || '') + '">' + v + '</div>' + (d ? '<div class="d">' + esc(d) + '</div>' : '') + '</div>';
+}
+function renderTiles() {
+  const s = (ST && ST.stats) || {};
+  const p = s.paper || {}, l = s.live || {};
+  const failed = (p.failed || 0) + (l.failed || 0);
+  const skipped = (p.skipped || 0) + (l.skipped || 0);
+  $('tilesRow').innerHTML =
+    tile('Paper profit (sim)', inr(p.profit || 0), (p.done || 0) + ' trades done', (p.profit || 0) >= 0 ? 'pos' : 'neg', true) +
+    tile('Live profit', inr(l.profit || 0), (l.done || 0) + ' trades done', (l.profit || 0) >= 0 ? 'pos' : 'neg') +
+    tile('Skipped', skipped, 'declined bad entries — that is the machine working', '') +
+    tile('Missed', (p.missed || 0) + (l.missed || 0), 'competitor took it first — cancelled instantly, nothing rested', '') +
+    tile('Failed', failed, failed ? 'check Activity for the stage each stuck at' : 'no failures in 7 days', failed ? 'neg' : '');
+}
+function renderJudgment() {
+  const sk = ((ST && ST.lastTick && ST.lastTick.skipped) || []).slice();
+  const locks = (ST && ST.coinLocks) || {};
+  for (const [c, why] of Object.entries(locks)) sk.unshift('🔒 ' + c.toUpperCase() + ': ' + why);
+  $('judgeFeed').innerHTML = sk.length
+    ? sk.slice(0, 10).map(s => '<div class="jrow">' + esc(s) + '</div>').join('')
+    : '<div class="jrow">nothing being held back right now' + (ST && ST.armed ? ' — hunting' : ' — engine disarmed') + '</div>';
+}
+
+// Equity curve: single-series line per house chart spec.
+function renderChart() {
+  const svg = $('eqSvg');
+  const W = 720, H = 190, padL = 46, padR = 16, padT = 14, padB = 22;
+  const settled = orders.filter(o => o.profit_inr != null && (o.status === 'done' || o.status === 'hedged_open'))
+    .slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  if (!settled.length) {
+    svg.innerHTML = '<text x="360" y="100" text-anchor="middle" font-size="12" fill="#8b96a8">no settled trades yet — the curve starts with the first one</text>';
+    return;
+  }
+  let cum = 0;
+  const pts = settled.map(o => ({ t: new Date(o.created_at).getTime(), v: (cum += Number(o.profit_inr)), o }));
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1;
+  const vs = pts.map(p => p.v).concat([0]);
+  const vMin = Math.min(...vs), vMax = Math.max(...vs);
+  const span = (vMax - vMin) || 1;
+  const X = t => padL + (t1 === t0 ? (W - padL - padR) / 2 : (t - t0) / (t1 - t0) * (W - padL - padR));
+  const Y = v => padT + (1 - (v - vMin) / span) * (H - padT - padB);
+
+  // hairline gridlines at clean values
+  const gv = [vMin, (vMin + vMax) / 2, vMax];
+  let g = gv.map(v =>
+    '<line x1="' + padL + '" y1="' + Y(v) + '" x2="' + (W - padR) + '" y2="' + Y(v) + '" stroke="#e2e7ef" stroke-width="1"/>' +
+    '<text x="' + (padL - 6) + '" y="' + (Y(v) + 3.5) + '" text-anchor="end" font-size="10" fill="#8b96a8" style="font-variant-numeric:tabular-nums">' + Math.round(v).toLocaleString('en-IN') + '</text>'
+  ).join('');
+  if (vMin < 0 && vMax > 0) g += '<line x1="' + padL + '" y1="' + Y(0) + '" x2="' + (W - padR) + '" y2="' + Y(0) + '" stroke="#c9d2e0" stroke-width="1"/>';
+
+  const path = pts.map((p, i) => (i ? 'L' : 'M') + X(p.t).toFixed(1) + ' ' + Y(p.v).toFixed(1)).join(' ');
+  const area = path + ' L' + X(t1).toFixed(1) + ' ' + (H - padB) + ' L' + X(t0).toFixed(1) + ' ' + (H - padB) + ' Z';
+  const last = pts[pts.length - 1];
+
+  svg.innerHTML = g +
+    '<path d="' + area + '" fill="#3b5bdb" opacity="0.10"/>' +
+    '<path d="' + path + '" fill="none" stroke="#3b5bdb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+    '<circle cx="' + X(last.t) + '" cy="' + Y(last.v) + '" r="4.5" fill="#3b5bdb" stroke="#ffffff" stroke-width="2"/>' +
+    '<text x="' + Math.min(X(last.t) + 8, W - padR - 40) + '" y="' + (Y(last.v) - 8) + '" font-size="11" font-weight="700" fill="#2f3a4c" style="font-variant-numeric:tabular-nums">' + inr(last.v) + '</text>' +
+    '<line id="eqCross" x1="0" y1="' + padT + '" x2="0" y2="' + (H - padB) + '" stroke="#8b96a8" stroke-width="1" opacity="0"/>';
+
+  // crosshair + tooltip
+  const box = $('chartBox'), tip = $('chartTip');
+  box.onmousemove = ev => {
+    const r = box.getBoundingClientRect();
+    const mx = (ev.clientX - r.left) / r.width * W;
+    let best = pts[0], bd = Infinity;
+    for (const p of pts) { const d = Math.abs(X(p.t) - mx); if (d < bd) { bd = d; best = p; } }
+    const cross = document.getElementById('eqCross');
+    if (cross) { cross.setAttribute('x1', X(best.t)); cross.setAttribute('x2', X(best.t)); cross.setAttribute('opacity', '.5'); }
+    tip.style.display = 'block';
+    tip.style.left = Math.min(X(best.t) / W * r.width + 10, r.width - 130) + 'px';
+    tip.style.top = (Y(best.v) / H * r.height - 34) + 'px';
+    tip.innerHTML = esc((best.o.coin || '').toUpperCase()) + ' ' + (Number(best.o.profit_inr) >= 0 ? '+' : '') + inr2(best.o.profit_inr) + ' · total ' + inr2(best.v);
+  };
+  box.onmouseleave = () => {
+    tip.style.display = 'none';
+    const cross = document.getElementById('eqCross');
+    if (cross) cross.setAttribute('opacity', '0');
+  };
+}
+
+// ---------------- rules ----------------
+function cfgOf(r) {
+  if (!r.config) return {};
+  if (typeof r.config === 'string') { try { return JSON.parse(r.config); } catch (e) { return {}; } }
+  return r.config;
+}
+const fmtHr = h => (h % 24) + ':00';
+
+function renderRules() {
+  const rules = (ST && ST.rules) || [];
+  if (!rules.length) { $('rulesList').innerHTML = '<div class="empty">No rules yet — create one to begin (it starts in paper mode).</div>'; return; }
+  $('rulesList').innerHTML = rules.map(r => {
+    const cfg = cfgOf(r);
+    const coins = (cfg.coins || []).join(', ');
+    const win = (cfg.activeFrom != null && cfg.activeTo != null && cfg.activeFrom !== cfg.activeTo)
+      ? fmtHr(cfg.activeFrom) + '–' + fmtHr(cfg.activeTo) + ' IST' : null;
+    return '<div class="rule ' + (r.tripped ? 'tripped' : '') + '">' +
+      '<div class="rule-top">' +
+        '<label class="switch"><input type="checkbox" ' + (r.enabled ? 'checked' : '') + ' onchange="toggleRule(' + r.id + ', this.checked)"><span class="slider"></span></label>' +
+        '<span class="rule-name">' + esc(r.name) + '</span>' +
+        '<span class="chip strat">' + (r.strategy === 'intraloop' ? 'Intra loop' : r.strategy === 'loop_pair' ? 'Loop ARB1/ARB2' : 'Direct + hedge') + '</span>' +
+        '<span class="chip ' + r.mode + '">' + r.mode + '</span>' +
+        (r.tripped ? '<span class="chip trip">breaker tripped</span>' : '') +
+      '</div>' +
+      '<div class="facts num">' +
+        '<span class="fact">≥ <b>' + Number(r.min_net_pct) + '%</b> net</span>' +
+        '<span class="fact">≥ <b>' + inr(r.min_profit_inr) + '</b></span>' +
+        '<span class="fact depth">depth <b>' + (cfg.maxLevels || 3) + ' lvls</b> · cutoff <b>' + (cfg.depthStopPct != null ? cfg.depthStopPct : 0.1) + '%</b> · ≤<b>' + (cfg.maxLevelSharePct || 50) + '%</b>/level</span>' +
+        '<span class="fact">max <b>' + inr(r.max_inr_per_trade) + '</b>/trade</span>' +
+        '<span class="fact"><b>' + Number(r.balance_pct) + '%</b> of balance</span>' +
+        '<span class="fact">day cap <b>' + inr(r.daily_inr_cap) + '</b></span>' +
+        '<span class="fact">persist <b>' + (cfg.persistMs != null ? cfg.persistMs : 250) + 'ms</b></span>' +
+        '<span class="fact">entry <b>' + (cfg.entryAttempts || 1) + '-shot</b> · mid ×<b>' + (cfg.midAttempts || 3) + '</b></span>' +
+        (win ? '<span class="fact">🕒 <b>' + win + '</b></span>' : '') +
+        (cfg.maxTradesPerDay ? '<span class="fact">≤<b>' + cfg.maxTradesPerDay + '</b> trades/day</span>' : '') +
+        '<span class="fact">cooldown <b>' + r.cooldown_sec + 's</b></span>' +
+        (coins ? '<span class="fact">coins: <b>' + esc(coins) + '</b></span>' : '<span class="fact">any coin</span>') +
+        (r.strategy === 'intraloop' && cfg.path && cfg.path !== 'any' ? '<span class="fact">path <b>' + cfg.path + '</b></span>' : '') +
+        (r.strategy === 'direct_hedge' ? '<span class="fact">≤<b>' + (cfg.maxOpenPositions || 1) + '</b> open hedge</span>' : '') +
+        (Number(r.consec_fails) > 0 && !r.tripped ? '<span class="fact warn">fails in a row: <b>' + r.consec_fails + '/' + r.max_consec_fails + '</b></span>' : '') +
+      '</div>' +
+      (r.tripped ? '<div class="trip-reason selectable">⛔ ' + esc(r.tripped_reason || 'repeated failures') + '</div>' : '') +
+      '<div class="rule-actions">' +
+        '<button class="btn" onclick="openRuleForm(' + r.id + ')">Edit</button>' +
+        (r.mode === 'paper'
+          ? '<button class="btn danger" onclick="goLive(' + r.id + ')">Switch to LIVE</button>'
+          : '<button class="btn" onclick="goPaper(' + r.id + ')">Back to Paper</button>') +
+        (r.tripped ? '<button class="btn primary" onclick="resetBreaker(' + r.id + ')">Reset breaker</button>' : '') +
+        '<button class="btn danger" onclick="delRule(' + r.id + ', ' + JSON.stringify(esc(r.name)) + ')">Delete</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+async function toggleRule(id, enabled) {
+  try { await apiJson('/api/trader/rules/' + id, { method: 'PUT', body: JSON.stringify({ enabled }) }); }
+  catch (e) { toast('Failed: ' + e.message); }
+  refreshStatus();
+}
+async function goLive(id) {
+  const r = ((ST && ST.rules) || []).find(x => x.id === id);
+  const t = prompt('Switch "' + (r ? r.name : id) + '" to LIVE?\n\nReal orders, real money — up to ' +
+    (r ? inr(r.max_inr_per_trade) : '?') + ' per trade, ' + (r ? inr(r.daily_inr_cap) : '?') + ' per day.\n\nType LIVE to confirm:');
+  if (t !== 'LIVE') return;
+  try { await apiJson('/api/trader/rules/' + id, { method: 'PUT', body: JSON.stringify({ mode: 'live' }) }); toast('Rule is LIVE'); }
+  catch (e) { toast('Failed: ' + e.message); }
+  refreshStatus();
+}
+async function goPaper(id) {
+  try { await apiJson('/api/trader/rules/' + id, { method: 'PUT', body: JSON.stringify({ mode: 'paper' }) }); toast('Back to paper'); }
+  catch (e) { toast('Failed: ' + e.message); }
+  refreshStatus();
+}
+async function resetBreaker(id) {
+  try { await apiJson('/api/trader/rules/' + id, { method: 'PUT', body: JSON.stringify({ resetBreaker: true, enabled: true }) }); toast('Breaker reset — rule re-armed'); }
+  catch (e) { toast('Failed: ' + e.message); }
+  refreshStatus();
+}
+async function delRule(id, name) {
+  if (!confirm('Delete rule "' + name + '"?')) return;
+  try { await apiJson('/api/trader/rules/' + id, { method: 'DELETE' }); }
+  catch (e) { toast('Failed: ' + e.message); }
+  refreshStatus();
+}
+
+// ---------------- rule form ----------------
+function stratHint() {
+  const s = $('rf_strategy').value;
+  $('hedgeSec').style.display = (s === 'direct_hedge' || s === 'loop_pair') ? '' : 'none';
+  $('fundWrap').style.display = s === 'loop_pair' ? '' : 'none';
+  $('pathWrap').style.display = s === 'intraloop' ? '' : 'none';
+}
+// Illustrative marginal % ladder for the depth preview (typical decay shape).
+const DPV_PCTS = [1.85, 1.22, 0.74, 0.38, 0.14, 0.03];
+function drawDepthPreview() {
+  const maxL = Number($('rf_maxlvl').value) || 3;
+  const cut = Number($('rf_dstop').value) || 0;
+  const share = Number($('rf_share').value) || 50;
+  let take = 0;
+  // contiguous take from level 1: a level is taken only if every level above
+  // it was taken too — depth is walked in order, never cherry-picked.
+  const rows = [];
+  let stillTaking = true;
+  for (let i = 0; i < DPV_PCTS.length; i++) {
+    const p = DPV_PCTS[i];
+    const ok = stillTaking && i < maxL && p >= cut;
+    if (!ok) stillTaking = false;
+    if (ok) take = i + 1;
+    rows.push('<div class="dpv-row">' +
+      '<span class="dpv-lbl">L' + (i + 1) + '</span>' +
+      '<div class="dpv-bar"><div class="dpv-fill ' + (ok ? '' : 'off') + '" style="width:' + (ok ? share : 0) + '%;"></div></div>' +
+      '<span class="dpv-pct num ' + (ok ? 'pos' : 'mut') + '">' + (ok ? '✓ ' : '') + '+' + p.toFixed(2) + '%</span>' +
+    '</div>');
+  }
+  $('dpvRows').innerHTML = rows.join('');
+  $('dpvNote').innerHTML = take
+    ? 'This rule would take <b>levels 1–' + take + '</b> (up to ' + share + '% of each), and stop at L' + (take + 1) +
+      (take < maxL && DPV_PCTS[take] !== undefined && DPV_PCTS[take] < cut ? ' because its marginal % falls below your <b>' + cut + '%</b> cutoff.' : ' — your max-levels limit.')
+    : 'With these settings nothing qualifies — even level 1 is below your cutoff.';
+}
+
+function fillHourSelects() {
+  const opts = Array.from({ length: 24 }, (_, h) => '<option value="' + h + '">' + h + ':00</option>').join('');
+  $('rf_from').innerHTML = opts; $('rf_to').innerHTML = opts;
+}
+
+function openRuleForm(id) {
+  editingRuleId = id || null;
+  const r = id ? ((ST && ST.rules) || []).find(x => x.id === id) : null;
+  const cfg = r ? cfgOf(r) : {};
+  $('ruleModalTitle').textContent = r ? 'Edit rule' : 'New rule';
+  $('ruleSaveBtn').textContent = r ? 'Save changes' : 'Save rule (starts in Paper)';
+  $('rf_name').value = r ? r.name : '';
+  $('rf_strategy').value = r ? r.strategy : 'intraloop';
+  $('rf_strategy').disabled = !!r;
+  $('rf_path').value = cfg.path || 'any';
+  $('rf_coins').value = (cfg.coins || []).join(', ');
+  $('rf_excl').value = (cfg.excludeCoins || []).join(', ');
+  $('rf_minpct').value = r ? Number(r.min_net_pct) : 0.5;
+  $('rf_mininr').value = r ? Number(r.min_profit_inr) : 50;
+  $('rf_persist').value = cfg.persistMs != null ? cfg.persistMs : (cfg.persistTicks ? (cfg.persistTicks - 1) * 2500 : 250);
+  $('rf_maxlvl').value = cfg.maxLevels || 3;
+  $('rf_dstop').value = cfg.depthStopPct != null ? cfg.depthStopPct : 0.10;
+  $('rf_share').value = cfg.maxLevelSharePct || 50;
+  $('rf_max').value = r ? Number(r.max_inr_per_trade) : 1000;
+  $('rf_balpct').value = r ? Number(r.balance_pct) : 25;
+  $('rf_daily').value = r ? Number(r.daily_inr_cap) : 10000;
+  $('rf_breaker').value = r ? Number(r.max_consec_fails) : 3;
+  $('rf_from').value = cfg.activeFrom != null ? cfg.activeFrom : 0;
+  $('rf_to').value = cfg.activeTo != null ? cfg.activeTo : 0;
+  $('rf_maxday').value = cfg.maxTradesPerDay || 0;
+  $('rf_cool').value = r ? Number(r.cooldown_sec) : 120;
+  $('rf_entryatt').value = cfg.entryAttempts || 1;
+  $('rf_entryto').value = cfg.entryTimeoutMs || 900;
+  $('rf_midatt').value = cfg.midAttempts || 3;
+  $('rf_midto').value = cfg.midTimeoutMs || 1200;
+  $('rf_aggr').value = cfg.aggressionBps || 0;
+  $('rf_lev').value = cfg.futLeverage || 1;
+  $('rf_maxpos').value = cfg.maxOpenPositions || 1;
+  $('rf_fund').value = cfg.maxAdverseFunding != null ? cfg.maxAdverseFunding : 0.03;
+  stratHint();
+  drawDepthPreview();
+  $('ruleModal').classList.remove('hidden');
+}
+function closeRuleForm() { $('ruleModal').classList.add('hidden'); }
+
+async function saveRule() {
+  const list = v => v.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const body = {
+    name: $('rf_name').value.trim(),
+    strategy: $('rf_strategy').value,
+    min_net_pct: Number($('rf_minpct').value),
+    min_profit_inr: Number($('rf_mininr').value),
+    max_inr_per_trade: Number($('rf_max').value),
+    balance_pct: Number($('rf_balpct').value),
+    daily_inr_cap: Number($('rf_daily').value),
+    cooldown_sec: Number($('rf_cool').value),
+    max_attempts: Number($('rf_midatt').value),
+    max_consec_fails: Number($('rf_breaker').value),
+    config: {
+      coins: list($('rf_coins').value),
+      excludeCoins: list($('rf_excl').value),
+      path: $('rf_path').value,
+      persistMs: Number($('rf_persist').value),
+      maxLevels: Number($('rf_maxlvl').value),
+      depthStopPct: Number($('rf_dstop').value),
+      maxLevelSharePct: Number($('rf_share').value),
+      activeFrom: Number($('rf_from').value),
+      activeTo: Number($('rf_to').value),
+      maxTradesPerDay: Number($('rf_maxday').value),
+      entryAttempts: Number($('rf_entryatt').value),
+      entryTimeoutMs: Number($('rf_entryto').value),
+      midAttempts: Number($('rf_midatt').value),
+      midTimeoutMs: Number($('rf_midto').value),
+      aggressionBps: Number($('rf_aggr').value),
+      futLeverage: Number($('rf_lev').value),
+      maxOpenPositions: Number($('rf_maxpos').value),
+      maxAdverseFunding: Number($('rf_fund').value)
+    }
+  };
+  if (!body.name) { toast('Give the rule a name.'); return; }
+  try {
+    if (editingRuleId) await apiJson('/api/trader/rules/' + editingRuleId, { method: 'PUT', body: JSON.stringify(body) });
+    else await apiJson('/api/trader/rules', { method: 'POST', body: JSON.stringify(body) });
+    closeRuleForm();
+    toast('Rule saved');
+    refreshStatus();
+  } catch (e) { toast('Save failed: ' + e.message); }
+}
+
+// ---------------- orders ----------------
+function stClass(o) {
+  if (o.status === 'done') return ['done', 'done', 's-done'];
+  if (o.status === 'hedged_open') return ['hedged', 'open hedge', 's-hedged'];
+  if (o.status === 'skipped') return ['skipped', 'skipped', ''];
+  if (o.status === 'missed') return ['missed', 'missed', ''];
+  if (o.status === 'stuck') return ['failed', 'STUCK', 's-failed'];
+  if (o.ok === false) return ['failed', 'failed', 's-failed'];
+  if (o.ok === null || o.ok === undefined) return ['running', o.status || 'running', 's-running'];
+  return ['done', o.status, 's-done'];
+}
+function passFilter(o) {
+  if (actFilter === 'all') return true;
+  if (actFilter === 'done') return o.status === 'done';
+  if (actFilter === 'open') return o.status === 'hedged_open';
+  if (actFilter === 'skipped') return o.status === 'skipped';
+  if (actFilter === 'missed') return o.status === 'missed';
+  if (actFilter === 'failed') return o.ok === false && o.status !== 'skipped' && o.status !== 'missed';
+  return true;
+}
+function setActFilter(f) {
+  actFilter = f;
+  document.querySelectorAll('#actFilters .fbtn').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  renderOrders();
+}
+
+async function refreshOrders() {
+  try { orders = await apiJson('/api/trader/orders?limit=80'); } catch (e) { return; }
+  $('cntOrders').textContent = orders.length;
+  renderOrders();
+  renderChart();
+}
+
+function renderOrders() {
+  const box = $('ordersBox');
+  const list = orders.filter(passFilter);
+  if (!list.length) { box.innerHTML = '<div class="empty">' + (orders.length ? 'Nothing matches this filter.' : 'No activity yet. Arm the engine with a paper rule and watch it work.') + '</div>'; return; }
+  box.innerHTML = list.map(o => {
+    const [cls, label, side] = stClass(o);
+    const profit = o.profit_inr != null ? Number(o.profit_inr) : null;
+    const open = openTimelines.has(o.id);
+    return '<div class="order ' + side + (open ? ' open' : '') + '" id="ord' + o.id + '">' +
+      '<div class="order-row" onclick="toggleTimeline(' + o.id + ')">' +
+        '<span class="caret">▶</span>' +
+        '<span class="st ' + cls + '">' + esc(label) + '</span>' +
+        '<span class="chip ' + o.mode + '">' + o.mode + '</span>' +
+        '<span class="o-coin">' + esc((o.coin || '').toUpperCase()) + '</span>' +
+        '<span class="o-path">' + esc(o.path_label || o.strategy) + '</span>' +
+        (profit != null ? '<span class="o-profit num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (profit >= 0 ? '+' : '') + inr2(profit) + '</span>' : '') +
+        (o.result && o.result.latency && o.result.latency.totalMs != null ? '<span class="fact num" style="padding:2px 7px;">⏱ ' + o.result.latency.totalMs + 'ms</span>' : '') +
+        '<span class="o-time">' + ago(o.created_at) + '</span>' +
+      '</div>' +
+      (o.error ? '<div class="o-err selectable">stuck at <b>' + esc(o.stage || '?') + '</b> — ' + esc(o.error) + '</div>' : '') +
+      '<div class="timeline" id="tl' + o.id + '"></div>' +
+    '</div>';
+  }).join('');
+  for (const id of openTimelines) { if ($('tl' + id)) loadTimeline(id); }
+}
+
+async function toggleTimeline(id) {
+  const card = $('ord' + id);
+  if (!card) return;
+  if (openTimelines.has(id)) { openTimelines.delete(id); card.classList.remove('open'); return; }
+  openTimelines.add(id);
+  card.classList.add('open');
+  loadTimeline(id);
+}
+
+async function loadTimeline(id) {
+  const el = $('tl' + id);
+  if (!el) return;
+  try {
+    const o = await apiJson('/api/trader/orders/' + id);
+    const evs = o.events || [];
+    if (!evs.length) { el.innerHTML = '<div class="empty">No events recorded.</div>'; return; }
+    el.innerHTML = evs.map((e, i) => {
+      const d = !e.detail ? {} : (typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail);
+      let det = Object.entries(d).filter(([k]) => k !== 'depth')
+        .map(([k, v]) => k + ': ' + (typeof v === 'object' ? JSON.stringify(v) : v)).join(' · ');
+      let depthLine = '';
+      if (d.depth) {
+        const legs = (d.depth.legsUsed || []).map(l => l.leg + ' → L' + l.levelsUsed).join(' · ');
+        depthLine = '<div class="depthstory">🌊 depth: ' + esc(legs) + (d.depth.stoppedBy ? ' · stopped: ' + esc(d.depth.stoppedBy) : '') + '</div>';
+      }
+      const t = new Date(e.ts);
+      return '<div class="tl-ev">' +
+        '<div class="tl-rail"><span class="tl-dot ' + (e.ok ? '' : 'bad') + '"></span>' + (i < evs.length - 1 ? '<span class="tl-line"></span>' : '') + '</div>' +
+        '<div class="tl-body"><span class="tl-stage">' + esc(e.stage) + '</span><span class="tl-t num">' + t.toLocaleTimeString('en-IN', { hour12: false }) + '</span>' +
+        (det ? '<div class="tl-det selectable">' + esc(det) + '</div>' : '') + depthLine + '</div>' +
+      '</div>';
+    }).join('');
+  } catch (e) { el.innerHTML = '<div class="empty">Could not load timeline (' + esc(e.message) + ')</div>'; }
+}
+
+// ---------------- positions ----------------
+async function refreshPositions() {
+  let data;
+  try { data = await apiJson('/api/trader/positions'); } catch (e) { return; }
+  const box = $('positionsBox');
+  const hedged = data.hedgedOrders || [];
+  $('cntPos').textContent = hedged.length;
+  const rows = [];
+  for (const o of hedged) {
+    const r = o.result || {};
+    rows.push('<div class="poscard"><div class="rule-top">' +
+      '<span class="rule-name">' + esc((o.coin || '').toUpperCase()) + '</span>' +
+      '<span class="chip ' + o.mode + '">' + o.mode + '</span>' +
+      '<span class="hint">opened ' + ago(o.created_at) + '</span></div>' +
+      '<div class="posgrid num">' +
+        '<div><div class="pk">Long (WazirX spot)</div><div class="pv">' + (r.spot ? r.spot.qty + ' @ ' + r.spot.avgPrice + ' · ' + esc(r.spot.symbol) : '—') + '</div></div>' +
+        '<div><div class="pk">Short (Binance perp)</div><div class="pv">' + (r.hedge ? r.hedge.qty + ' ' + esc(r.hedge.symbol) : '—') + '</div></div>' +
+        '<div><div class="pk">Deployed</div><div class="pv">' + inr2(o.spent_inr) + '</div></div>' +
+        '<div><div class="pk">Expected capture</div><div class="pv pos">' + (o.profit_inr != null ? '+' + inr2(o.profit_inr) : '—') + '</div></div>' +
+      '</div></div>');
+  }
+  if (Array.isArray(data.binanceFutures) && data.binanceFutures.length) {
+    rows.push('<div class="hint" style="margin:8px 0 6px;">Binance cross-check (live positions on the account):</div>');
+    for (const p of data.binanceFutures) {
+      rows.push('<div class="poscard num" style="font-size:12px;">' + esc(p.symbol) + ' <b>' + p.positionAmt + '</b> @ ' + p.entryPrice +
+        ' · uPnL <b class="' + (Number(p.unRealizedProfit) >= 0 ? 'pos' : 'neg') + '">' + Number(p.unRealizedProfit).toFixed(2) + ' USDT</b></div>');
+    }
+  }
+  box.innerHTML = rows.length ? rows.join('') : '<div class="empty">No open hedged positions.</div>';
+}
+
+// ---------------- global settings ----------------
+let settingsLoaded = false;
+async function refreshSettings() {
+  let sgs;
+  try { sgs = await apiJson('/api/trader/settings'); } catch (e) { return; }
+  $('gsPanel').style.display = 'block';
+  if (settingsLoaded) return; // don't clobber edits on refresh
+  settingsLoaded = true;
+  $('gs_ignore').value = (sgs.ignoreCoins || []).join(', ');
+  $('gs_minval').value = sgs.minOrderValueInr;
+  $('gs_lock').value = sgs.globalCoinCooldownSec;
+  $('gs_block').value = String(sgs.blockWhilePositionOpen);
+  $('ga_done').checked = sgs.alerts.done !== false;
+  $('ga_missed').checked = sgs.alerts.missed === true;
+  $('ga_skipped').checked = sgs.alerts.skipped === true;
+  $('ga_failed').checked = sgs.alerts.failed !== false;
+}
+async function saveSettings() {
+  const body = {
+    ignoreCoins: $('gs_ignore').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+    minOrderValueInr: Number($('gs_minval').value),
+    globalCoinCooldownSec: Number($('gs_lock').value),
+    blockWhilePositionOpen: $('gs_block').value === 'true',
+    alerts: { done: $('ga_done').checked, missed: $('ga_missed').checked, skipped: $('ga_skipped').checked, failed: $('ga_failed').checked }
+  };
+  try { await apiJson('/api/trader/settings', { method: 'POST', body: JSON.stringify(body) }); toast('Global settings saved'); }
+  catch (e) { toast('Failed: ' + e.message); }
+}
+function renderTgFeed() {
+  const feed = (ST && ST.tgFeed) || [];
+  if (!feed.length) return;
+  $('tgPanel').style.display = 'block';
+  $('tgFeed').innerHTML = feed.map(m =>
+    '<div class="tgmsg ' + (m.sent ? '' : 'muted') + '"><span class="tgtag">' + esc(m.kind) + '</span>' + esc(m.text) + '</div>').join('');
+}
+
+// ---------------- wallet (sandbox) ----------------
+async function refreshWallet() {
+  if (!SANDBOX) return;
+  let data;
+  try { data = await apiJson('/api/trader/wallet'); } catch (e) { return; }
+  $('walletPanel').style.display = 'block';
+  const w = data.wallet || {};
+  $('walletGrid').innerHTML = Object.keys(w).map(k =>
+    '<div class="f"><label>' + esc(k.toUpperCase()) + '</label><input class="num" id="w_' + esc(k) + '" type="number" step="any" value="' + w[k] + '"></div>'
+  ).join('');
+  const f = data.funding || {};
+  $('fundingLine').innerHTML = 'Perp funding (%/8h): ' + Object.keys(f).map(k =>
+    esc(k.toUpperCase()) + ' <b class="num ' + (f[k] >= 0 ? 'pos' : 'neg') + '">' + f[k] + '</b>').join(' · ') +
+    ' — positive = longs pay shorts';
+}
+async function saveWallet() {
+  const body = {};
+  document.querySelectorAll('#walletGrid input').forEach(i => { body[i.id.slice(2)] = Number(i.value); });
+  try { await apiJson('/api/trader/wallet', { method: 'POST', body: JSON.stringify(body) }); toast('Wallet updated'); refreshWallet(); }
+  catch (e) { toast('Failed: ' + e.message); }
+}
+
+// ---------------- Track Live (manual execution, inline) ----------------
+let liveOpps = [];
+const liveExpanded = new Set();
+const fnum = (n, d) => Number(n).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 4 : d });
+const fmtFund = (f) => f == null ? '—' : f + '%';
+let manualMode = 'paper'; // prod: manual orders default to paper until you flip
+function toggleManualMode() {
+  if (manualMode === 'paper') {
+    const t2 = prompt('Switch MANUAL execution to LIVE?\nEvery Execute tap will place REAL orders with REAL money.\n\nType LIVE to confirm:');
+    if (t2 !== 'LIVE') return;
+    manualMode = 'live';
+  } else manualMode = 'paper';
+  renderLiveList();
+  const el = $('mmodeBtn'); if (el) el.textContent = 'Manual: ' + manualMode.toUpperCase();
+}
+
+async function refreshLive() {
+  let data;
+  try { data = await apiJson('/api/trader/live'); } catch (e) { return; }
+  liveOpps = data.opps || [];
+  $('cntLive').textContent = liveOpps.length;
+  renderLiveList();
+}
+function edgePill(pct, kind) {
+  if (pct == null) return '<span class="edge-pill flat">—</span>';
+  const cls = pct > 0 ? kind : 'flat';
+  return '<span class="edge-pill ' + cls + '">' + (pct > 0 ? '+' : '') + pct.toFixed(2) + '%</span>';
+}
+function pctBtns(action, kind, coin, sizeFn, disabled) {
+  return '<div class="pctrow">' + [25, 50, 75, 100].map(p =>
+    '<button class="pctbtn ' + kind + '"' + (disabled ? ' disabled' : '') +
+      ' onclick="event.stopPropagation();manualFire(' + JSON.stringify(coin) + ',' + JSON.stringify(action) + ',' + p + ')">' +
+      p + '%<small>' + esc(sizeFn(p)) + '</small></button>').join('') + '</div>';
+}
+function walkDepthC(levels, targetQty) {
+  let filled = 0, cost = 0; const taken = [];
+  for (const l of levels) {
+    const t = filled >= targetQty - 1e-9 ? 0 : Math.min(l.size, targetQty - filled);
+    taken.push(t); filled += t; cost += t * l.price;
+  }
+  return { qty: filled, cost, avg: filled > 0 ? cost / filled : 0, taken };
+}
+const dTotal = (lv) => lv.reduce((a, l) => a + l.size, 0);
+const fmtP = (p) => p >= 1 ? p.toFixed(4) : p.toPrecision(4);
+const fmtSz = (n) => n >= 1e5 ? (n / 1e5).toFixed(2) + 'L' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : Math.round(n).toLocaleString('en-IN');
+
+// activeExec: {coin, action, pct, side} — drives the book highlight + preview
+let activeExec = null;
+
+// side for each action: which book side it walks
+const actSide = { buy_wazirx: 'wzxAsks', sell_wazirx: 'wzxBids', hedge_binance: 'perpBids' };
+
+function kkBar(taken, size, colorVar) {
+  if (!(taken > 0)) return '';
+  const pct = Math.min(100, taken / size * 100);
+  return '<div class="kk-ob-bar" style="color:var(' + colorVar + ');">' +
+    '<div class="kk-ob-track"><div class="kk-ob-fill" style="width:' + pct.toFixed(1) + '%; background:var(' + colorVar + ');"></div></div>' +
+    '<span class="kk-ob-pct" style="color:var(' + colorVar + ');">' + pct.toFixed(0) + '%</span></div>' +
+    '<div class="kk-ob-consumed" style="color:var(' + colorVar + ');">(' + fmtSz(taken) + ')</div>';
+}
+function orderBook(o, venue) {
+  const asks = venue === 'wzx' ? o.wzxAsks : o.perpAsks;
+  const bids = venue === 'wzx' ? o.wzxBids : o.perpBids;
+  if (!asks || !bids || !asks.length || !bids.length) return '';
+  const cur = venue === 'wzx' ? '₹' : '';
+  let conAsk = null, conBid = null;
+  if (activeExec && activeExec.coin === o.coin) {
+    const lv = o[activeExec.side];
+    const taken = walkDepthC(lv, dTotal(lv) * activeExec.pct / 100).taken;
+    if (activeExec.side === 'wzxAsks' && venue === 'wzx') conAsk = taken;
+    if (activeExec.side === 'wzxBids' && venue === 'wzx') conBid = taken;
+    if (activeExec.side === 'perpBids' && venue === 'perp') conBid = taken;
+  }
+  const row = (l, i, side, con) => {
+    const colorVar = side === 'ask' ? '--danger' : '--success';
+    const bar = con ? kkBar(con[i] || 0, l.size, colorVar) : '';
+    return '<tr class="kk-' + side + '-row">' +
+      '<td class="ob-size-cell"><div class="kk-ob-size">' + fmtSz(l.size) + '</div>' + bar + '</td>' +
+      '<td class="ob-price-cell">' + cur + fmtP(l.price) + '</td>' +
+    '</tr>';
+  };
+  // asks stacked with BEST ask nearest the spread row (scanner convention)
+  const askRows = asks.map((l, i) => ({ l, i })).reverse().map((x) => row(x.l, x.i, 'ask', conAsk)).join('');
+  const bidRows = bids.map((l, i) => row(l, i, 'bid', conBid)).join('');
+  const spread = ((asks[0].price - bids[0].price) / bids[0].price * 100).toFixed(2);
+  return '<div class="obook">' +
+    '<div class="obook-hd"><span>' + (venue === 'wzx' ? 'WazirX ' + o.coin.toUpperCase() + '/INR' : 'Binance ' + o.coin.toUpperCase() + ' perp') + '</span><span class="oh-cols">size · price</span></div>' +
+    '<table class="ob-table">' + askRows +
+    '<tr class="kk-spread-row"><td colspan="2">SPREAD ' + spread + '%</td></tr>' +
+    bidRows + '</table>' +
+  '</div>';
+}
+
+function execPreview(o) {
+  if (!activeExec || activeExec.coin !== o.coin) return '';
+  const C = o.coin.toUpperCase();
+  const lv = o[activeExec.side];
+  const held = o.held || 0;
+  let target = dTotal(lv) * activeExec.pct / 100;
+  let capNote = '';
+  if (activeExec.action === 'sell_wazirx') { if (target > held) { target = held; capNote = ' (capped at your ' + fmtSz(held) + ' holding)'; } }
+  if (activeExec.action === 'hedge_binance' && held > 0 && target > held) { target = held; capNote = ' (capped at your ' + fmtSz(held) + ' holding)'; }
+  const w = walkDepthC(lv, target);
+  const kls = activeExec.action === 'buy_wazirx' ? 'buy' : activeExec.action === 'sell_wazirx' ? 'sell' : 'hedge';
+  const verb = activeExec.action === 'buy_wazirx' ? 'Buy' : activeExec.action === 'sell_wazirx' ? 'Sell' : 'Short';
+  const venue = activeExec.action === 'hedge_binance' ? '@Binance perp' : '@WazirX';
+  const money = activeExec.action === 'hedge_binance' ? '' : ' · ' + (activeExec.action === 'buy_wazirx' ? 'cost' : 'get') + ' ₹' + fmtSz(w.cost);
+  const levels = w.taken.filter(x => x > 0).length;
+  return '<div class="preview">' +
+    '<div class="pv-line">' + activeExec.pct + '% of depth → <b>' + verb + ' ' + fmtSz(w.qty) + ' ' + C + '</b> ' + venue + ' · avg ' + (activeExec.action === 'hedge_binance' ? '' : '₹') + fmtP(w.avg) + money + ' · walks <b>' + levels + '</b> level(s)' + capNote + '</div>' +
+    '<div class="pv-actions">' +
+      '<button class="pv-exec ' + kls + '" onclick="event.stopPropagation();doExec(\'' + o.coin + '\')">Execute · ' + verb + ' ' + activeExec.pct + '%</button>' +
+      '<button class="pv-cancel" onclick="event.stopPropagation();clearExec()">Cancel</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function pctChips(o, action) {
+  const held = o.held || 0;
+  const disabled = (action === 'sell_wazirx' || action === 'hedge_binance') && held <= 0;
+  return '<div class="pctrow">' + [25, 50, 75, 100].map(p => {
+    const on = activeExec && activeExec.coin === o.coin && activeExec.action === action && activeExec.pct === p;
+    return '<button class="pctbtn ' + (action === 'buy_wazirx' ? 'buy' : action === 'sell_wazirx' ? 'sell' : 'hedge') + (on ? ' active' : '') + '"' + (disabled ? ' disabled' : '') +
+      ' onclick="event.stopPropagation();pickExec(\'' + o.coin + '\',\'' + action + '\',' + p + ')">' + p + '%</button>';
+  }).join('') + '</div>';
+}
+
+function manualPanel(o) {
+  const C = o.coin.toUpperCase();
+  const held = o.held || 0;
+  return '<div class="mexec">' +
+    orderBook(o, 'wzx') +
+    orderBook(o, 'perp') +
+    '<div class="execwrap">' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">BUY</span> Buy ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of ask depth</span></div>' + pctChips(o, 'buy_wazirx') + '</div>' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag sell">SELL</span> Sell ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of bid depth' + (held > 0 ? ', hold ' + fmtSz(held) : ' (buy first)') + '</span></div>' + pctChips(o, 'sell_wazirx') + '</div>' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag hedge">HEDGE</span> Short ' + C + ' @Binance <span class="hint" style="font-weight:600;">— % of perp depth' + (held > 0 ? '' : ' (buy first)') + '</span></div>' + pctChips(o, 'hedge_binance') + '</div>' +
+      execPreview(o) +
+    '</div>' +
+    '<div class="hint" style="margin-top:8px;">Pick a leg and how deep to walk the book — the consumed levels light up above. Sandbox fills instantly; live mode confirms first.</div>' +
+  '</div>';
+}
+
+function pickExec(coin, action, pct) { activeExec = { coin, action, pct, side: actSide[action] }; renderLiveList(); }
+function clearExec() { activeExec = null; renderLiveList(); }
+async function doExec(coin) {
+  if (!activeExec || activeExec.coin !== coin) return;
+  const { action, pct } = activeExec;
+  const label = action === 'buy_wazirx' ? 'Buy ' + coin.toUpperCase() + ' @WazirX'
+    : action === 'sell_wazirx' ? 'Sell ' + coin.toUpperCase() + ' @WazirX'
+    : 'Short ' + coin.toUpperCase() + ' @Binance';
+  if (!SANDBOX && manualMode === 'live') {
+    if (!confirm('LIVE MANUAL: ' + label + ' — ' + pct + '% of order-book depth?\nThis places a REAL order with REAL money.')) return;
+  }
+  try {
+    await apiJson('/api/trader/manual', { method: 'POST', body: JSON.stringify({ coin, action, pct, mode: SANDBOX ? 'paper' : manualMode }) });
+    toast('✅ ' + label + ' · ' + pct + '% depth');
+    activeExec = null;
+    refreshLive(); refreshOrders(); refreshPositions(); if (SANDBOX) refreshWallet();
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+function renderLiveList() {
+  const box = $('liveList');
+  if (!liveOpps.length) { box.innerHTML = '<div class="empty">No live opportunities right now.</div>'; return; }
+  const best = o => Math.max(o.buyEdgePct || -99, o.sellEdgePct || -99);
+  box.innerHTML = liveOpps.slice().sort((a, b) => best(b) - best(a)).map(o => {
+    const open = liveExpanded.has(o.coin);
+    return '<div class="livecard ' + (open ? 'open' : '') + '" id="live_' + o.coin + '">' +
+      '<div class="livecard-hd" onclick="toggleLive(' + JSON.stringify(o.coin) + ')">' +
+        '<div class="livecard-top">' +
+          '<span class="caret">▶</span>' +
+          '<span class="live-coin">' + esc(o.coin.toUpperCase()) + '</span>' +
+          'buy ' + edgePill(o.buyEdgePct, 'buy') + ' · sell ' + edgePill(o.sellEdgePct, 'sell') +
+          '<span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);">' + (open ? 'Close' : 'Execute →') + '</span>' +
+        '</div>' +
+        '<div class="live-meta num">WazirX <b>₹' + fnum(o.wzxBid, 4) + '</b>/<b>₹' + fnum(o.wzxAsk, 4) + '</b> · perp <b>' + fnum(o.perpBid, 5) + '</b> · basis <b>' + o.basisPct + '%</b> · funding <b>' + o.funding + '%</b>' + (o.held > 0 ? ' · hold <b>' + fnum(o.held, 2) + '</b>' : '') + '</div>' +
+      '</div>' +
+      (open ? manualPanel(o) : '') +
+    '</div>';
+  }).join('');
+}
+function toggleLive(coin) {
+  if (liveExpanded.has(coin)) { liveExpanded.delete(coin); if (activeExec && activeExec.coin === coin) activeExec = null; }
+  else liveExpanded.add(coin);
+  renderLiveList();
+}
+async function manualFire(coin, action, pct) {
+  const label = action === 'buy_wazirx' ? 'Buy ' + coin.toUpperCase() + ' @WazirX'
+    : action === 'sell_wazirx' ? 'Sell ' + coin.toUpperCase() + ' @WazirX'
+    : 'Short ' + coin.toUpperCase() + ' @Binance';
+  if (!SANDBOX) { if (!confirm('MANUAL: ' + label + ' at ' + pct + '%?\nThis places a REAL order.')) return; }
+  try {
+    await apiJson('/api/trader/manual', { method: 'POST', body: JSON.stringify({ coin, action, pct }) });
+    toast('✅ ' + label + ' · ' + pct + '%');
+    refreshLive(); refreshOrders(); refreshPositions(); if (SANDBOX) refreshWallet();
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+// ---------------- boot ----------------
+fillHourSelects();
+function tickAll() { refreshStatus(); refreshOrders(); refreshPositions(); }
+if (SANDBOX) {
+  $('sandboxBar').style.display = 'block';
+  document.title = 'Swenik — Trader Sandbox';
+} else {
+  const mb = $('mmodeBtn'); if (mb) mb.style.display = '';
+}
+tickAll();
+setInterval(() => { if (!document.hidden) refreshStatus(); }, SANDBOX ? 2000 : 4000);
+setInterval(() => { if (!document.hidden) { refreshOrders(); refreshPositions(); } }, SANDBOX ? 2500 : 6000);
+if (SANDBOX) { refreshWallet(); setInterval(() => { if (!document.hidden) refreshWallet(); }, 8000); }
+setInterval(() => { if (!document.hidden && $('tab-manual').classList.contains('active') && !activeExec) refreshLive(); }, 2200);
+refreshSettings(); setInterval(() => { if (!document.hidden) refreshSettings(); }, 15000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) tickAll(); });
+
+// ---------------- PWA: installable app + instant offline shell ----------------
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('./trader-sw.js').catch(() => {});
+}
+let __installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  __installPrompt = e;
+  const b = $('installBtn'); if (b) b.style.display = '';
+});
+async function installApp() {
+  if (!__installPrompt) { toast('Open in Chrome on your phone — the install option appears there.'); return; }
+  __installPrompt.prompt();
+  const r = await __installPrompt.userChoice.catch(() => null);
+  if (r && r.outcome === 'accepted') { toast('Installed — check your home screen'); $('installBtn').style.display = 'none'; }
+  __installPrompt = null;
+}
+window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b) b.style.display = 'none'; });
+</script>
+</body>
+</html>
