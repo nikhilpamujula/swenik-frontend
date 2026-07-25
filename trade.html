@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>__PAGE_TITLE__</title>
+<title>SWENIK Fast Trader</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — __BUILD_TAG__
+     SWENIK AUTO TRADER — v6 · mini scanner
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -261,6 +261,42 @@
   .edge-pill.flat { background:var(--gray-100); color:var(--gray-500); }
   .live-meta { font-size:11px; color:var(--gray-700); margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
   .live-meta b { color:var(--gray-800); }
+  .edge-pill.warn { background:var(--danger-soft); color:var(--danger); }
+  .edge-pill.big { font-size:12.5px; padding:4px 11px; }
+
+  /* ---------- mini-scanner bar (Track Live) ---------- */
+  .scanbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .segrow { display:flex; gap:6px; background:var(--gray-100); padding:4px; border-radius:999px; flex-wrap:wrap; }
+  .segbtn {
+    font:inherit; font-size:12px; font-weight:800; cursor:pointer; color:var(--gray-700);
+    background:transparent; border:none; padding:7px 14px; border-radius:999px;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+    transition:background .16s var(--ease), color .16s var(--ease), box-shadow .16s var(--ease);
+  }
+  .segbtn:hover { color:var(--gray-900); }
+  .segbtn.active { background:#fff; color:var(--primary); box-shadow:var(--shadow-sm); }
+  .segn { font-size:10.5px; font-weight:800; min-width:19px; text-align:center; padding:1px 6px; border-radius:999px; background:var(--gray-200); color:var(--gray-700); }
+  .segbtn.active .segn { background:var(--accent-soft); color:var(--accent-600); }
+  .segbtn.active .segn.hot { background:var(--success-soft); color:var(--success); }
+  .scanctl { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto; }
+  .minin {
+    font:inherit; font-size:12px; font-weight:800; width:74px; text-align:center;
+    border:1px solid var(--border); border-radius:999px; padding:6px 8px; color:var(--gray-900); background:#fff;
+  }
+  .minlab { font-size:11px; font-weight:700; color:var(--gray-600); display:inline-flex; align-items:center; gap:6px; }
+  .scan-note { font-size:11.5px; color:var(--gray-600); margin:-2px 0 11px; }
+  .scan-note b { color:var(--gray-800); }
+
+  /* leg ladder used by Loop / Intra Loop cards */
+  .legs { border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff; margin-bottom:11px; }
+  .leg { display:flex; align-items:center; gap:9px; padding:9px 12px; font-size:11.5px; border-bottom:1px solid var(--gray-100); }
+  .leg:last-child { border-bottom:none; }
+  .leg .legn { flex:none; width:19px; height:19px; border-radius:50%; background:var(--gray-100); color:var(--gray-700); font-size:10px; font-weight:800; display:grid; place-items:center; }
+  .leg .legwhat { font-weight:700; color:var(--gray-800); }
+  .leg .legpx { margin-left:auto; font-weight:800; color:var(--gray-900); font-variant-numeric:tabular-nums; }
+  .leg.buy .legn { background:var(--success-soft); color:var(--success); }
+  .leg.sell .legn { background:var(--danger-soft); color:var(--danger); }
+  .pathpill { font-size:10.5px; font-weight:800; padding:3px 9px; border-radius:999px; background:var(--gray-100); color:var(--gray-700); }
   .bookgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:6px 0 4px; }
   .bookbox { background:var(--gray-100); border-radius:10px; padding:10px 12px; }
   .bookbox .bl { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--gray-500); }
@@ -443,8 +479,8 @@
       <svg viewBox="0 0 24 24" fill="none"><path d="M3 17l5-6 4 3 6-8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="6" r="2.4" fill="#fff"/></svg>
     </div>
     <div>
-      <h1>__PAGE_H1__</h1>
-      <div class="subtitle">__PAGE_SUB__ · <span style="opacity:.95;font-weight:800;">__BUILD_TAG__</span></div>
+      <h1>SWENIK Fast Trader</h1>
+      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v6 · mini scanner</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -587,10 +623,18 @@
 
   <!-- TRACK LIVE (manual execution) -->
   <div class="tabpane" id="tab-manual">
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:11px;">
-      <span class="hint" style="flex:1;min-width:220px;">Live opportunities across your coins. Tap one for the depth book and fire by hand — Buy/Sell @WazirX, Hedge @Binance, sized by % of order-book depth.</span>
-      <button class="btn" id="mmodeBtn" onclick="toggleManualMode()" style="display:none;">Manual: PAPER</button>
+    <div class="scanbar">
+      <div class="segrow" id="liveSeg">
+        <button class="segbtn active" data-s="direct" onclick="setLiveSeg('direct')">Direct<span class="segn" id="segnDirect">0</span></button>
+        <button class="segbtn" data-s="loop" onclick="setLiveSeg('loop')">Loop<span class="segn" id="segnLoop">0</span></button>
+        <button class="segbtn" data-s="intra" onclick="setLiveSeg('intra')">Intra Loop<span class="segn" id="segnIntra">0</span></button>
+      </div>
+      <div class="scanctl">
+        <span class="minlab">show ≥ <input id="liveMin" class="minin" type="number" step="0.05" value="0" inputmode="decimal" onchange="setLiveMin(this.value)"> %</span>
+        <button class="fbtn" id="mmodeBtn" onclick="toggleManualMode()" style="display:none;">Manual: PAPER</button>
+      </div>
     </div>
+    <div class="scan-note" id="liveHint"></div>
     <div id="liveList"><div class="empty">Loading live opportunities…</div></div>
   </div>
 
@@ -1304,10 +1348,11 @@ async function refreshSettings() {
   $('gs_minval').value = sgs.minOrderValueInr;
   $('gs_lock').value = sgs.globalCoinCooldownSec;
   $('gs_block').value = String(sgs.blockWhilePositionOpen);
-  $('ga_done').checked = sgs.alerts.done !== false;
-  $('ga_missed').checked = sgs.alerts.missed === true;
-  $('ga_skipped').checked = sgs.alerts.skipped === true;
-  $('ga_failed').checked = sgs.alerts.failed !== false;
+  const al = sgs.alerts || {}; // an older server may answer without them
+  $('ga_done').checked = al.done !== false;
+  $('ga_missed').checked = al.missed === true;
+  $('ga_skipped').checked = al.skipped === true;
+  $('ga_failed').checked = al.failed !== false;
 }
 async function saveSettings() {
   const body = {
@@ -1350,12 +1395,26 @@ async function saveWallet() {
   catch (e) { toast('Failed: ' + e.message); }
 }
 
-// ---------------- Track Live (manual execution, inline) ----------------
-let liveOpps = [];
+// ---------------- Track Live — mini scanner + manual execution ----------------
+// Three strategy families, segregated exactly like the SWENIK scanner:
+//   Direct     — buy coin/INR @WazirX, short the same coin's perp @Binance
+//   Loop       — INR → coin1 → USDT → coin2 → INR   (4 legs, all on WazirX)
+//   Intra Loop — INR → coin → USDT → INR            (3 legs, all on WazirX)
+// The "show ≥ %" box is the only filter: at 0 you see positive arbs only,
+// raise it to hide the small ones, or type a negative to watch everything.
+let liveOpps = [], liveLoops = [], liveRate = null, liveTs = 0;
 const liveExpanded = new Set();
-const fnum = (n, d) => Number(n).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 4 : d });
+const fnum = (n, d) => n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 4 : d });
 const fmtFund = (f) => f == null ? '—' : f + '%';
 let manualMode = 'paper'; // prod: manual orders default to paper until you flip
+
+let liveSeg = 'direct';
+let liveMin = 0;
+try {
+  const s = localStorage.getItem('swenik_live_seg'); if (s === 'direct' || s === 'loop' || s === 'intra') liveSeg = s;
+  const m = parseFloat(localStorage.getItem('swenik_live_min')); if (isFinite(m)) liveMin = m;
+} catch (e) {}
+
 function toggleManualMode() {
   if (manualMode === 'paper') {
     const t2 = prompt('Switch MANUAL execution to LIVE?\nEvery Execute tap will place REAL orders with REAL money.\n\nType LIVE to confirm:');
@@ -1365,41 +1424,63 @@ function toggleManualMode() {
   renderLiveList();
   const el = $('mmodeBtn'); if (el) el.textContent = 'Manual: ' + manualMode.toUpperCase();
 }
+function setLiveSeg(s) {
+  liveSeg = s; activeExec = null;
+  try { localStorage.setItem('swenik_live_seg', s); } catch (e) {}
+  renderLiveList();
+}
+function setLiveMin(v) {
+  const n = parseFloat(v);
+  liveMin = isFinite(n) ? n : 0;
+  try { localStorage.setItem('swenik_live_min', String(liveMin)); } catch (e) {}
+  renderLiveList();
+}
 
 async function refreshLive() {
   let data;
   try { data = await apiJson('/api/trader/live'); } catch (e) { return; }
   liveOpps = data.opps || [];
-  $('cntLive').textContent = liveOpps.length;
+  liveLoops = data.loops || [];
+  liveRate = data.rate == null ? null : data.rate;
+  liveTs = data.ts || 0;
   renderLiveList();
 }
-function edgePill(pct, kind) {
-  if (pct == null) return '<span class="edge-pill flat">—</span>';
+
+// ---- per-family scoring + filtering ----
+const bestDirect = (o) => Math.max(o.buyEdgePct == null ? -999 : o.buyEdgePct, o.sellEdgePct == null ? -999 : o.sellEdgePct);
+const bestIntra = (o) => Math.max(o.intraA ? o.intraA.netPct : -999, o.intraB ? o.intraB.netPct : -999);
+const passes = (pct) => pct > -900 && pct >= liveMin;
+function directItems() { return liveOpps.filter(o => passes(bestDirect(o))).sort((a, b) => bestDirect(b) - bestDirect(a)); }
+function intraItems() { return liveOpps.filter(o => passes(bestIntra(o))).sort((a, b) => bestIntra(b) - bestIntra(a)); }
+function loopItems() { return liveLoops.filter(l => passes(l.netPct)); } // already sorted server-side
+
+function edgePill(pct, kind, big) {
+  if (pct == null || pct <= -900) return '<span class="edge-pill flat' + (big ? ' big' : '') + '">—</span>';
   const cls = pct > 0 ? kind : 'flat';
-  return '<span class="edge-pill ' + cls + '">' + (pct > 0 ? '+' : '') + pct.toFixed(2) + '%</span>';
-}
-function pctBtns(action, kind, coin, sizeFn, disabled) {
-  return '<div class="pctrow">' + [25, 50, 75, 100].map(p =>
-    '<button class="pctbtn ' + kind + '"' + (disabled ? ' disabled' : '') +
-      ' onclick="event.stopPropagation();manualFire(\'' + coin + '\',\'' + action + '\',' + p + ')">' +
-      p + '%<small>' + esc(sizeFn(p)) + '</small></button>').join('') + '</div>';
+  return '<span class="edge-pill ' + cls + (big ? ' big' : '') + '">' + (pct > 0 ? '+' : '') + pct.toFixed(2) + '%</span>';
 }
 function walkDepthC(levels, targetQty) {
   let filled = 0, cost = 0; const taken = [];
-  for (const l of levels) {
-    const t = filled >= targetQty - 1e-9 ? 0 : Math.min(l.size, targetQty - filled);
+  for (const l of (levels || [])) {
+    const t = filled >= targetQty - 1e-12 ? 0 : Math.min(l.size, targetQty - filled);
     taken.push(t); filled += t; cost += t * l.price;
   }
   return { qty: filled, cost, avg: filled > 0 ? cost / filled : 0, taken };
 }
-const dTotal = (lv) => lv.reduce((a, l) => a + l.size, 0);
-const fmtP = (p) => p >= 1 ? p.toFixed(4) : p.toPrecision(4);
-const fmtSz = (n) => n >= 1e5 ? (n / 1e5).toFixed(2) + 'L' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : Math.round(n).toLocaleString('en-IN');
+const dTotal = (lv) => (lv || []).reduce((a, l) => a + l.size, 0);
+const fmtP = (p) => p == null ? '—' : p >= 1 ? p.toFixed(4) : Number(p).toPrecision(4);
+// sizes keep their real precision — a 0.42 ETH level must not print as "0"
+const fmtSz = (n) => {
+  n = Number(n) || 0;
+  if (n >= 1e5) return (n / 1e5).toFixed(2) + 'L';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  if (n >= 1) return n.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+  return n.toPrecision(3);
+};
+const fmtInr = (n) => n == null ? '—' : '₹' + Math.round(n).toLocaleString('en-IN');
 
-// activeExec: {coin, action, pct, side} — drives the book highlight + preview
+// activeExec: {coin, coin2, action, pct, side} — drives the book highlight + preview
 let activeExec = null;
-
-// side for each action: which book side it walks
 const actSide = { buy_wazirx: 'wzxAsks', sell_wazirx: 'wzxBids', hedge_binance: 'perpBids' };
 
 function kkBar(taken, size, colorVar) {
@@ -1410,19 +1491,8 @@ function kkBar(taken, size, colorVar) {
     '<span class="kk-ob-pct" style="color:var(' + colorVar + ');">' + pct.toFixed(0) + '%</span></div>' +
     '<div class="kk-ob-consumed" style="color:var(' + colorVar + ');">(' + fmtSz(taken) + ')</div>';
 }
-function orderBook(o, venue) {
-  const asks = venue === 'wzx' ? o.wzxAsks : o.perpAsks;
-  const bids = venue === 'wzx' ? o.wzxBids : o.perpBids;
+function bookTable(title, asks, bids, cur, conAsk, conBid) {
   if (!asks || !bids || !asks.length || !bids.length) return '';
-  const cur = venue === 'wzx' ? '₹' : '';
-  let conAsk = null, conBid = null;
-  if (activeExec && activeExec.coin === o.coin) {
-    const lv = o[activeExec.side];
-    const taken = walkDepthC(lv, dTotal(lv) * activeExec.pct / 100).taken;
-    if (activeExec.side === 'wzxAsks' && venue === 'wzx') conAsk = taken;
-    if (activeExec.side === 'wzxBids' && venue === 'wzx') conBid = taken;
-    if (activeExec.side === 'perpBids' && venue === 'perp') conBid = taken;
-  }
   const row = (l, i, side, con) => {
     const colorVar = side === 'ask' ? '--danger' : '--success';
     const bar = con ? kkBar(con[i] || 0, l.size, colorVar) : '';
@@ -1431,22 +1501,37 @@ function orderBook(o, venue) {
       '<td class="ob-price-cell">' + cur + fmtP(l.price) + '</td>' +
     '</tr>';
   };
-  // asks stacked with BEST ask nearest the spread row (scanner convention)
   const askRows = asks.map((l, i) => ({ l, i })).reverse().map((x) => row(x.l, x.i, 'ask', conAsk)).join('');
   const bidRows = bids.map((l, i) => row(l, i, 'bid', conBid)).join('');
   const spread = ((asks[0].price - bids[0].price) / bids[0].price * 100).toFixed(2);
   return '<div class="obook">' +
-    '<div class="obook-hd"><span>' + (venue === 'wzx' ? 'WazirX ' + o.coin.toUpperCase() + '/INR' : 'Binance ' + o.coin.toUpperCase() + ' perp') + '</span><span class="oh-cols">size · price</span></div>' +
+    '<div class="obook-hd"><span>' + esc(title) + '</span><span class="oh-cols">size · price</span></div>' +
     '<table class="ob-table">' + askRows +
     '<tr class="kk-spread-row"><td colspan="2">SPREAD ' + spread + '%</td></tr>' +
     bidRows + '</table>' +
   '</div>';
 }
+function orderBook(o, venue) {
+  const asks = venue === 'wzx' ? o.wzxAsks : o.perpAsks;
+  const bids = venue === 'wzx' ? o.wzxBids : o.perpBids;
+  const cur = venue === 'wzx' ? '₹' : '';
+  let conAsk = null, conBid = null;
+  if (activeExec && activeExec.coin === o.coin && actSide[activeExec.action]) {
+    const lv = o[activeExec.side] || [];
+    const taken = walkDepthC(lv, dTotal(lv) * activeExec.pct / 100).taken;
+    if (activeExec.side === 'wzxAsks' && venue === 'wzx') conAsk = taken;
+    if (activeExec.side === 'wzxBids' && venue === 'wzx') conBid = taken;
+    if (activeExec.side === 'perpBids' && venue === 'perp') conBid = taken;
+  }
+  const title = venue === 'wzx' ? 'WazirX ' + o.coin.toUpperCase() + '/INR' : 'Binance ' + o.coin.toUpperCase() + ' perp';
+  return bookTable(title, asks, bids, cur, conAsk, conBid);
+}
 
+// ---------------- DIRECT (spot vs perp) ----------------
 function execPreview(o) {
-  if (!activeExec || activeExec.coin !== o.coin) return '';
+  if (!activeExec || activeExec.coin !== o.coin || !actSide[activeExec.action]) return '';
   const C = o.coin.toUpperCase();
-  const lv = o[activeExec.side];
+  const lv = o[activeExec.side] || [];
   const held = o.held || 0;
   let target = dTotal(lv) * activeExec.pct / 100;
   let capNote = '';
@@ -1456,7 +1541,7 @@ function execPreview(o) {
   const kls = activeExec.action === 'buy_wazirx' ? 'buy' : activeExec.action === 'sell_wazirx' ? 'sell' : 'hedge';
   const verb = activeExec.action === 'buy_wazirx' ? 'Buy' : activeExec.action === 'sell_wazirx' ? 'Sell' : 'Short';
   const venue = activeExec.action === 'hedge_binance' ? '@Binance perp' : '@WazirX';
-  const money = activeExec.action === 'hedge_binance' ? '' : ' · ' + (activeExec.action === 'buy_wazirx' ? 'cost' : 'get') + ' ₹' + fmtSz(w.cost);
+  const money = activeExec.action === 'hedge_binance' ? '' : ' · ' + (activeExec.action === 'buy_wazirx' ? 'cost' : 'get') + ' ' + fmtInr(w.cost);
   const levels = w.taken.filter(x => x > 0).length;
   return '<div class="preview">' +
     '<div class="pv-line">' + activeExec.pct + '% of depth → <b>' + verb + ' ' + fmtSz(w.qty) + ' ' + C + '</b> ' + venue + ' · avg ' + (activeExec.action === 'hedge_binance' ? '' : '₹') + fmtP(w.avg) + money + ' · walks <b>' + levels + '</b> level(s)' + capNote + '</div>' +
@@ -1466,34 +1551,100 @@ function execPreview(o) {
     '</div>' +
   '</div>';
 }
-
-function pctChips(o, action) {
-  const held = o.held || 0;
-  const disabled = (action === 'sell_wazirx' || action === 'hedge_binance') && held <= 0;
+function pctChips(key, action, kind, disabled) {
   return '<div class="pctrow">' + [25, 50, 75, 100].map(p => {
-    const on = activeExec && activeExec.coin === o.coin && activeExec.action === action && activeExec.pct === p;
-    return '<button class="pctbtn ' + (action === 'buy_wazirx' ? 'buy' : action === 'sell_wazirx' ? 'sell' : 'hedge') + (on ? ' active' : '') + '"' + (disabled ? ' disabled' : '') +
-      ' onclick="event.stopPropagation();pickExec(\'' + o.coin + '\',\'' + action + '\',' + p + ')">' + p + '%</button>';
+    const on = activeExec && activeExec.key === key && activeExec.action === action && activeExec.pct === p;
+    return '<button class="pctbtn ' + kind + (on ? ' active' : '') + '"' + (disabled ? ' disabled' : '') +
+      ' onclick="event.stopPropagation();pickExec(\'' + key + '\',\'' + action + '\',' + p + ')">' + p + '%</button>';
   }).join('') + '</div>';
 }
-
 function manualPanel(o) {
   const C = o.coin.toUpperCase();
   const held = o.held || 0;
+  const noHold = held <= 0;
   return '<div class="mexec">' +
     orderBook(o, 'wzx') +
     orderBook(o, 'perp') +
     '<div class="execwrap">' +
-      '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">BUY</span> Buy ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of ask depth</span></div>' + pctChips(o, 'buy_wazirx') + '</div>' +
-      '<div class="execrow"><div class="execrow-hd"><span class="mtag sell">SELL</span> Sell ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of bid depth' + (held > 0 ? ', hold ' + fmtSz(held) : ' (buy first)') + '</span></div>' + pctChips(o, 'sell_wazirx') + '</div>' +
-      '<div class="execrow"><div class="execrow-hd"><span class="mtag hedge">HEDGE</span> Short ' + C + ' @Binance <span class="hint" style="font-weight:600;">— % of perp depth' + (held > 0 ? '' : ' (buy first)') + '</span></div>' + pctChips(o, 'hedge_binance') + '</div>' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">BUY</span> Buy ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of ask depth</span></div>' + pctChips(o.coin, 'buy_wazirx', 'buy', false) + '</div>' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag sell">SELL</span> Sell ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of bid depth' + (held > 0 ? ', hold ' + fmtSz(held) : ' (buy first)') + '</span></div>' + pctChips(o.coin, 'sell_wazirx', 'sell', noHold) + '</div>' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag hedge">HEDGE</span> Short ' + C + ' @Binance <span class="hint" style="font-weight:600;">— % of perp depth' + (held > 0 ? '' : ' (buy first)') + '</span></div>' + pctChips(o.coin, 'hedge_binance', 'hedge', noHold) + '</div>' +
       execPreview(o) +
     '</div>' +
     '<div class="hint" style="margin-top:8px;">Pick a leg and how deep to walk the book — the consumed levels light up above. Sandbox fills instantly; live mode confirms first.</div>' +
   '</div>';
 }
 
-function pickExec(coin, action, pct) { activeExec = { coin, action, pct, side: actSide[action] }; renderLiveList(); }
+// ---------------- LOOP / INTRA LOOP (multi-leg, all on WazirX) ----------------
+function legLadder(legs) {
+  if (!legs || !legs.length) return '';
+  return '<div class="legs">' + legs.map((l, i) =>
+    '<div class="leg ' + (l.side === 'buy' ? 'buy' : 'sell') + '">' +
+      '<span class="legn">' + (i + 1) + '</span>' +
+      '<span class="legwhat">' + (l.side === 'buy' ? 'Buy' : 'Sell') + ' ' + esc(l.what) + '</span>' +
+      '<span class="legpx">' + (l.cur || '') + fmtP(l.price) + '</span>' +
+    '</div>').join('') + '</div>';
+}
+// Multi-leg preview: the server re-walks the books at execution time, so the
+// numbers here are the full-depth plan scaled to the chosen %, shown as ≈.
+function chainPreview(key, plan, label, action, coin, coin2) {
+  if (!activeExec || activeExec.key !== key || activeExec.action !== action) return '';
+  const f = activeExec.pct / 100;
+  return '<div class="preview">' +
+    '<div class="pv-line">' + activeExec.pct + '% of walkable depth → put in <b>≈' + fmtInr(plan.costInr * f) + '</b>, expect back <b>≈' + fmtInr(plan.expectInr * f) + '</b> · profit <b>≈' + fmtInr(plan.profitInr * f) + '</b> at <b>' + plan.netPct.toFixed(2) + '%</b></div>' +
+    '<div class="pv-line" style="font-weight:600;color:var(--gray-600);">' + esc(label) + ' · the server re-walks every book the moment you tap and only fills what still pays.</div>' +
+    '<div class="pv-actions">' +
+      '<button class="pv-exec" onclick="event.stopPropagation();doChain(\'' + action + '\',\'' + coin + '\',' + (coin2 ? '\'' + coin2 + '\'' : 'null') + ')">Execute · ' + activeExec.pct + '%</button>' +
+      '<button class="pv-cancel" onclick="event.stopPropagation();clearExec()">Cancel</button>' +
+    '</div>' +
+  '</div>';
+}
+function intraPanel(o) {
+  const C = o.coin.toUpperCase();
+  const key = 'intra:' + o.coin;
+  const dirs = [
+    { p: o.intraA, action: 'intraloop_a', label: 'INR → ' + C + ' → USDT → INR' },
+    { p: o.intraB, action: 'intraloop_b', label: 'INR → USDT → ' + C + ' → INR' },
+  ];
+  let body = '';
+  for (const d of dirs) {
+    if (!d.p) { body += '<div class="execrow"><div class="execrow-hd">' + esc(d.label) + ' <span class="hint" style="font-weight:600;">— not walkable right now</span></div></div>'; continue; }
+    body += '<div class="execrow">' +
+      '<div class="execrow-hd"><span class="pathpill">' + esc(d.label) + '</span> ' + edgePill(d.p.netPct, 'buy') +
+        '<span class="hint" style="font-weight:600;margin-left:auto;">' + fmtInr(d.p.costInr) + ' in · profit ' + fmtInr(d.p.profitInr) + '</span></div>' +
+      legLadder(d.p.legs) +
+      pctChips(key, d.action, 'buy', false) +
+      chainPreview(key, d.p, d.label, d.action, o.coin, null) +
+    '</div>';
+  }
+  return '<div class="mexec">' +
+    bookTable('WazirX ' + C + '/INR', o.wzxAsks, o.wzxBids, '₹', null, null) +
+    bookTable('WazirX ' + C + '/USDT', o.cuAsks, o.cuBids, '', null, null) +
+    '<div class="execwrap">' + body + '</div>' +
+    '<div class="hint" style="margin-top:8px;">All three legs are WazirX orders on your one WazirX key — no transfers, no Binance, nothing to whitelist.</div>' +
+  '</div>';
+}
+function loopPanel(l) {
+  const key = 'loop:' + l.c1 + ':' + l.c2;
+  return '<div class="mexec">' +
+    legLadder(l.legs) +
+    '<div class="live-meta num" style="margin:-4px 0 10px;">in <b>' + fmtInr(l.costInr) + '</b> · through <b>' + fnum(l.usdtMid, 2) + ' USDT</b> · back <b>' + fmtInr(l.expectInr) + '</b> · profit <b>' + fmtInr(l.profitInr) + '</b></div>' +
+    '<div class="execwrap">' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">LOOP</span> Size — % of walkable depth</div>' +
+        pctChips(key, 'loop', 'buy', false) +
+        chainPreview(key, l, l.path, 'loop', l.c1, l.c2) +
+      '</div>' +
+    '</div>' +
+    '<div class="hint" style="margin-top:8px;">Four WazirX orders back to back on your one WazirX key. Both hops stay on WazirX — no coin ever leaves the exchange, so no withdrawal permission is needed.</div>' +
+  '</div>';
+}
+
+// ---------------- selection + firing ----------------
+function pickExec(key, action, pct) {
+  const coin = key.indexOf(':') >= 0 ? key.split(':')[1] : key;
+  activeExec = { key, coin, action, pct, side: actSide[action] };
+  renderLiveList();
+}
 function clearExec() { activeExec = null; renderLiveList(); }
 async function doExec(coin) {
   if (!activeExec || activeExec.coin !== coin) return;
@@ -1511,41 +1662,121 @@ async function doExec(coin) {
     refreshLive(); refreshOrders(); refreshPositions(); if (SANDBOX) refreshWallet();
   } catch (e) { toast('Failed: ' + e.message); }
 }
+async function doChain(action, coin, coin2) {
+  if (!activeExec) return;
+  const pct = activeExec.pct;
+  const C = coin.toUpperCase();
+  const label = action === 'loop' ? 'Loop INR → ' + C + ' → USDT → ' + String(coin2).toUpperCase() + ' → INR'
+    : action === 'intraloop_b' ? 'Intra loop INR → USDT → ' + C + ' → INR'
+    : 'Intra loop INR → ' + C + ' → USDT → INR';
+  const legs = action === 'loop' ? 4 : 3;
+  if (!SANDBOX && manualMode === 'live') {
+    if (!confirm('LIVE MANUAL: ' + label + '\n' + legs + ' real WazirX orders at ' + pct + '% of walkable depth.\nThis spends REAL money.')) return;
+  }
+  const body = { coin, action, pct, mode: SANDBOX ? 'paper' : manualMode };
+  if (coin2) body.coin2 = coin2;
+  try {
+    await apiJson('/api/trader/manual', { method: 'POST', body: JSON.stringify(body) });
+    toast('✅ ' + label + ' · ' + pct + '%');
+    activeExec = null;
+    refreshLive(); refreshOrders(); refreshPositions(); if (SANDBOX) refreshWallet();
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+// ---------------- render ----------------
+function segCount(id, n) {
+  const el = $(id); if (!el) return;
+  el.textContent = n;
+  el.classList.toggle('hot', n > 0);
+}
 function renderLiveList() {
-  const box = $('liveList');
-  if (!liveOpps.length) { box.innerHTML = '<div class="empty">No live opportunities right now.</div>'; return; }
-  const best = o => Math.max(o.buyEdgePct || -99, o.sellEdgePct || -99);
-  box.innerHTML = liveOpps.slice().sort((a, b) => best(b) - best(a)).map(o => {
-    const open = liveExpanded.has(o.coin);
+  const box = $('liveList'); if (!box) return;
+  const dir = directItems(), intra = intraItems(), loop = loopItems();
+  segCount('segnDirect', dir.length); segCount('segnLoop', loop.length); segCount('segnIntra', intra.length);
+  const total = dir.length + loop.length + intra.length;
+  const badge = $('cntLive'); if (badge) badge.textContent = total;
+  document.querySelectorAll('#liveSeg .segbtn').forEach(b => b.classList.toggle('active', b.dataset.s === liveSeg));
+  const mi = $('liveMin'); if (mi && document.activeElement !== mi) mi.value = liveMin;
+
+  const hint = $('liveHint');
+  if (hint) {
+    const what = liveSeg === 'direct' ? 'Buy the coin on WazirX and short the same coin\'s perp on Binance — market-neutral, needs both keys.'
+      : liveSeg === 'loop' ? 'INR → coin1 → USDT → coin2 → INR. Four orders, all on WazirX, one key, no transfers.'
+      : 'INR → coin → USDT → INR. Three orders, all on WazirX, one key, no transfers.';
+    hint.innerHTML = esc(what) + ' Showing only edges <b>≥ ' + liveMin + '%</b>' +
+      (liveRate ? ' · USDT/INR <b>₹' + fnum(liveRate, 3) + '</b>' : '') + '.';
+  }
+
+  if (liveSeg === 'loop') return renderLoopCards(box, loop);
+  if (liveSeg === 'intra') return renderIntraCards(box, intra);
+  return renderDirectCards(box, dir);
+}
+function emptyMsg(box, what) {
+  box.innerHTML = '<div class="empty">No ' + what + ' at or above ' + liveMin + '% right now.<br>' +
+    '<span style="font-size:11.5px;">Lower the “show ≥ %” box to see what the books are actually offering.</span></div>';
+}
+function renderDirectCards(box, items) {
+  if (!items.length) return emptyMsg(box, 'direct arbs');
+  box.innerHTML = items.map(o => {
+    const open = liveExpanded.has('direct:' + o.coin);
     return '<div class="livecard ' + (open ? 'open' : '') + '" id="live_' + o.coin + '">' +
-      '<div class="livecard-hd" onclick="toggleLive(\'' + o.coin + '\')">' +
+      '<div class="livecard-hd" onclick="toggleLive(\'direct:' + o.coin + '\')">' +
         '<div class="livecard-top">' +
           '<span class="caret">▶</span>' +
           '<span class="live-coin">' + esc(o.coin.toUpperCase()) + '</span>' +
           'buy ' + edgePill(o.buyEdgePct, 'buy') + ' · sell ' + edgePill(o.sellEdgePct, 'sell') +
           '<span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);">' + (open ? 'Close' : 'Execute →') + '</span>' +
         '</div>' +
-        '<div class="live-meta num">WazirX <b>₹' + fnum(o.wzxBid, 4) + '</b>/<b>₹' + fnum(o.wzxAsk, 4) + '</b> · perp <b>' + fnum(o.perpBid, 5) + '</b> · basis <b>' + o.basisPct + '%</b> · funding <b>' + o.funding + '%</b>' + (o.held > 0 ? ' · hold <b>' + fnum(o.held, 2) + '</b>' : '') + '</div>' +
+        '<div class="live-meta num">WazirX <b>₹' + fnum(o.wzxBid, 4) + '</b>/<b>₹' + fnum(o.wzxAsk, 4) + '</b> · perp <b>' + fnum(o.perpBid, 5) + '</b> · basis <b>' + o.basisPct + '%</b> · funding <b>' + fmtFund(o.funding) + '</b>' + (o.held > 0 ? ' · hold <b>' + fmtSz(o.held) + '</b>' : '') + '</div>' +
       '</div>' +
       (open ? manualPanel(o) : '') +
     '</div>';
   }).join('');
 }
-function toggleLive(coin) {
-  if (liveExpanded.has(coin)) { liveExpanded.delete(coin); if (activeExec && activeExec.coin === coin) activeExec = null; }
-  else liveExpanded.add(coin);
-  renderLiveList();
+function renderIntraCards(box, items) {
+  if (!items.length) return emptyMsg(box, 'intra-loop arbs');
+  box.innerHTML = items.map(o => {
+    const open = liveExpanded.has('intra:' + o.coin);
+    const C = esc(o.coin.toUpperCase());
+    const a = o.intraA ? o.intraA.netPct : null, b = o.intraB ? o.intraB.netPct : null;
+    const bestP = o.intraA && o.intraB ? (a >= b ? o.intraA : o.intraB) : (o.intraA || o.intraB);
+    return '<div class="livecard ' + (open ? 'open' : '') + '" id="live_intra_' + o.coin + '">' +
+      '<div class="livecard-hd" onclick="toggleLive(\'intra:' + o.coin + '\')">' +
+        '<div class="livecard-top">' +
+          '<span class="caret">▶</span>' +
+          '<span class="live-coin">' + C + '</span>' +
+          'A ' + edgePill(a, 'buy') + ' · B ' + edgePill(b, 'sell') +
+          '<span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);">' + (open ? 'Close' : 'Execute →') + '</span>' +
+        '</div>' +
+        '<div class="live-meta num">A: INR → ' + C + ' → USDT → INR · B: reverse · best <b>' + fmtInr(bestP ? bestP.profitInr : null) + '</b> on <b>' + fmtInr(bestP ? bestP.costInr : null) + '</b></div>' +
+      '</div>' +
+      (open ? intraPanel(o) : '') +
+    '</div>';
+  }).join('');
 }
-async function manualFire(coin, action, pct) {
-  const label = action === 'buy_wazirx' ? 'Buy ' + coin.toUpperCase() + ' @WazirX'
-    : action === 'sell_wazirx' ? 'Sell ' + coin.toUpperCase() + ' @WazirX'
-    : 'Short ' + coin.toUpperCase() + ' @Binance';
-  if (!SANDBOX) { if (!confirm('MANUAL: ' + label + ' at ' + pct + '%?\nThis places a REAL order.')) return; }
-  try {
-    await apiJson('/api/trader/manual', { method: 'POST', body: JSON.stringify({ coin, action, pct }) });
-    toast('✅ ' + label + ' · ' + pct + '%');
-    refreshLive(); refreshOrders(); refreshPositions(); if (SANDBOX) refreshWallet();
-  } catch (e) { toast('Failed: ' + e.message); }
+function renderLoopCards(box, items) {
+  if (!items.length) return emptyMsg(box, 'loop arbs');
+  box.innerHTML = items.map(l => {
+    const id = 'loop:' + l.c1 + ':' + l.c2;
+    const open = liveExpanded.has(id);
+    return '<div class="livecard ' + (open ? 'open' : '') + '">' +
+      '<div class="livecard-hd" onclick="toggleLive(\'' + id + '\')">' +
+        '<div class="livecard-top">' +
+          '<span class="caret">▶</span>' +
+          '<span class="live-coin">' + esc(l.c1.toUpperCase()) + ' → ' + esc(l.c2.toUpperCase()) + '</span>' +
+          edgePill(l.netPct, 'buy', true) +
+          '<span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);">' + (open ? 'Close' : 'Execute →') + '</span>' +
+        '</div>' +
+        '<div class="live-meta num">' + esc(l.path) + ' · in <b>' + fmtInr(l.costInr) + '</b> · profit <b>' + fmtInr(l.profitInr) + '</b></div>' +
+      '</div>' +
+      (open ? loopPanel(l) : '') +
+    '</div>';
+  }).join('');
+}
+function toggleLive(id) {
+  if (liveExpanded.has(id)) { liveExpanded.delete(id); activeExec = null; }
+  else liveExpanded.add(id);
+  renderLiveList();
 }
 
 // ---------------- boot ----------------
