@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v6 · mini scanner · TEST
+     SWENIK AUTO TRADER — v7 · empty-state diagnostics · TEST
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -480,7 +480,7 @@
     </div>
     <div>
       <h1>SWENIK Trader — Sandbox</h1>
-      <div class="subtitle">Practice mode · fake money, fake fills · <span style="opacity:.95;font-weight:800;">v6 · mini scanner · TEST</span></div>
+      <div class="subtitle">Practice mode · fake money, fake fills · <span style="opacity:.95;font-weight:800;">v7 · empty-state diagnostics · TEST</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -1626,7 +1626,10 @@ async function refreshStatus() {
   $('orb').classList.toggle('on', armed);
   $('armState').textContent = armed ? 'ARMED' : 'DISARMED';
   $('armSub').textContent = armed
-    ? (ST.inFlight ? 'Executing a trade right now…' : 'Watching live order books every ' + (ST.tickMs / 1000) + 's. It trades only what your rules allow.')
+    ? (ST.inFlight ? 'Executing a trade right now…'
+      : (ST.tickMs > 0
+        ? 'Watching live order books every ' + (ST.tickMs / 1000) + 's. It trades only what your rules allow.'
+        : 'Watching live order books — it re-checks the instant any book moves. It trades only what your rules allow.'))
     : 'Engine is idle — no rule will trade, paper or live.';
   const b = $('armBtn');
   b.textContent = armed ? 'KILL SWITCH — DISARM' : 'ARM ENGINE';
@@ -2475,21 +2478,59 @@ function renderLiveList() {
     const what = liveSeg === 'direct' ? 'Buy the coin on WazirX and short the same coin\'s perp on Binance — market-neutral, needs both keys.'
       : liveSeg === 'loop' ? 'INR → coin1 → USDT → coin2 → INR. Four orders, all on WazirX, one key, no transfers.'
       : 'INR → coin → USDT → INR. Three orders, all on WazirX, one key, no transfers.';
-    hint.innerHTML = esc(what) + ' Showing only edges <b>≥ ' + liveMin + '%</b>' +
-      (liveRate ? ' · USDT/INR <b>₹' + fnum(liveRate, 3) + '</b>' : '') + '.';
+    const watching = liveOpps.length
+      ? ' · watching <b>' + liveOpps.length + '</b> coin' + (liveOpps.length === 1 ? '' : 's')
+      : ' · <b>no coin books yet</b>';
+    hint.innerHTML = esc(what) + ' Showing only edges <b>≥ ' + liveMin + '%</b>' + watching +
+      (liveRate ? ' · USDT/INR <b>₹' + fnum(liveRate, 3) + '</b>' : ' · <b>no USDT/INR book</b>') + '.';
   }
 
   if (liveSeg === 'loop') return renderLoopCards(box, loop);
   if (liveSeg === 'intra') return renderIntraCards(box, intra);
   return renderDirectCards(box, dir);
 }
+// The best edge this family is showing RIGHT NOW, ignoring the filter. This is
+// what makes an empty screen readable: "nothing ≥ 1%" and "no data at all" look
+// identical otherwise, and that is exactly what confused things last time.
+function bestAvailable(seg) {
+  if (seg === 'loop') return liveLoops.reduce((m, l) => Math.max(m, l.netPct), -999);
+  const score = seg === 'intra' ? bestIntra : bestDirect;
+  return liveOpps.reduce((m, o) => Math.max(m, score(o)), -999);
+}
 function emptyMsg(box, what) {
-  box.innerHTML = '<div class="empty">No ' + what + ' at or above ' + liveMin + '% right now.<br>' +
-    '<span style="font-size:11.5px;">Lower the “show ≥ %” box to see what the books are actually offering.</span></div>';
+  const best = bestAvailable(liveSeg);
+  let tail;
+  if (!liveTs) {
+    tail = 'Waiting for the first snapshot from the server…';
+  } else if (best <= -900) {
+    tail = 'No books for this family have arrived yet. If this stays empty for more than a minute the WazirX feed is down — check the Overview tab.';
+  } else {
+    // one tap below the best on offer, so the card is guaranteed to appear
+    const target = Math.floor(best * 100) / 100 - 0.01;
+    tail = 'The books ARE live — the best ' + what.replace(/s$/, '') + ' on offer right now is <b>' +
+      best.toFixed(2) + '%</b>, which is below your filter.' +
+      '<div style="margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' +
+        '<button class="fbtn" id="emShow" onclick="setLiveMin(' + target + ')">Show me that one</button>' +
+        '<button class="fbtn" id="emPos" onclick="setLiveMin(0)">Positive only (0%)</button>' +
+        '<button class="fbtn" id="emAll" onclick="setLiveMin(-99)">Show everything</button>' +
+      '</div>';
+  }
+  setList(box, '<div class="empty">No ' + what + ' at or above ' + liveMin + '% right now.<br>' +
+    '<span style="font-size:11.5px;">' + tail + '</span></div>');
+}
+// The list re-renders every 2.2s. Blindly reassigning innerHTML destroys and
+// recreates every button on each poll — and a tap that lands in that gap is
+// silently swallowed. So: only touch the DOM when the markup has actually
+// changed. Prices move, so cards still refresh; a static empty state does not.
+let lastListHtml = null;
+function setList(box, html) {
+  if (lastListHtml === html) return;
+  lastListHtml = html;
+  box.innerHTML = html;
 }
 function renderDirectCards(box, items) {
   if (!items.length) return emptyMsg(box, 'direct arbs');
-  box.innerHTML = items.map(o => {
+  setList(box, items.map(o => {
     const open = liveExpanded.has('direct:' + o.coin);
     return '<div class="livecard ' + (open ? 'open' : '') + '" id="live_' + o.coin + '">' +
       '<div class="livecard-hd" onclick="toggleLive(\'direct:' + o.coin + '\')">' +
@@ -2503,11 +2544,11 @@ function renderDirectCards(box, items) {
       '</div>' +
       (open ? manualPanel(o) : '') +
     '</div>';
-  }).join('');
+  }).join(''));
 }
 function renderIntraCards(box, items) {
   if (!items.length) return emptyMsg(box, 'intra-loop arbs');
-  box.innerHTML = items.map(o => {
+  setList(box, items.map(o => {
     const open = liveExpanded.has('intra:' + o.coin);
     const C = esc(o.coin.toUpperCase());
     const a = o.intraA ? o.intraA.netPct : null, b = o.intraB ? o.intraB.netPct : null;
@@ -2524,11 +2565,11 @@ function renderIntraCards(box, items) {
       '</div>' +
       (open ? intraPanel(o) : '') +
     '</div>';
-  }).join('');
+  }).join(''));
 }
 function renderLoopCards(box, items) {
   if (!items.length) return emptyMsg(box, 'loop arbs');
-  box.innerHTML = items.map(l => {
+  setList(box, items.map(l => {
     const id = 'loop:' + l.c1 + ':' + l.c2;
     const open = liveExpanded.has(id);
     return '<div class="livecard ' + (open ? 'open' : '') + '">' +
@@ -2543,7 +2584,7 @@ function renderLoopCards(box, items) {
       '</div>' +
       (open ? loopPanel(l) : '') +
     '</div>';
-  }).join('');
+  }).join(''));
 }
 function toggleLive(id) {
   if (liveExpanded.has(id)) { liveExpanded.delete(id); activeExec = null; }
