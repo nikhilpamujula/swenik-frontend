@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Swenik — Auto Trader</title>
+<title>__PAGE_TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — build T5
+     SWENIK AUTO TRADER — __BUILD_TAG__
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -443,8 +443,8 @@
       <svg viewBox="0 0 24 24" fill="none"><path d="M3 17l5-6 4 3 6-8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="6" r="2.4" fill="#fff"/></svg>
     </div>
     <div>
-      <h1>Swenik Auto Trader</h1>
-      <div class="subtitle">Event-driven execution on 100ms depth · <span style="opacity:.95;font-weight:800;">build T5</span></div>
+      <h1>__PAGE_H1__</h1>
+      <div class="subtitle">__PAGE_SUB__ · <span style="opacity:.95;font-weight:800;">__BUILD_TAG__</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -1004,7 +1004,7 @@ function renderRules() {
           ? '<button class="btn danger" onclick="goLive(' + r.id + ')">Switch to LIVE</button>'
           : '<button class="btn" onclick="goPaper(' + r.id + ')">Back to Paper</button>') +
         (r.tripped ? '<button class="btn primary" onclick="resetBreaker(' + r.id + ')">Reset breaker</button>' : '') +
-        '<button class="btn danger" onclick="delRule(' + r.id + ', ' + JSON.stringify(esc(r.name)) + ')">Delete</button>' +
+        '<button class="btn danger" onclick="delRule(' + r.id + ')">Delete</button>' +
       '</div>' +
     '</div>';
   }).join('');
@@ -1034,8 +1034,9 @@ async function resetBreaker(id) {
   catch (e) { toast('Failed: ' + e.message); }
   refreshStatus();
 }
-async function delRule(id, name) {
-  if (!confirm('Delete rule "' + name + '"?')) return;
+async function delRule(id) {
+  const rl = ((ST && ST.rules) || []).find((r) => r.id === id);
+  if (!confirm('Delete rule "' + ((rl && rl.name) || id) + '"?')) return;
   try { await apiJson('/api/trader/rules/' + id, { method: 'DELETE' }); }
   catch (e) { toast('Failed: ' + e.message); }
   refreshStatus();
@@ -1380,7 +1381,7 @@ function edgePill(pct, kind) {
 function pctBtns(action, kind, coin, sizeFn, disabled) {
   return '<div class="pctrow">' + [25, 50, 75, 100].map(p =>
     '<button class="pctbtn ' + kind + '"' + (disabled ? ' disabled' : '') +
-      ' onclick="event.stopPropagation();manualFire(' + JSON.stringify(coin) + ',' + JSON.stringify(action) + ',' + p + ')">' +
+      ' onclick="event.stopPropagation();manualFire(\'' + coin + '\',\'' + action + '\',' + p + ')">' +
       p + '%<small>' + esc(sizeFn(p)) + '</small></button>').join('') + '</div>';
 }
 function walkDepthC(levels, targetQty) {
@@ -1517,7 +1518,7 @@ function renderLiveList() {
   box.innerHTML = liveOpps.slice().sort((a, b) => best(b) - best(a)).map(o => {
     const open = liveExpanded.has(o.coin);
     return '<div class="livecard ' + (open ? 'open' : '') + '" id="live_' + o.coin + '">' +
-      '<div class="livecard-hd" onclick="toggleLive(' + JSON.stringify(o.coin) + ')">' +
+      '<div class="livecard-hd" onclick="toggleLive(\'' + o.coin + '\')">' +
         '<div class="livecard-top">' +
           '<span class="caret">▶</span>' +
           '<span class="live-coin">' + esc(o.coin.toUpperCase()) + '</span>' +
