@@ -4821,10 +4821,13 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         return pill(x + '%', ft.lvl == null && ft.pct === x, '__ftPct(' + x + ')');
       }).join('') + '</div>';
     var lad = '';
-    if (p.ladder && p.ladder.length) {
-      lad = '<div style="font-size:10px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 4px;">Depth analysis — trade till book level… (live from the trader)</div>' +
+    // Only the PROFITABLE levels — Nikhil: "show till the positive levels,
+    // not everything, so I can choose easily".
+    var posRows = (p.ladder || []).filter(function (r) { return r.netPct > 0; });
+    if (posRows.length) {
+      lad = '<div style="font-size:10px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 4px;">Depth analysis — profitable levels only (live from the trader)</div>' +
         '<table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px;"><tbody>' +
-        p.ladder.map(function (r) {
+        posRows.map(function (r) {
           var on = ft.lvl === r.lvl;
           return '<tr onclick="__ftLvl(' + r.lvl + ')" style="cursor:pointer;' + (on ? 'background:#e7f6ee;' : '') + '">' +
             '<td style="padding:5px 8px;font-weight:800;color:var(--gray-500);">' + (on ? '▶ ' : '') + 'Lv ' + r.lvl + '</td>' +
@@ -4834,12 +4837,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           '</tr>';
         }).join('') + '</tbody></table>';
     } else if (p.wantLadder) {
-      lad = '<div style="font-size:10.5px;color:var(--gray-500);font-weight:600;margin-bottom:8px;">warming the trader’s live books for the depth ladder…</div>';
+      lad = p.ladder && p.ladder.length
+        ? '<div style="font-size:10.5px;color:var(--gray-500);font-weight:600;margin-bottom:8px;">no profitable depth level right now — the % chips still work</div>'
+        : '<div style="font-size:10.5px;color:var(--gray-500);font-weight:600;margin-bottom:8px;">warming the trader’s live books for the depth ladder…</div>';
     }
+    var fmtQ = function (n) { return n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n >= 1 ? (+n.toFixed(3)).toString() : (+n.toPrecision(3)).toString(); };
     var btns = p.acts.map(function (a, i) {
+      // % applies to THIS ARB's walked quantity when the card gave us one —
+      // never to the whole order book.
+      var szTxt = ft.lvl != null ? 'till level ' + ft.lvl
+        : a.base ? ft.pct + '% = ' + fmtQ(a.base * ft.pct / 100) + ' ' + String(a.coin || p.coin).toUpperCase()
+        : ft.pct + '%';
       return '<button onclick="__ftFire(' + i + ')" style="width:100%;font:inherit;font-size:12.5px;font-weight:800;padding:11px;border:none;border-radius:9px;cursor:pointer;margin-bottom:6px;' +
         'background:' + (ft.mode === 'live' ? '#d33131' : 'var(--primary, #2b6ea3)') + ';color:#fff;">Execute · ' + a.label +
-        ' · ' + (ft.lvl != null ? 'till level ' + ft.lvl : ft.pct + '%') + '</button>';
+        ' · ' + szTxt + '</button>';
     }).join('');
     var st = ft.ready
       ? '<div style="font-size:10.5px;font-weight:700;color:var(--success);">● trader books live — Execute is armed</div>'
@@ -4878,6 +4889,13 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         seen = !!(o && o2);
         var L = (live.loops || []).find(function (l) { return l.c1 === p.coin && l.c2 === p.coin2; });
         lad = L && L.ladder;
+        // fill missing per-leg % bases from the trader's own walked rotation
+        if (L) {
+          p.acts.forEach(function (a) {
+            if (a.base == null && a.coin === p.coin && Number(L.qty1) > 0) a.base = Number(L.qty1);
+            if (a.base == null && a.coin === p.coin2 && Number(L.qty2) > 0) a.base = Number(L.qty2);
+          });
+        }
       } else {
         seen = !!o; // liveOpps only emits a coin once its WazirX book is live
         if (o) {
@@ -4930,12 +4948,16 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var p = ft.plan;
     if (!p || !p.acts[i]) return;
     var a = p.acts[i];
-    var sz = ft.lvl != null ? 'everything till book level ' + ft.lvl : ft.pct + '% of walkable depth';
-    if (!isRetry && ft.mode === 'live' && !confirm('LIVE: ' + a.label + ' — ' + sz + '?\nThis spends REAL money on WazirX.')) return;
+    var qty = ft.lvl == null && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null;
+    var sz = ft.lvl != null ? 'everything till book level ' + ft.lvl
+      : qty ? qty + ' ' + String(a.coin || p.coin).toUpperCase() + ' (' + ft.pct + '% of this arb)'
+      : ft.pct + '% of walkable depth';
+    if (!isRetry && ft.mode === 'live' && !confirm('LIVE: ' + a.label + ' — ' + sz + '?\nThis spends REAL money.')) return;
     if (!isRetry) ft.retries = 0;
-    var body = { coin: p.coin, action: a.action, pct: ft.pct, mode: ft.mode };
+    var body = { coin: a.coin || p.coin, action: a.action, pct: ft.pct, mode: ft.mode };
     if (ft.lvl != null) body.lvl = ft.lvl;
-    if (a.action === 'loop') body.coin2 = p.coin2;
+    else if (qty) body.qty = qty;
+    if (a.action === 'loop') { body.coin = p.coin; body.coin2 = p.coin2; }
     ftMsg('placing…');
     try {
       var r = await ftPost('/api/trader/manual', body);
@@ -4969,15 +4991,29 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   wrap('renderDirectModal', function (entry) {
     if (!entry || !entry.coin) return null;
     var C = String(entry.coin).toUpperCase();
+    // % sizes against the ARB's walked quantities from this very card —
+    // never against the whole order book.
+    var w = entry.walked || entry.fixed || {};
+    var buyBase = Number(w.buyQty) > 0 ? Number(w.buyQty) : null;
+    var sellBase = Number(w.sellQty) > 0 ? Number(w.sellQty) : buyBase;
     var acts = [];
-    if (entry.buyExchange === 'wazirx') acts.push({ action: 'buy_wazirx', label: 'BUY ' + C + ' @WazirX' });
-    if (entry.sellExchange === 'wazirx') acts.push({ action: 'sell_wazirx', label: 'SELL ' + C + ' @WazirX' });
+    // Both legs of the arb, matching its direction (his rule 1).
+    if (entry.buyExchange === 'wazirx') {
+      acts.push({ action: 'buy_wazirx', label: 'BUY ' + C + ' @WazirX', base: buyBase });
+      if (entry.sellExchange === 'binance') acts.push({ action: 'sell_binance', label: 'SELL ' + C + ' @Binance spot', base: sellBase });
+    } else if (entry.buyExchange === 'binance' && entry.sellExchange === 'wazirx') {
+      acts.push({ action: 'buy_binance', label: 'BUY ' + C + ' @Binance spot', base: buyBase });
+      acts.push({ action: 'sell_wazirx', label: 'SELL ' + C + ' @WazirX', base: sellBase });
+    } else {
+      if (entry.buyExchange === 'wazirx') acts.push({ action: 'buy_wazirx', label: 'BUY ' + C + ' @WazirX', base: buyBase });
+      if (entry.sellExchange === 'wazirx') acts.push({ action: 'sell_wazirx', label: 'SELL ' + C + ' @WazirX', base: sellBase });
+    }
     return {
-      kind: 'direct', coin: entry.coin, wantLadder: acts.length > 0 && entry.buyExchange === 'wazirx',
+      kind: 'direct', coin: entry.coin, wantLadder: acts.some(function (a) { return a.action === 'buy_wazirx'; }),
       acts: acts,
       note: acts.length
-        ? 'Fires ONLY the WazirX leg of this arb through the Fast Trader — instant. The coin transfer and the Binance side stay manual for now.'
-        : 'Neither leg of this pair trades on WazirX, so there is nothing the WazirX key can fire here.',
+        ? 'Both legs of this arb, sized as % of ITS walked quantity' + (buyBase ? ' (' + Math.round(buyBase).toLocaleString('en-IN') + ' ' + C + ')' : '') + '. WazirX fires on your WazirX key; Binance spot needs Binance keys on the trader. The coin transfer between exchanges stays manual.'
+        : 'Neither leg of this pair trades on WazirX or Binance spot — nothing to fire here.',
     };
   });
   // openCard is a top-level `let` in the scanner script — it is NOT on window,
@@ -4997,21 +5033,34 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         { action: 'intraloop_b', label: 'Path B · INR → USDT → ' + C + ' → INR' },
       ] : [],
       note: wz
-        ? 'Three WazirX orders back to back on your one key — instant, no transfers. The ladder below is the trader’s own depth walk of this triangle.'
+        ? 'Three WazirX orders back to back on your one key — instant, no transfers. The % chips size against THIS triangle’s walkable depth (not the whole book); the ladder shows only the profitable levels.'
         : 'This triangle runs on ' + (oc.venueId || 'another venue') + ', not WazirX — the WazirX key cannot fire it.',
     };
   });
   wrap('renderLoopModal', function () {
     var oc = getOpenCard();
     if (!oc.coin1 || !oc.coin2) return null;
+    var C1 = String(oc.coin1).toUpperCase(), C2 = String(oc.coin2).toUpperCase();
     var wz = (!oc.venueId || oc.venueId === 'wazirx') &&
       (!oc.entryVenue || oc.entryVenue === 'wazirx') && (!oc.exitVenue || oc.exitVenue === 'wazirx');
+    // walked entry-leg qty from the open loop card (c1 bought), when available
+    var lw = null;
+    try { lw = (typeof loopLiveEntry !== 'undefined' && loopLiveEntry && loopLiveEntry.walked) || null; } catch (e) {}
+    var q1 = lw && Number(lw.trbQty) > 0 ? Number(lw.trbQty) : null;
+    // His rule 2: every leg venue available — buy/sell WazirX AND Binance.
+    var acts = [];
+    if (wz) acts.push({ action: 'loop', label: 'FULL LOOP ' + C1 + ' → ' + C2 + ' (4 WazirX orders)' });
+    acts.push({ action: 'buy_wazirx', coin: oc.coin1, label: 'BUY ' + C1 + ' @WazirX', base: q1 });
+    acts.push({ action: 'sell_wazirx', coin: oc.coin2, label: 'SELL ' + C2 + ' @WazirX' });
+    acts.push({ action: 'buy_binance', coin: oc.coin1, label: 'BUY ' + C1 + ' @Binance spot', base: q1 });
+    acts.push({ action: 'sell_binance', coin: oc.coin2, label: 'SELL ' + C2 + ' @Binance spot' });
     return {
       kind: 'loop', coin: oc.coin1, coin2: oc.coin2, wantLadder: wz,
-      acts: wz ? [{ action: 'loop', label: 'LOOP ' + String(oc.coin1).toUpperCase() + ' → ' + String(oc.coin2).toUpperCase() + ' (4 WazirX orders)' }] : [],
-      note: wz
-        ? 'All four orders fire on WazirX through the Fast Trader — instant, no coin ever leaves the exchange.'
-        : 'This rotation crosses exchanges — the WazirX key cannot fire it; execute manually.',
+      acts: acts,
+      note: (wz
+        ? 'FULL LOOP fires all four WazirX orders back to back. '
+        : 'This rotation crosses exchanges — no one-tap chain; fire the legs yourself. ')
+        + 'The single-leg buttons fire one order each, on either venue: WazirX on your WazirX key, Binance spot on your Binance keys.',
     };
   });
   var _cm = window.closeModal;
