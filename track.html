@@ -4794,7 +4794,15 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   // the trader open its 100ms streams, which takes a few seconds — tapping
   // Execute inside that gap used to fail with "no live WazirX ask book".
   // sel: which LEG of the arb is selected in the leg toggle.
-  var ft = { pct: 25, lvl: null, mode: 'live', sel: 0, plan: null, timer: null, watched: {}, ready: false, retries: 0 };
+  var ft = { pct: 25, lvl: null, mode: 'live', sel: 0, plan: null, timer: null, watched: {}, ready: false, retries: 0, fills: {} };
+  // WazirX BUY fills, remembered per coin — THE hedge size. The arb card can
+  // vanish right after execution (he just ate it); the fill must not.
+  try {
+    var savedFills = JSON.parse(localStorage.getItem('swenik_ft_fills') || '{}');
+    var cutoff = Date.now() - 2 * 3600 * 1000;
+    Object.keys(savedFills).forEach(function (k) { if (savedFills[k] && savedFills[k].at > cutoff) ft.fills[k] = savedFills[k]; });
+  } catch (e) {}
+  function saveFills() { try { localStorage.setItem('swenik_ft_fills', JSON.stringify(ft.fills)); } catch (e) {} }
   // exchange identity chip (uses the scanner's own icon when available)
   function exChip(ex) {
     var icon = '';
@@ -4841,18 +4849,29 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       }).join('') + '</div>';
 
     // ---- % chips tally against the SELECTED leg's own walked volume.
-    var pcts = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:4px;">' +
-      [25, 50, 75, 100].map(function (x) {
-        return pill(x + '%', ft.lvl == null && ft.pct === x, '__ftPct(' + x + ')');
-      }).join('') + '</div>';
-    var tally = '<div style="font-size:11px;font-weight:700;color:var(--gray-600);margin-bottom:8px;">' +
-      (ft.lvl != null ? 'ladder level ' + ft.lvl + ' selected'
-        : sel.base ? ft.pct + '% of this leg = <b>' + fmtQ(sel.base * ft.pct / 100) + ' ' + String(sel.coin || p.coin).toUpperCase() + '</b>'
-        : ft.pct + '% of the walkable depth') + '</div>';
+    // NOT for the hedge: the hedge has exactly ONE valid size — the WazirX
+    // fill — so the chips disappear when the hedge leg is selected.
+    var selFill = ft.fills[sel.coin || p.coin] || null;
+    var pcts = '', tally = '';
+    if (sel.side === 'hedge') {
+      tally = selFill
+        ? '<div style="font-size:11px;font-weight:800;color:#4653d0;margin-bottom:8px;">Hedge size = your WazirX fill: <b>' + fmtQ(selFill.qty) + ' ' + String(sel.coin || p.coin).toUpperCase() + '</b> (order #' + selFill.orderId + ') — fixed, no %.</div>'
+        : '';
+    } else {
+      pcts = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:4px;">' +
+        [25, 50, 75, 100].map(function (x) {
+          return pill(x + '%', ft.lvl == null && ft.pct === x, '__ftPct(' + x + ')');
+        }).join('') + '</div>';
+      tally = '<div style="font-size:11px;font-weight:700;color:var(--gray-600);margin-bottom:8px;">' +
+        (ft.lvl != null ? 'ladder level ' + ft.lvl + ' selected'
+          : sel.base ? ft.pct + '% of this leg = <b>' + fmtQ(sel.base * ft.pct / 100) + ' ' + String(sel.coin || p.coin).toUpperCase() + '</b>'
+          : ft.pct + '% of the walkable depth') + '</div>';
+    }
 
     var lad = '';
     // Only the PROFITABLE levels — "show till the positive levels".
-    var posRows = (p.ladder || []).filter(function (r) { return r.netPct > 0; });
+    // (No ladder on the hedge leg — its size is the fill, full stop.)
+    var posRows = sel.side === 'hedge' ? [] : (p.ladder || []).filter(function (r) { return r.netPct > 0; });
     if (posRows.length) {
       lad = '<div style="font-size:10px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 4px;">Depth analysis — profitable levels only (live from the trader)</div>' +
         '<table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px;"><tbody>' +
@@ -4876,8 +4895,11 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var hedgeBlocked = false;
     if (sel.side === 'hedge') {
       var hi = (p.hedgeInfo || {})[sel.coin || p.coin];
-      var selQty = ft.lvl == null && sel.base ? sel.base * ft.pct / 100 : null;
-      if (!hi) {
+      var selQty = selFill ? selFill.qty : null;
+      if (!selFill) {
+        hedgeBox = '<div style="border:1px solid #e6d3a3;background:#fdf6e3;border-radius:9px;padding:9px 11px;font-size:11.5px;font-weight:700;color:#b7791f;margin-bottom:8px;">🔒 Hedge locked — execute the WazirX BUY leg first. The hedge then sizes itself to that exact fill, taken from the confirmation page.</div>';
+        hedgeBlocked = true;
+      } else if (!hi) {
         hedgeBox = '<div style="font-size:11px;font-weight:700;color:var(--gray-500);margin-bottom:8px;">checking Binance futures (perp · leverage · funding)…</div>';
         hedgeBlocked = true;
       } else if (!hi.hedgeOk) {
@@ -4904,7 +4926,9 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // ---- ONE Execute button for the selected leg: green buy, red sell,
     // indigo hedge (greyed until the futures verification passes).
     var col = sel.side === 'buy' ? '#1c8a5c' : sel.side === 'sell' ? '#d33131' : sel.side === 'hedge' ? '#4653d0' : '#1c2f4a';
-    var szTxt = ft.lvl != null ? 'till level ' + ft.lvl
+    var szTxt = sel.side === 'hedge'
+      ? (selFill ? fmtQ(selFill.qty) + ' ' + String(sel.coin || p.coin).toUpperCase() + ' (the fill)' : 'locked')
+      : ft.lvl != null ? 'till level ' + ft.lvl
       : sel.base ? fmtQ(sel.base * ft.pct / 100) + ' ' + String(sel.coin || p.coin).toUpperCase()
       : ft.pct + '%';
     var btn = hedgeBlocked
@@ -5020,8 +5044,35 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     }
     if (!ok && o && o.error) rows += ftRow(soft ? 'Why' : 'Reason', '<span style="color:' + (soft ? '#b7791f' : '#d33131') + ';">' + o.error + '</span>');
     if (r.note) rows += '<div style="font-size:11.5px;font-weight:600;color:#5b6472;margin-top:9px;line-height:1.5;">' + r.note + '</div>';
-    ftOverlay().innerHTML = ftCard(hero + rows + ftBtns(!ok));
+    // A successful WazirX BUY = the hedge size. Remember it (survives reloads
+    // AND the arb card disappearing) and offer the hedge RIGHT HERE.
+    var hedgeBtn = '';
+    if (ok && r.manual === 'buy' && Number(r.qty) > 0 && o && o.coin) {
+      ft.fills[o.coin] = { qty: Number(r.qty), orderId: orderId, at: Date.now() };
+      saveFills();
+      var hi0 = ft.plan && ft.plan.hedgeInfo && ft.plan.hedgeInfo[o.coin];
+      if (!hi0 || hi0.hedgeOk) {
+        hedgeBtn = '<button onclick="__ftHedgeNow(\'' + o.coin + '\')" style="width:100%;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:none;background:#4653d0;color:#fff;cursor:pointer;margin-top:12px;">🛡 HEDGE this fill · short ' + num(r.qty) + ' ' + String(o.coin).toUpperCase() + ' @Binance Futures</button>';
+      }
+    }
+    ftOverlay().innerHTML = ftCard(hero + rows + hedgeBtn + ftBtns(!ok));
   }
+
+  // Hedge straight from the confirmation page — sized to the EXACT WazirX
+  // fill, no percentages.
+  window.__ftHedgeNow = async function (coin) {
+    var fill = ft.fills[coin];
+    if (!fill) return;
+    var label = 'HEDGE ' + String(coin).toUpperCase() + ' @Binance Futures (short)';
+    var sz = fill.qty + ' ' + String(coin).toUpperCase() + ' (your WazirX fill, order #' + fill.orderId + ')';
+    if (!confirm('LIVE: ' + label + ' — ' + sz + '?\nThis opens a REAL futures short.')) return;
+    ftShowPlacing(label, sz, '');
+    try {
+      var r = await ftPost('/api/trader/manual', { coin: coin, action: 'hedge_binance', qty: fill.qty, pct: 100, mode: 'live' });
+      if (r && r.id) ftShowDone(r.id, label, sz);
+      else ftShowFail(label, sz, (r && r.error) || 'no result from the trader');
+    } catch (e) { ftShowFail(label, sz, e.message); }
+  };
 
   // ---------- trader poll (while a modal is open) ----------
   // Watches the trader until the pinned coin's live books arrive (→ ready),
@@ -5104,14 +5155,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var p = ft.plan;
     if (!p || !p.acts[i]) return;
     var a = p.acts[i];
-    var qty = ft.lvl == null && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null;
-    var sz = ft.lvl != null ? 'everything till book level ' + ft.lvl
+    // Hedge fires the EXACT WazirX fill — never a percentage.
+    var hedgeFill = a.side === 'hedge' ? ft.fills[a.coin || p.coin] : null;
+    if (a.side === 'hedge' && !hedgeFill) { ftShowFail(a.label, '—', 'hedge is locked until the WazirX BUY leg fills'); return; }
+    var qty = a.side === 'hedge' ? hedgeFill.qty
+      : ft.lvl == null && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null;
+    var sz = a.side === 'hedge' ? hedgeFill.qty + ' ' + String(a.coin || p.coin).toUpperCase() + ' (your WazirX fill, order #' + hedgeFill.orderId + ')'
+      : ft.lvl != null ? 'everything till book level ' + ft.lvl
       : qty ? qty + ' ' + String(a.coin || p.coin).toUpperCase() + ' (' + ft.pct + '% of this arb)'
       : ft.pct + '% of walkable depth';
     if (!isRetry && ft.mode === 'live' && !confirm('LIVE: ' + a.label + ' — ' + sz + '?\nThis spends REAL money.')) return;
     if (!isRetry) ft.retries = 0;
     var body = { coin: a.coin || p.coin, action: a.action, pct: ft.pct, mode: ft.mode };
-    if (ft.lvl != null) body.lvl = ft.lvl;
+    if (a.side === 'hedge') body.qty = qty;
+    else if (ft.lvl != null) body.lvl = ft.lvl;
     else if (qty) body.qty = qty;
     if (a.market) body.market = a.market; // which WazirX market (inr | usdt)
     if (a.action === 'loop') { body.coin = p.coin; body.coin2 = p.coin2; }
@@ -5283,6 +5340,40 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   });
   var _cm = window.closeModal;
   if (typeof _cm === 'function') window.closeModal = function () { ftDetach(); return _cm.apply(this, arguments); };
+
+  // ---------- FASTER CLONE — without touching WazirX rate limits ----------
+  // Two very different kinds of refresh, so two different treatments:
+  //   • The alert LIST (/api/opportunities) is served from the scanner
+  //     backend's MEMORY snapshot — zero WazirX calls per request. Polling it
+  //     at 4s instead of 10s just picks up each new snapshot sooner.
+  //   • Popup LIVE BOOKS do make the scanner backend hit WazirX REST, so they
+  //     get a measured boost: 15s → 6s. Only ONE popup is ever open, so that
+  //     is ~10 requests/min at the exchange — far inside WazirX's public
+  //     limits. The Execute panel's own data rides the trader's 100ms
+  //     websocket books, which have NO rest-call cost at all.
+  try {
+    if (typeof fullRefresh === 'function') {
+      setInterval(function () {
+        try { if (!document.hidden) fullRefresh(); } catch (e) {}
+      }, 4000); // their own refreshInFlight guard makes overlap impossible
+    }
+    var _ocm = window.openCardModal;
+    if (typeof _ocm === 'function') {
+      window.openCardModal = function (type) {
+        var out = _ocm.apply(this, arguments);
+        try {
+          if (typeof modalTimer !== 'undefined' && modalTimer) clearInterval(modalTimer);
+          if (type === 'direct' && typeof refreshDirectModalLive === 'function') modalTimer = setInterval(refreshDirectModalLive, 6000);
+          else if (type === 'intraloop' && typeof refreshIntraLoopModalLive === 'function') modalTimer = setInterval(refreshIntraLoopModalLive, 6000);
+          else if (type === 'loop' && typeof refreshLoopModalLive === 'function') modalTimer = setInterval(refreshLoopModalLive, 4000);
+        } catch (e) { /* scanner internals moved — keep its own cadence */ }
+        return out;
+      };
+    }
+    // honest countdown label on the faster cadence
+    var sub2 = document.querySelector('.topbar .subtitle');
+    if (sub2) sub2.innerHTML += ' · <span style="opacity:.9;">fast refresh 4s</span>';
+  } catch (e) {}
 })();
 
 </script>
