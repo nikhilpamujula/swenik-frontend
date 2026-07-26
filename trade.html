@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v11 · track.html scanner clone
+     SWENIK AUTO TRADER — v19 · loop ARB1/ARB2 + sizing
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -558,7 +558,7 @@
     </div>
     <div>
       <h1>SWENIK Fast Trader</h1>
-      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v11 · track.html scanner clone</span></div>
+      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v19 · loop ARB1/ARB2 + sizing</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -780,6 +780,7 @@
       <div class="fsec">
         <div class="fsec-h">Size &amp; risk</div>
         <div class="frm">
+          <div class="f"><label>Take % of the arb's size</label><input id="rf_sizepct" type="number" min="1" max="100" step="5" value="100"><div class="sub">execute only this % of the arb's walkable volume — with the ₹ cap this gives "₹10k arb → ₹5k trade"</div></div>
           <div class="f"><label>Max ₹ per trade</label><input id="rf_max" type="number" step="100" value="1000"></div>
           <div class="f"><label>Max % of free INR balance</label><input id="rf_balpct" type="number" step="5" value="25"><div class="sub">live mode checks your real balance first</div></div>
           <div class="f"><label>Daily ₹ cap</label><input id="rf_daily" type="number" step="500" value="10000"></div>
@@ -1105,10 +1106,11 @@ function renderRules() {
         '<span class="fact">entry <b>' + (cfg.entryAttempts || 1) + '-shot</b> · mid ×<b>' + (cfg.midAttempts || 3) + '</b></span>' +
         (win ? '<span class="fact">🕒 <b>' + win + '</b></span>' : '') +
         (cfg.maxTradesPerDay ? '<span class="fact">≤<b>' + cfg.maxTradesPerDay + '</b> trades/day</span>' : '') +
+        (cfg.sizePct && cfg.sizePct < 100 ? '<span class="fact">take <b>' + cfg.sizePct + '%</b> of arb</span>' : '') +
         '<span class="fact">cooldown <b>' + r.cooldown_sec + 's</b></span>' +
         (coins ? '<span class="fact">coins: <b>' + esc(coins) + '</b></span>' : '<span class="fact">any coin</span>') +
         (r.strategy === 'intraloop' && cfg.path && cfg.path !== 'any' ? '<span class="fact">path <b>' + cfg.path + '</b></span>' : '') +
-        (r.strategy === 'direct_hedge' ? '<span class="fact">≤<b>' + (cfg.maxOpenPositions || 1) + '</b> open hedge</span>' : '') +
+        (r.strategy === 'direct_hedge' || r.strategy === 'loop_pair' ? '<span class="fact">≤<b>' + (cfg.maxOpenPositions || 1) + '</b> open hedge</span>' : '') +
         (Number(r.consec_fails) > 0 && !r.tripped ? '<span class="fact warn">fails in a row: <b>' + r.consec_fails + '/' + r.max_consec_fails + '</b></span>' : '') +
       '</div>' +
       (r.tripped ? '<div class="trip-reason selectable">⛔ ' + esc(r.tripped_reason || 'repeated failures') + '</div>' : '') +
@@ -1230,6 +1232,7 @@ function openRuleForm(id) {
   $('rf_aggr').value = cfg.aggressionBps || 0;
   $('rf_lev').value = cfg.futLeverage || 1;
   $('rf_maxpos').value = cfg.maxOpenPositions || 1;
+  $('rf_sizepct').value = cfg.sizePct || 100;
   $('rf_fund').value = cfg.maxAdverseFunding != null ? cfg.maxAdverseFunding : 0.03;
   stratHint();
   drawDepthPreview();
@@ -1268,7 +1271,8 @@ async function saveRule() {
       aggressionBps: Number($('rf_aggr').value),
       futLeverage: Number($('rf_lev').value),
       maxOpenPositions: Number($('rf_maxpos').value),
-      maxAdverseFunding: Number($('rf_fund').value)
+      maxAdverseFunding: Number($('rf_fund').value),
+      sizePct: Number($('rf_sizepct').value) || 100
     }
   };
   if (!body.name) { toast('Give the rule a name.'); return; }

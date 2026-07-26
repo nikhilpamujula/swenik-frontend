@@ -4951,7 +4951,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       el.style.cssText = 'margin-top:14px;border:2px solid var(--primary, #2b6ea3);border-radius:12px;padding:12px;background:#f7fafd;';
       body.appendChild(el);
     }
-    el.innerHTML = ftPanelHtml();
+    // Same no-shake rule as the big containers: the panel repolls every 2.5s,
+    // but only touches the DOM when something actually changed.
+    var html = ftPanelHtml();
+    if (el.__ftPanelHtml !== html) { el.__ftPanelHtml = html; el.innerHTML = html; }
   }
   function ftMsg(t, bad) {
     var m = document.getElementById('ftMsg');
@@ -5372,7 +5375,56 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     }
     // honest countdown label on the faster cadence
     var sub2 = document.querySelector('.topbar .subtitle');
-    if (sub2) sub2.innerHTML += ' · <span style="opacity:.9;">fast refresh 4s</span>';
+    if (sub2) sub2.innerHTML += ' · <span style="opacity:.9;">fast refresh 4s · steady</span>';
+  } catch (e) {}
+
+  // ---------- NO-SHAKE REFRESH ----------
+  // The scanner repaints by replacing innerHTML wholesale on every tick, even
+  // when the new HTML is byte-identical to what's already on screen. On the 4s
+  // cadence that constant teardown/rebuild is the visible "shaking". Fix, on
+  // the two big containers only:
+  //   1. If the HTML being set is IDENTICAL to the last set → skip the DOM
+  //      write entirely (no flicker, and the Execute panel appended to the
+  //      modal survives untouched).
+  //   2. If it DID change → hold the container's height through the swap and
+  //      restore every inner scroll position, so the page never jumps.
+  try {
+    var ftCalm = function (el) {
+      if (!el || el.__ftCalm) return;
+      el.__ftCalm = true;
+      var d = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+      if (!d || !d.set || !d.get) return;
+      Object.defineProperty(el, 'innerHTML', {
+        configurable: true,
+        get: function () { return d.get.call(this); },
+        set: function (v) {
+          if (this.__ftLastHtml === v) return; // identical repaint → nothing to do
+          this.__ftLastHtml = v;
+          var scrolls = [];
+          try {
+            var all = this.querySelectorAll('*');
+            for (var i = 0; i < all.length; i++) {
+              if (all[i].scrollTop || all[i].scrollLeft) scrolls.push([i, all[i].scrollTop, all[i].scrollLeft]);
+            }
+          } catch (e) {}
+          var selfTop = this.scrollTop, h = this.offsetHeight;
+          if (h) this.style.minHeight = h + 'px'; // hold height while swapping
+          d.set.call(this, v);
+          this.scrollTop = selfTop;
+          try {
+            var all2 = this.querySelectorAll('*');
+            for (var j = 0; j < scrolls.length; j++) {
+              var s = scrolls[j];
+              if (all2[s[0]]) { all2[s[0]].scrollTop = s[1]; all2[s[0]].scrollLeft = s[2]; }
+            }
+          } catch (e) {}
+          var me = this;
+          requestAnimationFrame(function () { requestAnimationFrame(function () { me.style.minHeight = ''; }); });
+        },
+      });
+    };
+    ftCalm(document.getElementById('cardList'));
+    ftCalm(document.getElementById('modalBody'));
   } catch (e) {}
 })();
 
