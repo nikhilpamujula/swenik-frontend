@@ -4833,8 +4833,8 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var legs = '<div style="display:grid;grid-template-columns:repeat(' + Math.min(p.acts.length, 2) + ',1fr);gap:6px;margin-bottom:8px;">' +
       p.acts.map(function (a, i) {
         var on = i === ft.sel;
-        var col = a.side === 'buy' ? '#177a4c' : a.side === 'sell' ? '#d33131' : '#2b6ea3';
-        var bg = a.side === 'buy' ? '#e7f6ee' : a.side === 'sell' ? '#fdecec' : '#e8f0fe';
+        var col = a.side === 'buy' ? '#177a4c' : a.side === 'sell' ? '#d33131' : a.side === 'hedge' ? '#4653d0' : '#2b6ea3';
+        var bg = a.side === 'buy' ? '#e7f6ee' : a.side === 'sell' ? '#fdecec' : a.side === 'hedge' ? '#eef1ff' : '#e8f0fe';
         return '<button onclick="__ftLeg(' + i + ')" style="font:inherit;font-size:11.5px;font-weight:800;padding:9px 6px;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;' +
           'border:2px solid ' + (on ? col : 'var(--border)') + ';background:' + (on ? bg : '#fff') + ';color:' + (on ? col : 'var(--gray-700)') + ';">' +
           a.legLabel + '</button>';
@@ -4871,18 +4871,51 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         : '<div style="font-size:10.5px;color:var(--gray-500);font-weight:600;margin-bottom:8px;">warming the trader’s live books for the depth ladder…</div>';
     }
 
-    // ---- ONE Execute button for the selected leg: green buy, red sell.
-    var col = sel.side === 'buy' ? '#1c8a5c' : sel.side === 'sell' ? '#d33131' : '#1c2f4a';
+    // ---- HEDGE pre-flight box: verification + full costs BEFORE the order.
+    var hedgeBox = '';
+    var hedgeBlocked = false;
+    if (sel.side === 'hedge') {
+      var hi = (p.hedgeInfo || {})[sel.coin || p.coin];
+      var selQty = ft.lvl == null && sel.base ? sel.base * ft.pct / 100 : null;
+      if (!hi) {
+        hedgeBox = '<div style="font-size:11px;font-weight:700;color:var(--gray-500);margin-bottom:8px;">checking Binance futures (perp · leverage · funding)…</div>';
+        hedgeBlocked = true;
+      } else if (!hi.hedgeOk) {
+        hedgeBox = '<div style="border:1px solid #f0b4b4;background:#fdecec;border-radius:9px;padding:9px 11px;font-size:11.5px;font-weight:700;color:#d33131;margin-bottom:8px;">🛑 Hedge disabled — ' + (hi.reason || 'failed futures verification') + '</div>';
+        hedgeBlocked = true;
+      } else {
+        var mark = Number(hi.markPrice);
+        var notion = selQty && mark ? selQty * mark : null;
+        var fee = notion != null ? notion * (Number(hi.takerFeePct) || 0.05) / 100 : null;
+        var fr = hi.fundingPct8h;
+        var fUsdt = notion != null && fr != null ? notion * fr / 100 : null;
+        var hr = function (k, v) { return '<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:4px 0;"><span style="color:#5b6472;font-weight:600;">' + k + '</span><span style="font-weight:800;">' + v + '</span></div>'; };
+        hedgeBox = '<div style="border:1px solid #c7d0f4;background:#f4f6ff;border-radius:9px;padding:9px 11px;margin-bottom:8px;">' +
+          '<div style="font-size:10.5px;font-weight:800;color:#4653d0;margin-bottom:3px;">🛡 BINANCE FUTURES · ' + hi.symbol + ' · SHORT · max ' + hi.maxLeverage + '× (✓ ≥5×)</div>' +
+          hr('Mark price', mark ? mark : '—') +
+          hr('Size', selQty != null ? fmtQ(selQty) + ' ' + String(sel.coin || p.coin).toUpperCase() : (ft.lvl != null ? 'ladder level ' + ft.lvl : ft.pct + '% of walkable')) +
+          (notion != null ? hr('Notional', notion.toFixed(2) + ' USDT') : '') +
+          (fee != null ? hr('Taker fee (' + hi.takerFeePct + '%)', '≈ ' + fee.toFixed(4) + ' USDT') : '') +
+          (fr != null ? hr('Funding', fr + '%/8h' + (fUsdt != null ? ' ≈ ' + fUsdt.toFixed(4) + ' USDT' : '') + (fr >= 0 ? ' · shorts RECEIVE' : ' · shorts PAY')) : '') +
+        '</div>';
+      }
+    }
+
+    // ---- ONE Execute button for the selected leg: green buy, red sell,
+    // indigo hedge (greyed until the futures verification passes).
+    var col = sel.side === 'buy' ? '#1c8a5c' : sel.side === 'sell' ? '#d33131' : sel.side === 'hedge' ? '#4653d0' : '#1c2f4a';
     var szTxt = ft.lvl != null ? 'till level ' + ft.lvl
       : sel.base ? fmtQ(sel.base * ft.pct / 100) + ' ' + String(sel.coin || p.coin).toUpperCase()
       : ft.pct + '%';
-    var btn = '<button onclick="__ftFire(' + ft.sel + ')" style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;cursor:pointer;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:7px;' +
-      'background:' + col + ';color:#fff;">Execute · ' + sel.label + ' · ' + szTxt + '</button>';
+    var btn = hedgeBlocked
+      ? '<button disabled style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;margin-bottom:6px;background:#c6ccd6;color:#fff;">Execute · ' + sel.label + ' — verification pending</button>'
+      : '<button onclick="__ftFire(' + ft.sel + ')" style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;cursor:pointer;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:7px;' +
+        'background:' + col + ';color:#fff;">Execute · ' + sel.label + ' · ' + szTxt + '</button>';
 
     var st = ft.ready
       ? '<div style="font-size:10.5px;font-weight:700;color:var(--success);">● trader books live — Execute is armed</div>'
       : '<div style="font-size:10.5px;font-weight:700;color:var(--gray-500);">◌ warming the trader’s live books (a few seconds)… Execute retries by itself if tapped early</div>';
-    return head + note + legs + pcts + tally + lad + btn + st + '<div id="ftMsg" style="font-size:11.5px;font-weight:700;"></div>';
+    return head + note + legs + pcts + tally + hedgeBox + lad + btn + st + '<div id="ftMsg" style="font-size:11.5px;font-weight:700;"></div>';
   }
   function ftRender() {
     var body = document.getElementById('modalBody');
@@ -5030,6 +5063,18 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   }
 
   // ---------- attach / detach ----------
+  // Hedge pre-flight per coin: perp exists? ≥5× leverage? mark price, funding,
+  // fees — fetched once per popup, displayed before any order is placed.
+  function ftHedgeInfo(plan) {
+    plan.hedgeInfo = plan.hedgeInfo || {};
+    var coins = [];
+    plan.acts.forEach(function (a) { if (a.side === 'hedge' && coins.indexOf(a.coin || plan.coin) < 0) coins.push(a.coin || plan.coin); });
+    coins.forEach(function (c) {
+      traderApi('/api/trader/hedge/info?coin=' + encodeURIComponent(c))
+        .then(function (info) { if (ft.plan === plan) { plan.hedgeInfo[c] = info; ftRender(); } })
+        .catch(function (e) { if (ft.plan === plan) { plan.hedgeInfo[c] = { hedgeOk: false, reason: e.message }; ftRender(); } });
+    });
+  }
   function ftAttach(plan) {
     ft.plan = plan;
     ft.lvl = null;
@@ -5038,6 +5083,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     ft.retries = 0;
     ftWatch(plan.coin);
     if (plan.coin2) ftWatch(plan.coin2);
+    ftHedgeInfo(plan);
     ftRender();
     clearInterval(ft.timer);
     if (plan.acts.length) { ftPoll(); ft.timer = setInterval(ftPoll, 2500); }
@@ -5067,6 +5113,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var body = { coin: a.coin || p.coin, action: a.action, pct: ft.pct, mode: ft.mode };
     if (ft.lvl != null) body.lvl = ft.lvl;
     else if (qty) body.qty = qty;
+    if (a.market) body.market = a.market; // which WazirX market (inr | usdt)
     if (a.action === 'loop') { body.coin = p.coin; body.coin2 = p.coin2; }
     ftShowPlacing(a.label, sz, isRetry ? 'books were warming — attempt ' + (ft.retries + 1) : '');
     try {
@@ -5076,10 +5123,15 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     } catch (e) {
       // Tapped inside the warm-up gap: the trader hasn't opened this coin's
       // stream yet. Books arrive in seconds — retry by itself, max 4 times.
+      // NB: compare by coin+kind, NOT object identity — the popup re-renders
+      // every 15s and replaces ft.plan, which used to kill this chain and
+      // freeze the overlay at "retrying (1/4)".
       if (/no live|no walkable|not enough depth|no depth/i.test(e.message || '') && ft.retries < 4) {
         ft.retries++;
         ftShowPlacing(a.label, sz, '◌ live books still warming — retrying in 3s (' + ft.retries + '/4)…');
-        setTimeout(function () { if (ft.plan === p) window.__ftFire(i, true); }, 3000);
+        setTimeout(function () {
+          if (ft.plan && ft.plan.kind === p.kind && ft.plan.coin === p.coin) window.__ftFire(ft.sel, true);
+        }, 3000);
         return;
       }
       ftShowFail(a.label, sz, e.message);
@@ -5113,29 +5165,50 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var acts = [];
     // Both legs of the arb, matching its direction (his rule 1). The legs
     // mirror the book's bars: red bar = the BUY side, green bar = the SELL.
-    var mk = function (side, ex, base) {
+    // `mktOf`: WHICH WazirX market this arb actually trades — USDT-pair arbs
+    // (NMR/USDT etc., often with NO INR market) fire on the coin/USDT book.
+    var mktOf = function (m) { return /usdt\s*$/i.test(String(m || '')) ? 'usdt' : 'inr'; };
+    var mk = function (side, ex, base, mktStr) {
+      var wm = ex === 'wazirx' ? mktOf(mktStr) : null;
       return {
-        action: side + '_' + ex, side: side, ex: ex, coin: entry.coin, base: base,
-        label: (side === 'buy' ? 'BUY ' : 'SELL ') + C + ' @' + (ex === 'binance' ? 'Binance spot' : 'WazirX'),
-        legLabel: '<span>' + (side === 'buy' ? '🟢 BUY' : '🔴 SELL') + '</span>' + exChip(ex),
+        action: side + '_' + ex, side: side, ex: ex, coin: entry.coin, base: base, market: wm,
+        label: (side === 'buy' ? 'BUY ' : 'SELL ') + C + ' @' + (ex === 'binance' ? 'Binance spot' : 'WazirX' + (wm === 'usdt' ? '·USDT mkt' : '')),
+        legLabel: '<span>' + (side === 'buy' ? '🟢 BUY' : '🔴 SELL') + '</span>' + exChip(ex) + (wm === 'usdt' ? '<span style="font-weight:700;color:#5b6472;">USDT</span>' : ''),
       };
     };
-    if (entry.buyExchange === 'wazirx') {
-      acts.push(mk('buy', 'wazirx', buyBase));
-      if (entry.sellExchange === 'binance') acts.push(mk('sell', 'binance', sellBase));
-    } else if (entry.buyExchange === 'binance' && entry.sellExchange === 'wazirx') {
-      acts.push(mk('buy', 'binance', buyBase));
-      acts.push(mk('sell', 'wazirx', sellBase));
-    } else {
-      if (entry.buyExchange === 'wazirx') acts.push(mk('buy', 'wazirx', buyBase));
-      if (entry.sellExchange === 'wazirx') acts.push(mk('sell', 'wazirx', sellBase));
-    }
+    // His update: Binance key is FUTURES-ONLY. The alerts stay WazirX spot vs
+    // Binance spot (untouched above) — but the executable second leg is now
+    // the HEDGE: short the coin's perp on Binance Futures.
+    var hedgeAct = function (c, base) {
+      return { action: 'hedge_binance', side: 'hedge', ex: 'binance', coin: c, base: base,
+        label: 'HEDGE ' + String(c).toUpperCase() + ' @Binance Futures (short)',
+        legLabel: '<span>🛡 HEDGE</span>' + exChip('binance') + '<span style="font-weight:700;color:#4653d0;">FUT</span>' };
+    };
+    // WHICH WazirX market? The live entry often lacks buyMarket/sellMarket —
+    // that is exactly how a CFX/USDT arb once fired on CFX-INR. The popup's
+    // own order-book legs always name the market, so they are the authority;
+    // the list fields and openCard are fallbacks.
+    var wzLegMkt = null;
+    try {
+      var lgs0 = entry.liveBooks && entry.liveBooks.legs;
+      if (Array.isArray(lgs0)) {
+        var wl = lgs0.find(function (l) { return l && l.exchange === 'wazirx' && l.market; });
+        if (wl) wzLegMkt = wl.market;
+      }
+    } catch (e) {}
+    var oc0 = getOpenCard();
+    var buyMkt = (entry.buyExchange === 'wazirx' ? (entry.buyMarket || oc0.buyMarket || wzLegMkt) : null);
+    var sellMkt = (entry.sellExchange === 'wazirx' ? (entry.sellMarket || wzLegMkt) : null);
+    if (entry.buyExchange === 'wazirx') acts.push(mk('buy', 'wazirx', buyBase, buyMkt));
+    if (entry.sellExchange === 'wazirx') acts.push(mk('sell', 'wazirx', sellBase, sellMkt));
+    if (acts.length) acts.push(hedgeAct(entry.coin, buyBase || sellBase));
     return {
-      kind: 'direct', coin: entry.coin, wantLadder: acts.some(function (a) { return a.action === 'buy_wazirx'; }),
+      kind: 'direct', coin: entry.coin,
+      wantLadder: acts.some(function (a) { return a.action === 'buy_wazirx' && a.market !== 'usdt'; }),
       acts: acts,
       note: acts.length
-        ? 'Pick a leg, then a size — % counts against THAT leg’s walked volume. The coin transfer between exchanges stays manual.'
-        : 'Neither leg of this pair trades on WazirX or Binance spot — nothing to fire here.',
+        ? 'Pick a leg, then a size — % counts against THAT leg’s walked volume. Alerts compare WazirX spot vs Binance spot; the HEDGE leg fires a SHORT on Binance FUTURES (needs the perp + ≥5× leverage). Coin transfers stay manual.'
+        : 'Neither leg of this pair trades on WazirX — nothing to fire here.',
     };
   });
   // openCard is a top-level `let` in the scanner script — it is NOT on window,
@@ -5192,18 +5265,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     try { le = (typeof loopLiveEntry !== 'undefined' && loopLiveEntry) || null; } catch (e) {}
     var q1 = legConsumed(le, function (l) { return l.exchange === 'wazirx' && mktHas(l, oc.coin1); });
     var q2 = legConsumed(le, function (l) { return l.exchange === 'wazirx' && mktHas(l, oc.coin2); });
-    // His correction: loop popups offer WazirX options ONLY.
+    // WazirX legs + the futures HEDGE for each coin ("same applicable to loop").
     var acts = [];
     if (wz) acts.push({ action: 'loop', side: 'chain', ex: 'wazirx', label: 'FULL LOOP ' + C1 + ' → ' + C2, legLabel: '<span>FULL LOOP</span>' + exChip('wazirx') });
     acts.push({ action: 'buy_wazirx', side: 'buy', ex: 'wazirx', coin: oc.coin1, base: q1, label: 'BUY ' + C1 + ' @WazirX', legLabel: '<span>🟢 BUY ' + C1 + '</span>' + exChip('wazirx') });
     acts.push({ action: 'sell_wazirx', side: 'sell', ex: 'wazirx', coin: oc.coin2, base: q2, label: 'SELL ' + C2 + ' @WazirX', legLabel: '<span>🔴 SELL ' + C2 + '</span>' + exChip('wazirx') });
+    acts.push({ action: 'hedge_binance', side: 'hedge', ex: 'binance', coin: oc.coin1, base: q1, label: 'HEDGE ' + C1 + ' @Binance Futures (short)', legLabel: '<span>🛡 HEDGE ' + C1 + '</span><span style="font-weight:700;color:#4653d0;">FUT</span>' });
+    acts.push({ action: 'hedge_binance', side: 'hedge', ex: 'binance', coin: oc.coin2, base: q2, label: 'HEDGE ' + C2 + ' @Binance Futures (short)', legLabel: '<span>🛡 HEDGE ' + C2 + '</span><span style="font-weight:700;color:#4653d0;">FUT</span>' });
     return {
       kind: 'loop', coin: oc.coin1, coin2: oc.coin2, wantLadder: wz,
       acts: acts,
       note: (wz
         ? 'FULL LOOP fires all four WazirX orders back to back. '
         : 'This rotation crosses exchanges — no one-tap chain. ')
-        + 'WazirX legs only, sized by the bars above: pick a leg, the % counts against that leg’s marked volume.',
+        + 'WazirX legs sized by the bars above; the HEDGE legs SHORT the coin’s perp on Binance FUTURES (needs the perp + ≥5× leverage).',
     };
   });
   var _cm = window.closeModal;
