@@ -4874,6 +4874,85 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     if (m) { m.textContent = t; m.style.color = bad ? 'var(--danger)' : 'var(--success)'; }
   }
 
+  // ---------- EXECUTION CONFIRMATION PAGE ----------
+  // Full-screen result after every Execute: placing → ✅ success with the
+  // REAL fills pulled from the trader's order record, or ❌ failure with the
+  // exact reason. Sits above the scanner modal; Done returns to it.
+  function ftOverlay() {
+    var el = document.getElementById('ftResult');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ftResult';
+      el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,18,34,.7);display:flex;align-items:center;justify-content:center;padding:16px;';
+      document.body.appendChild(el);
+    }
+    el.style.display = 'flex';
+    return el;
+  }
+  window.__ftCloseResult = function () { var el = document.getElementById('ftResult'); if (el) el.style.display = 'none'; };
+  function ftCard(inner) {
+    return '<div style="background:#fff;border-radius:16px;max-width:540px;width:100%;max-height:86vh;overflow:auto;padding:20px;box-shadow:0 18px 60px rgba(0,0,0,.4);" onclick="event.stopPropagation();">' + inner + '</div>';
+  }
+  function ftRow(k, v) {
+    return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid #eef1f6;">' +
+      '<span style="color:#5b6472;font-weight:600;white-space:nowrap;">' + k + '</span><span style="font-weight:800;text-align:right;word-break:break-word;">' + v + '</span></div>';
+  }
+  function ftBtns(retry) {
+    return '<div style="display:flex;gap:8px;margin-top:14px;">' +
+      (retry ? '<button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:none;background:#2b6ea3;color:#fff;cursor:pointer;">Try again</button>' : '') +
+      '<button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Done</button>' +
+    '</div>' +
+    '<a href="./trade.html" style="display:block;text-align:center;margin-top:10px;font-size:11.5px;font-weight:700;color:#2b6ea3;">Full order story → Auto Trader · Activity</a>';
+  }
+  var num = function (v, d) { return v == null || isNaN(Number(v)) ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 6 : d }); };
+  function ftShowPlacing(label, sz, extra) {
+    ftOverlay().innerHTML = ftCard(
+      '<div style="font-size:36px;text-align:center;">⏳</div>' +
+      '<div style="font-size:16px;font-weight:800;text-align:center;margin:6px 0 3px;">Placing order…</div>' +
+      '<div style="font-size:12px;font-weight:600;color:#5b6472;text-align:center;">' + label + ' · ' + sz + ' · ' + ft.mode.toUpperCase() + '</div>' +
+      (extra ? '<div style="font-size:12px;font-weight:700;color:#b7791f;text-align:center;margin-top:8px;">' + extra + '</div>' : ''));
+  }
+  function ftShowFail(label, sz, message) {
+    ftOverlay().innerHTML = ftCard(
+      '<div style="font-size:40px;text-align:center;">❌</div>' +
+      '<div style="font-size:17px;font-weight:800;text-align:center;color:#d33131;margin:4px 0 10px;">ORDER FAILED</div>' +
+      ftRow('What', label) + ftRow('Size', sz) + ftRow('Mode', ft.mode.toUpperCase()) +
+      ftRow('Reason', '<span style="color:#d33131;">' + message + '</span>') +
+      ftBtns(true));
+  }
+  async function ftShowDone(orderId, label, sz) {
+    var o = null;
+    try { o = await traderApi('/api/trader/orders/' + orderId); } catch (e) { /* record fetch failed — still confirm */ }
+    var status = String((o && o.status) || 'done').toLowerCase();
+    var ok = (o ? o.ok !== false : true) && ['done', 'hedged_open'].indexOf(status) >= 0;
+    var soft = ['missed', 'skipped'].indexOf(status) >= 0; // not a failure, nothing happened
+    var r = (o && o.result) || {};
+    var hero = ok
+      ? '<div style="font-size:40px;text-align:center;">✅</div><div style="font-size:17px;font-weight:800;text-align:center;color:#177a4c;margin:4px 0 10px;">ORDER EXECUTED</div>'
+      : soft
+        ? '<div style="font-size:40px;text-align:center;">⚠️</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">NOT FILLED — NOTHING PLACED</div>'
+        : '<div style="font-size:40px;text-align:center;">❌</div><div style="font-size:17px;font-weight:800;text-align:center;color:#d33131;margin:4px 0 10px;">ORDER FAILED</div>';
+    var rows = ftRow('What', (o && o.path_label) || label) + ftRow('Mode', String((o && o.mode) || ft.mode).toUpperCase()) +
+      ftRow('Status', status.toUpperCase()) + ftRow('Order #', orderId);
+    if (r.qty != null) rows += ftRow('Filled', num(r.qty) + (r.avgPrice != null ? ' @ ' + num(r.avgPrice, 8) : ''));
+    if (r.costInr != null) rows += ftRow('Put in', '₹' + num(r.costInr, 2));
+    if (r.proceedsInr != null) rows += ftRow('Received', '₹' + num(r.proceedsInr, 2));
+    if (r.usdt != null) rows += ftRow('USDT value', num(r.usdt, 2) + ' USDT');
+    if (r.expectInr != null) rows += ftRow('Back', '₹' + num(r.expectInr, 2));
+    if (r.profitInr != null || (o && o.profit_inr != null && Number(o.profit_inr) !== 0)) {
+      var pf = r.profitInr != null ? r.profitInr : o.profit_inr;
+      rows += ftRow('Profit', '<span style="color:' + (pf >= 0 ? '#177a4c' : '#d33131') + ';">₹' + num(pf, 2) + '</span>');
+    }
+    if (Array.isArray(r.fills)) {
+      r.fills.forEach(function (f) {
+        rows += ftRow('Leg ' + f.leg + ' · ' + String(f.side || '').toUpperCase() + ' ' + (f.symbol || ''), num(f.qty) + ' @ ' + num(f.price != null ? f.price : f.avgPrice, 8));
+      });
+    }
+    if (!ok && o && o.error) rows += ftRow(soft ? 'Why' : 'Reason', '<span style="color:' + (soft ? '#b7791f' : '#d33131') + ';">' + o.error + '</span>');
+    if (r.note) rows += '<div style="font-size:11.5px;font-weight:600;color:#5b6472;margin-top:9px;line-height:1.5;">' + r.note + '</div>';
+    ftOverlay().innerHTML = ftCard(hero + rows + ftBtns(!ok));
+  }
+
   // ---------- trader poll (while a modal is open) ----------
   // Watches the trader until the pinned coin's live books arrive (→ ready),
   // and pulls the depth ladder for the panels that show one.
@@ -4958,20 +5037,21 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     if (ft.lvl != null) body.lvl = ft.lvl;
     else if (qty) body.qty = qty;
     if (a.action === 'loop') { body.coin = p.coin; body.coin2 = p.coin2; }
-    ftMsg('placing…');
+    ftShowPlacing(a.label, sz, isRetry ? 'books were warming — attempt ' + (ft.retries + 1) : '');
     try {
       var r = await ftPost('/api/trader/manual', body);
-      ftMsg('✅ done — order #' + (r.id || '?') + ' · full story in Auto Trader → Activity');
+      if (r && r.id) { ftShowDone(r.id, a.label, sz); ftMsg(''); }
+      else ftShowFail(a.label, sz, (r && r.error) || 'no result from the trader');
     } catch (e) {
       // Tapped inside the warm-up gap: the trader hasn't opened this coin's
       // stream yet. Books arrive in seconds — retry by itself, max 4 times.
-      if (/no live|no walkable|not enough depth/i.test(e.message || '') && ft.retries < 4) {
+      if (/no live|no walkable|not enough depth|no depth/i.test(e.message || '') && ft.retries < 4) {
         ft.retries++;
-        ftMsg('◌ books still warming — retrying in 3s (' + ft.retries + '/4)…');
+        ftShowPlacing(a.label, sz, '◌ live books still warming — retrying in 3s (' + ft.retries + '/4)…');
         setTimeout(function () { if (ft.plan === p) window.__ftFire(i, true); }, 3000);
         return;
       }
-      ftMsg('❌ ' + e.message, true);
+      ftShowFail(a.label, sz, e.message);
     }
   };
 
