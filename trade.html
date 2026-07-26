@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v9 · full scanner + depth analysis
+     SWENIK AUTO TRADER — v10 · scanner clone
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -296,6 +296,28 @@
   .scan-edges { display:flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; color:var(--gray-500); }
   .scan-vol { font-size:10px; color:var(--gray-500); font-weight:600; margin-left:auto; }
   .scan-go { font-size:10.5px; font-weight:800; color:var(--accent); white-space:nowrap; }
+  /* ===== scanner-clone cards: BUY/CONVERT/SELL rows + green Arbitrage bar ===== */
+  .sc-hd { padding:13px 14px 4px; }
+  .sc-title { display:flex; align-items:center; gap:8px; font-size:16.5px; font-weight:800; color:var(--gray-900); margin-bottom:9px; }
+  .sc-title .sc-chips { margin-left:auto; display:flex; gap:5px; }
+  .sc-chip { font-size:8.5px; font-weight:800; letter-spacing:.04em; padding:3px 8px; border-radius:999px; background:#eef1ff; color:#4653d0; text-transform:uppercase; }
+  .sc-chip.grn { background:#e7f6ee; color:#177a4c; }
+  .sc-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--gray-100); }
+  .sc-tag { font-size:10.5px; font-weight:800; min-width:52px; }
+  .sc-tag.buy { color:var(--success); } .sc-tag.sell { color:var(--danger); } .sc-tag.conv { color:#4653d0; }
+  .sc-mid { min-width:0; }
+  .sc-qty { font-size:13px; font-weight:800; color:var(--gray-900); font-variant-numeric:tabular-nums; }
+  .sc-sub { font-size:10.5px; font-weight:600; color:var(--gray-500); font-variant-numeric:tabular-nums; }
+  .sc-venue { margin-left:auto; text-align:right; font-size:11.5px; font-weight:800; color:var(--gray-800); white-space:nowrap; }
+  .sc-venue span { display:block; font-size:9.5px; font-weight:600; color:var(--gray-500); }
+  .sc-arb { display:flex; align-items:center; gap:8px; margin:6px -14px -13px; padding:11px 14px; border-radius:0 0 15px 15px; }
+  .livecard.open .sc-arb { border-radius:0; margin-bottom:0; }
+  .sc-arb.pos { background:linear-gradient(90deg,#22a06b,#1c8a5c); }
+  .sc-arb.neg { background:linear-gradient(90deg,#5b6472,#4a5260); }
+  .sc-arb-lb { font-size:9.5px; font-weight:800; letter-spacing:.06em; color:rgba(255,255,255,.85); text-transform:uppercase; }
+  .sc-arb-val { font-size:15px; font-weight:800; color:#fff; font-variant-numeric:tabular-nums; }
+  .sc-arb-go { margin-left:auto; background:#fff; color:var(--gray-900); font-size:11px; font-weight:800; padding:7px 13px; border-radius:999px; }
+  .sc-meta { font-size:10.5px; font-weight:600; color:var(--gray-500); padding:6px 0 9px; }
   .execwrap { margin-top:4px; }
   .execrow { margin-bottom:10px; }
   .execrow-hd { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:800; margin-bottom:6px; }
@@ -536,7 +558,7 @@
     </div>
     <div>
       <h1>SWENIK Fast Trader</h1>
-      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v9 · full scanner + depth analysis</span></div>
+      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v10 · scanner clone</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -1729,7 +1751,51 @@ function scanPairRows(shownPairs) {
     }).join('');
 }
 
-// ---------------- DIRECT (spot vs perp) ----------------
+// ---------------- SCANNER-CLONE CARD PIECES ----------------
+// The scanner's card, recreated: a BUY row, a CONVERT/SELL row per leg, then
+// the big green Arbitrage bar with the % and rupees. Tapping anywhere opens
+// the detail (books + ladder + Execute) right below — no app switching.
+function scRow(tag, qty, sub, venue, market) {
+  const cls = tag === 'BUY' ? 'buy' : tag === 'SELL' ? 'sell' : 'conv';
+  return '<div class="sc-row">' +
+    '<div class="sc-tag ' + cls + '">' + tag + '</div>' +
+    '<div class="sc-mid"><div class="sc-qty">' + qty + '</div><div class="sc-sub">' + sub + '</div></div>' +
+    '<div class="sc-venue">' + venue + '<span>' + market + '</span></div>' +
+  '</div>';
+}
+function scArb(pct, inr, open) {
+  const has = pct != null && pct > -900;
+  return '<div class="sc-arb ' + (has && pct >= 0 ? 'pos' : 'neg') + '">' +
+    '<span class="sc-arb-lb">Arbitrage</span>' +
+    '<span class="sc-arb-val">' + (has ? (pct > 0 ? '+' : '') + pct.toFixed(2) + '%' + (inr != null ? ' (' + fmtInr2(inr) + ')' : '') : '—') + '</span>' +
+    '<span class="sc-arb-go">' + (open ? 'Close' : 'Execute →') + '</span>' +
+  '</div>';
+}
+function scTitle(title, chips) {
+  return '<div class="sc-title">' + esc(title) +
+    '<span class="sc-chips">' + chips.map(c => '<span class="sc-chip' + (c[1] ? ' grn' : '') + '">' + esc(c[0]) + '</span>').join('') + '</span>' +
+  '</div>';
+}
+
+// Direct scan rows: the whole market's WazirX↔Binance SPOT arb, both ways.
+function scanRowsDirect(shownCoins) {
+  const ranked = (liveScan.ranked || []).filter(c => (c.dirBuy != null || c.dirSell != null) && !shownCoins.has(c.coin))
+    .sort((a, b) => Math.max(b.dirBuy ?? -999, b.dirSell ?? -999) - Math.max(a.dirBuy ?? -999, a.dirSell ?? -999));
+  if (!ranked.length) return '';
+  return '<div class="scanhead">FULL MARKET SCAN — WazirX ⇄ Binance spot, <b>' + (liveScan.universe || ranked.length) + '</b> coins, refreshed every second. ' +
+      'W→B = buy WazirX, sell Binance · B→W = reverse. Tap a coin for full books and exact numbers.</div>' +
+    ranked.map(c => {
+      const warm = warming.has(c.coin);
+      return '<div class="scanrow' + (warm ? ' warm' : '') + '" onclick="watchCoin(\'' + c.coin + '\')">' +
+        '<span class="scan-coin">' + esc(c.coin.toUpperCase()) + '</span>' +
+        '<span class="scan-edges">W→B ' + edgePill(c.dirBuy, 'buy') + ' · B→W ' + edgePill(c.dirSell, 'sell') + '</span>' +
+        '<span class="scan-vol">' + (c.volInr ? 'vol ' + fmtInr(c.volInr) : '') + '</span>' +
+        '<span class="scan-go">' + (warm ? 'loading books…' : 'Open →') + '</span>' +
+      '</div>';
+    }).join('');
+}
+
+// ---------------- DIRECT (WazirX spot vs Binance SPOT) ----------------
 function execPreview(o) {
   if (!activeExec || activeExec.coin !== o.coin || !actSide[activeExec.action]) return '';
   const C = o.coin.toUpperCase();
@@ -1779,20 +1845,20 @@ function manualPanel(o) {
     if (activeExec.side === 'perpBids') tPerpBid = taken;
   }
   return '<div class="mexec">' +
-    obBanner('Buy ' + C + ' with rupees on WazirX and short the same size on the Binance ' + C + ' perp — market-neutral the moment both legs fill. The books below are the two markets you trade, plus the USDT/INR book that turns the perp price into rupees.') +
-    dirRow(o.buyPlan, 'INR → ' + C + ' @WazirX → short ' + C + ' perp @Binance',
+    obBanner('The scanner\'s direct arb: buy ' + C + ' with rupees on WazirX, move it to Binance, sell it for USDT there — Execute below fires ONLY the instant WazirX leg; the transfer and the Binance spot sale stay manual for now. If you want cover meanwhile, short the perp yourself in the Binance app.') +
+    dirRow(o.buyPlan, 'INR → ' + C + ' @WazirX → sell ' + C + ' @Binance spot → INR',
       o.buyPlan ? 'max ' + fmtSz(o.buyPlan.qty) + ' ' + C + ' walkable' : '', false) +
+    (o.sellEdgePct != null ? '<div class="sc-meta">Reverse route (buy @Binance → sell @WazirX): <b>' + (o.sellEdgePct > 0 ? '+' : '') + o.sellEdgePct.toFixed(2) + '%</b> at top of book.</div>' : '') +
     (o.buyPlan ? ladderTable(o.coin, 'buy_wazirx', o.buyPlan.ladder, false) : '') +
     obLegend('trade') +
     bookGrid([
       { venue: 'WAZIRX', sym: o.coin + 'inr', asks: o.wzxAsks, bids: o.wzxBids, cur: '₹', tAsk: tWzxAsk, tBid: tWzxBid },
-      { venue: 'BINANCE', sym: o.coin + 'usdt perp', asks: o.perpAsks, bids: o.perpBids, cur: '', tBid: tPerpBid },
+      { venue: 'BINANCE', sym: o.coin + 'usdt spot', asks: o.perpAsks, bids: o.perpBids, cur: '', tBid: tPerpBid },
       { venue: 'WAZIRX', sym: 'usdtinr', asks: liveUsdtAsks, bids: liveUsdtBids, cur: '₹' },
     ]) +
     '<div class="execwrap">' +
       '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">BUY</span> Buy ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of ask depth</span></div>' + pctChips(o.coin, 'buy_wazirx', 'buy', false) + '</div>' +
       '<div class="execrow"><div class="execrow-hd"><span class="mtag sell">SELL</span> Sell ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of bid depth' + (held > 0 ? ', hold ' + fmtSz(held) : ' (buy first)') + '</span></div>' + pctChips(o.coin, 'sell_wazirx', 'sell', noHold) + '</div>' +
-      '<div class="execrow"><div class="execrow-hd"><span class="mtag hedge">HEDGE</span> Short ' + C + ' @Binance <span class="hint" style="font-weight:600;">— % of perp depth' + (held > 0 ? '' : ' (buy first)') + ' · needs the Binance futures key, coming later</span></div>' + pctChips(o.coin, 'hedge_binance', 'hedge', noHold) + '</div>' +
       execPreview(o) +
     '</div>' +
     '<div class="hint" style="margin-top:8px;">Pick a leg and how deep to walk the book — the consumed levels light up above. Sandbox fills instantly; live mode confirms first.</div>' +
@@ -1981,7 +2047,7 @@ function renderLiveList() {
 
   const hint = $('liveHint');
   if (hint) {
-    const what = liveSeg === 'direct' ? 'Buy the coin on WazirX and short the same coin\'s perp on Binance — market-neutral, needs both keys.'
+    const what = liveSeg === 'direct' ? 'Buy the coin on WazirX, sell the same coin on Binance spot — the scanner\'s direct arb. Execute fires the WazirX leg instantly; the transfer + Binance sale stay manual for now.'
       : liveSeg === 'loop' ? 'INR → coin1 → USDT → coin2 → INR. Four orders, all on WazirX, one key, no transfers.'
       : 'INR → coin → USDT → INR. Three orders, all on WazirX, one key, no transfers.';
     const watching = (liveOpps.length
@@ -2004,7 +2070,8 @@ function bestAvailable(seg) {
   const score = seg === 'intra' ? bestIntra : bestDirect;
   return liveOpps.reduce((m, o) => Math.max(m, score(o)), -999);
 }
-function emptyMsg(box, what) {
+function emptyMsg(box, what) { setList(box, emptyHtml(what)); }
+function emptyHtml(what) {
   const best = bestAvailable(liveSeg);
   let tail;
   if (!liveTs) {
@@ -2022,8 +2089,8 @@ function emptyMsg(box, what) {
         '<button class="fbtn" id="emAll" onclick="setLiveMin(-99)">Show everything</button>' +
       '</div>';
   }
-  setList(box, '<div class="empty">No ' + what + ' at or above ' + liveMin + '% right now.<br>' +
-    '<span style="font-size:11.5px;">' + tail + '</span></div>');
+  return '<div class="empty">No ' + what + ' at or above ' + liveMin + '% right now.<br>' +
+    '<span style="font-size:11.5px;">' + tail + '</span></div>';
 }
 // The list re-renders every 2.2s. Blindly reassigning innerHTML destroys and
 // recreates every button on each poll — and a tap that lands in that gap is
@@ -2036,22 +2103,28 @@ function setList(box, html) {
   box.innerHTML = html;
 }
 function renderDirectCards(box, items) {
-  if (!items.length) return emptyMsg(box, 'direct arbs');
-  setList(box, items.map(o => {
+  const scan = scanRowsDirect(new Set(items.map(o => o.coin)));
+  if (!items.length && !scan) return emptyMsg(box, 'direct arbs');
+  const lead = items.length ? '' : emptyHtml('direct arbs');
+  setList(box, lead + items.map(o => {
     const open = liveExpanded.has('direct:' + o.coin);
+    const C = o.coin.toUpperCase();
+    const p = o.buyPlan;
+    // scanner card: BUY on WazirX, SELL on Binance spot, then the arb bar
+    const rows = p
+      ? scRow('BUY', fmtSz(p.qty) + ' ' + C, fmtInr(p.costInr) + ' · @ ₹' + fmtP(o.wzxAsk), 'Wazirx', 'INR Market') +
+        scRow('SELL', fmtSz(p.qty) + ' ' + C, fmtInr(p.expectInr) + ' · @ ' + fmtP(o.perpBid), 'Binance', 'USDT Market · spot')
+      : scRow('BUY', C, 'no walkable ask depth right now', 'Wazirx', 'INR Market');
     return '<div class="livecard ' + (open ? 'open' : '') + '" id="live_' + o.coin + '">' +
-      '<div class="livecard-hd" onclick="toggleLive(\'direct:' + o.coin + '\')">' +
-        '<div class="livecard-top">' +
-          '<span class="caret">▶</span>' +
-          '<span class="live-coin">' + esc(o.coin.toUpperCase()) + '</span>' +
-          'buy ' + edgePill(o.buyEdgePct, 'buy') + ' · sell ' + edgePill(o.sellEdgePct, 'sell') +
-          '<span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);">' + (open ? 'Close' : 'Execute →') + '</span>' +
-        '</div>' +
-        '<div class="live-meta num">WazirX <b>₹' + fnum(o.wzxBid, 4) + '</b>/<b>₹' + fnum(o.wzxAsk, 4) + '</b> · perp <b>' + fnum(o.perpBid, 5) + '</b> · basis <b>' + o.basisPct + '%</b> · funding <b>' + fmtFund(o.funding) + '</b>' + (o.held > 0 ? ' · hold <b>' + fmtSz(o.held) + '</b>' : '') + '</div>' +
+      '<div class="livecard-hd sc-hd" onclick="toggleLive(\'direct:' + o.coin + '\')">' +
+        scTitle(C + ' / INR', [['Direct', false], ['Wazirx ⇄ Binance', true]]) +
+        rows +
+        (o.sellEdgePct != null ? '<div class="sc-meta">reverse (buy @Binance → sell @WazirX) <b>' + (o.sellEdgePct > 0 ? '+' : '') + o.sellEdgePct.toFixed(2) + '%</b>' + (o.held > 0 ? ' · hold ' + fmtSz(o.held) : '') + '</div>' : '') +
+        scArb(bestDirect(o), p && bestDirect(o) === o.buyEdgePct ? p.profitInr : null, open) +
       '</div>' +
       (open ? manualPanel(o) : '') +
     '</div>';
-  }).join(''));
+  }).join('') + scan);
 }
 function renderIntraCards(box, items) {
   // cards for the coins with full 100ms books, then the FULL-MARKET scan —
@@ -2065,15 +2138,17 @@ function renderIntraCards(box, items) {
     const C = esc(o.coin.toUpperCase());
     const a = o.intraA ? o.intraA.netPct : null, b = o.intraB ? o.intraB.netPct : null;
     const bestP = o.intraA && o.intraB ? (a >= b ? o.intraA : o.intraB) : (o.intraA || o.intraB);
+    const other = bestP === o.intraA ? b : a;
+    // scanner card: one row per leg of the better direction (BUY → CONVERT → SELL)
+    const rows = bestP ? bestP.legs.map((l, i) =>
+      scRow(i === 0 ? 'BUY' : i === bestP.legs.length - 1 ? 'SELL' : 'CONVERT',
+        esc(l.what), '@ ' + (l.cur || '') + fmtP(l.price), 'Wazirx', (/INR/.test(l.what) ? 'INR' : 'USDT') + ' Market')).join('') : '';
     return '<div class="livecard ' + (open ? 'open' : '') + '" id="live_intra_' + o.coin + '">' +
-      '<div class="livecard-hd" onclick="toggleLive(\'intra:' + o.coin + '\')">' +
-        '<div class="livecard-top">' +
-          '<span class="caret">▶</span>' +
-          '<span class="live-coin">' + C + '</span>' +
-          'A ' + edgePill(a, 'buy') + ' · B ' + edgePill(b, 'sell') +
-          '<span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);">' + (open ? 'Close' : 'Execute →') + '</span>' +
-        '</div>' +
-        '<div class="live-meta num">A: INR → ' + C + ' → USDT → INR · B: reverse · best <b>' + fmtInr(bestP ? bestP.profitInr : null) + '</b> on <b>' + fmtInr(bestP ? bestP.costInr : null) + '</b></div>' +
+      '<div class="livecard-hd sc-hd" onclick="toggleLive(\'intra:' + o.coin + '\')">' +
+        scTitle('INR → ' + (bestP === o.intraB ? 'USDT → ' + C : C + ' → USDT') + ' → INR', [['Intra Loop', false], ['Wazirx', true]]) +
+        rows +
+        '<div class="sc-meta">in <b>' + fmtInr(bestP ? bestP.costInr : null) + '</b> · profit <b>' + fmtInr2(bestP ? bestP.profitInr : 0) + '</b> · instant, no transfer' + (other != null ? ' · reverse ' + (other > 0 ? '+' : '') + other.toFixed(2) + '%' : '') + '</div>' +
+        scArb(bestP ? bestP.netPct : null, bestP ? bestP.profitInr : null, open) +
       '</div>' +
       (open ? intraPanel(o) : '') +
     '</div>';
@@ -2087,15 +2162,16 @@ function renderLoopCards(box, items) {
   setList(box, lead + items.map(l => {
     const id = 'loop:' + l.c1 + ':' + l.c2;
     const open = liveExpanded.has(id);
+    // scanner card: all four legs of the rotation as BUY/CONVERT/SELL rows
+    const rows = (l.legs || []).map((g, i) =>
+      scRow(i === 0 ? 'BUY' : i === l.legs.length - 1 ? 'SELL' : 'CONVERT',
+        esc(g.what), '@ ' + (g.cur || '') + fmtP(g.price), 'Wazirx', (/INR/.test(g.what) ? 'INR' : 'USDT') + ' Market')).join('');
     return '<div class="livecard ' + (open ? 'open' : '') + '">' +
-      '<div class="livecard-hd" onclick="toggleLive(\'' + id + '\')">' +
-        '<div class="livecard-top">' +
-          '<span class="caret">▶</span>' +
-          '<span class="live-coin">' + esc(l.c1.toUpperCase()) + ' → ' + esc(l.c2.toUpperCase()) + '</span>' +
-          edgePill(l.netPct, 'buy', true) +
-          '<span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);">' + (open ? 'Close' : 'Execute →') + '</span>' +
-        '</div>' +
-        '<div class="live-meta num">' + esc(l.path) + ' · in <b>' + fmtInr(l.costInr) + '</b> · profit <b>' + fmtInr(l.profitInr) + '</b></div>' +
+      '<div class="livecard-hd sc-hd" onclick="toggleLive(\'' + id + '\')">' +
+        scTitle(l.c1.toUpperCase() + ' → ' + l.c2.toUpperCase(), [['Loop', false], ['Wazirx', true]]) +
+        rows +
+        '<div class="sc-meta">' + esc(l.path) + ' · in <b>' + fmtInr(l.costInr) + '</b> · profit <b>' + fmtInr2(l.profitInr) + '</b> · instant, no transfer</div>' +
+        scArb(l.netPct, l.profitInr, open) +
       '</div>' +
       (open ? loopPanel(l) : '') +
     '</div>';
