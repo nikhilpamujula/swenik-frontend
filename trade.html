@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v8 · full scanner detail view
+     SWENIK AUTO TRADER — v9 · full scanner + depth analysis
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -274,6 +274,28 @@
   table.obgrid tr.kk-spread-row td.obg-spread-v { text-align:right; }
   table.obgrid td.obg-pad { background:#fff !important; }
   table.obgrid td.obg-gap, table.obgrid th.obg-gap { padding:0 5px; background:#fff !important; border-left:1px solid var(--border); }
+  /* depth analysis ladder — "till level k you get this %" */
+  .dl-title { font-size:11px; font-weight:800; color:var(--gray-700); margin:10px 0 5px; text-transform:uppercase; letter-spacing:.03em; }
+  table.dladder { width:100%; border-collapse:collapse; font-size:11.5px; border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:10px; }
+  table.dladder th { background:var(--gray-100); color:var(--gray-500); font-size:9.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:5px 8px; text-align:right; }
+  table.dladder th:first-child { text-align:left; }
+  table.dladder td { padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums; border-top:1px solid var(--gray-100); font-weight:600; color:var(--gray-800); }
+  table.dladder td.dl-lvl { text-align:left; font-weight:800; color:var(--gray-500); }
+  tr.dlrow { cursor:pointer; }
+  tr.dlrow.good td.dl-pct { color:var(--success); font-weight:800; }
+  tr.dlrow.bad td.dl-pct { color:var(--danger); font-weight:800; }
+  tr.dlrow.sel td { background:var(--accent-soft); }
+  tr.dlrow.sel td.dl-lvl { color:var(--accent-600); }
+  /* full-market scan list — the scanner clone rows */
+  .scanhead { font-size:11px; font-weight:700; color:var(--gray-600); margin:14px 2px 7px; line-height:1.5; }
+  .scanhead b { color:var(--gray-800); }
+  .scanrow { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--border); border-radius:11px; padding:9px 12px; margin-bottom:7px; cursor:pointer; }
+  .scanrow:active { background:var(--gray-100); }
+  .scanrow.warm { border-color:var(--accent-line); background:var(--accent-soft); }
+  .scan-coin { font-weight:800; font-size:12.5px; min-width:52px; }
+  .scan-edges { display:flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; color:var(--gray-500); }
+  .scan-vol { font-size:10px; color:var(--gray-500); font-weight:600; margin-left:auto; }
+  .scan-go { font-size:10.5px; font-weight:800; color:var(--accent); white-space:nowrap; }
   .execwrap { margin-top:4px; }
   .execrow { margin-bottom:10px; }
   .execrow-hd { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:800; margin-bottom:6px; }
@@ -514,7 +536,7 @@
     </div>
     <div>
       <h1>SWENIK Fast Trader</h1>
-      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v8 · full scanner detail view</span></div>
+      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v9 · full scanner + depth analysis</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -1443,8 +1465,14 @@ let liveOpps = [], liveLoops = [], liveRate = null, liveTs = 0;
 // the USDT/INR book — the third market every triangle actually routes through,
 // and the one the old panel never showed
 let liveUsdtAsks = [], liveUsdtBids = [];
+// full-market quick scan: EVERY WazirX coin the scout sees, once a second.
+// This is the scanner clone — coarse top-of-book edges for the whole universe;
+// tapping a row promotes the coin into the 100ms hot set for exact numbers.
+let liveScan = { at: 0, universe: 0, ranked: [] };
 const oppOf = (coin) => liveOpps.find(o => o.coin === coin) || null;
 const liveExpanded = new Set();
+const warming = new Map();   // coin -> seg it was tapped from (awaiting full books)
+const pairWarm = new Map();  // 'c1:c2' -> ts (loop pair awaiting books)
 const fnum = (n, d) => n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 4 : d });
 const fmtFund = (f) => f == null ? '—' : f + '%';
 let manualMode = 'paper'; // prod: manual orders default to paper until you flip
@@ -1485,7 +1513,19 @@ async function refreshLive() {
   liveRate = data.rate == null ? null : data.rate;
   liveUsdtAsks = data.usdtAsks || [];
   liveUsdtBids = data.usdtBids || [];
+  if (data.scan && data.scan.ranked && data.scan.ranked.length) liveScan = data.scan;
   liveTs = data.ts || 0;
+  // a tapped scan coin's full books just arrived → pop its card open
+  for (const [coin, seg] of warming) {
+    if (!oppOf(coin)) continue;
+    warming.delete(coin);
+    liveExpanded.add((seg === 'direct' ? 'direct:' : 'intra:') + coin);
+  }
+  for (const key of pairWarm.keys()) {
+    const [c1, c2] = key.split(':');
+    if (liveLoops.some(l => l.c1 === c1 && l.c2 === c2)) { pairWarm.delete(key); liveExpanded.add('loop:' + key); }
+    else if (Date.now() - pairWarm.get(key) > 30000) pairWarm.delete(key); // pair never surfaced — stop showing "loading"
+  }
   renderLiveList();
 }
 
@@ -1493,9 +1533,11 @@ async function refreshLive() {
 const bestDirect = (o) => Math.max(o.buyEdgePct == null ? -999 : o.buyEdgePct, o.sellEdgePct == null ? -999 : o.sellEdgePct);
 const bestIntra = (o) => Math.max(o.intraA ? o.intraA.netPct : -999, o.intraB ? o.intraB.netPct : -999);
 const passes = (pct) => pct > -900 && pct >= liveMin;
-function directItems() { return liveOpps.filter(o => passes(bestDirect(o))).sort((a, b) => bestDirect(b) - bestDirect(a)); }
-function intraItems() { return liveOpps.filter(o => passes(bestIntra(o))).sort((a, b) => bestIntra(b) - bestIntra(a)); }
-function loopItems() { return liveLoops.filter(l => passes(l.netPct)); } // already sorted server-side
+// A card you have OPEN always stays visible, filter or not — tapping a coin in
+// the scan list must never end in "the card you asked for is hidden".
+function directItems() { return liveOpps.filter(o => passes(bestDirect(o)) || liveExpanded.has('direct:' + o.coin)).sort((a, b) => bestDirect(b) - bestDirect(a)); }
+function intraItems() { return liveOpps.filter(o => passes(bestIntra(o)) || liveExpanded.has('intra:' + o.coin)).sort((a, b) => bestIntra(b) - bestIntra(a)); }
+function loopItems() { return liveLoops.filter(l => passes(l.netPct) || liveExpanded.has('loop:' + l.c1 + ':' + l.c2)); } // already sorted server-side
 
 function edgePill(pct, kind, big) {
   if (pct == null || pct <= -900) return '<span class="edge-pill flat' + (big ? ' big' : '') + '">—</span>';
@@ -1597,13 +1639,104 @@ function bookGrid(cols) {
 // server re-walks at execution time, so this is a preview, not a promise.
 const scaleTaken = (arr, f) => (arr && arr.length ? arr.map(v => v * f) : null);
 
+// ---------------- DEPTH ANALYSIS LADDER ----------------
+// "If you trade till book level 2 you get this %, till level 3 this %" —
+// cumulative outcome per depth level, straight from the server's coupled
+// walk. Tapping a row ARMS execution at exactly that volume: the tap sends
+// `lvl` to the server, which re-walks the same cutoff on the live books.
+function ladderTable(key, action, ladder, disabled) {
+  if (!ladder || !ladder.length) return '';
+  const on = (k) => activeExec && activeExec.key === key && activeExec.action === action && activeExec.lvl === k;
+  return '<div class="dl-title">Depth analysis — trade till book level…</div>' +
+    '<table class="dladder"><thead><tr><th>Level</th><th>Net %</th><th>Put in</th><th>Profit</th><th>Volume</th></tr></thead><tbody>' +
+    ladder.map(r =>
+      '<tr class="dlrow ' + (r.netPct >= 0 ? 'good' : 'bad') + (on(r.lvl) ? ' sel' : '') + '"' +
+        (disabled ? '' : ' onclick="event.stopPropagation();pickLvl(\'' + key + '\',\'' + action + '\',' + r.lvl + ')"') + '>' +
+        '<td class="dl-lvl">' + (on(r.lvl) ? '▶ ' : '') + 'Lv ' + r.lvl + '</td>' +
+        '<td class="dl-pct">' + (r.netPct > 0 ? '+' : '') + r.netPct.toFixed(2) + '%</td>' +
+        '<td>' + fmtInr(r.costInr) + '</td>' +
+        '<td>' + fmtInr2(r.profitInr) + '</td>' +
+        '<td>' + fmtSz(r.qty) + '</td>' +
+      '</tr>').join('') +
+    '</tbody></table>';
+}
+const ladderRow = (plan, lvl) => (plan && plan.ladder ? plan.ladder.find(r => r.lvl === lvl) || null : null);
+
+// ---------------- FULL-MARKET SCAN (the scanner clone) ----------------
+// Every WazirX coin, ranked best-edge-first from the 1-second all-market
+// ticker. Coarse by design — tap a row and the server promotes the coin into
+// the 100ms hot set; the full card (books, exact plans, ladder) opens itself
+// the moment the depth arrives (a few seconds).
+async function watchCoin(coin) {
+  if (oppOf(coin)) { // already hot — just open the card in this tab
+    liveExpanded.add((liveSeg === 'direct' ? 'direct:' : 'intra:') + coin);
+    renderLiveList();
+  } else {
+    warming.set(coin, liveSeg);
+    renderLiveList();
+  }
+  try { await apiJson('/api/trader/watch', { method: 'POST', body: JSON.stringify({ coin }) }); }
+  catch (e) { warming.delete(coin); toast('Failed: ' + e.message); }
+}
+async function watchPair(c1, c2) {
+  pairWarm.set(c1 + ':' + c2, Date.now());
+  renderLiveList();
+  try {
+    await apiJson('/api/trader/watch', { method: 'POST', body: JSON.stringify({ coin: c1 }) });
+    await apiJson('/api/trader/watch', { method: 'POST', body: JSON.stringify({ coin: c2 }) });
+  } catch (e) { pairWarm.delete(c1 + ':' + c2); toast('Failed: ' + e.message); }
+}
+function scanRows(shownCoins) {
+  const ranked = liveScan.ranked || [];
+  if (!ranked.length) return '';
+  const rows = ranked.filter(c => !shownCoins.has(c.coin));
+  if (!rows.length) return '';
+  return '<div class="scanhead">FULL MARKET SCAN — <b>' + (liveScan.universe || ranked.length) + '</b> WazirX coins, refreshed every second. ' +
+      'Top-of-book estimate (A = INR → coin → USDT → INR, B = reverse) — tap a coin for full books and exact depth-walked numbers.</div>' +
+    rows.map(c => {
+      const warm = warming.has(c.coin);
+      return '<div class="scanrow' + (warm ? ' warm' : '') + '" onclick="watchCoin(\'' + c.coin + '\')">' +
+        '<span class="scan-coin">' + esc(c.coin.toUpperCase()) + '</span>' +
+        '<span class="scan-edges">A ' + edgePill(c.buyEdge, 'buy') + ' · B ' + edgePill(c.sellEdge, 'sell') + '</span>' +
+        '<span class="scan-vol">' + (c.volInr ? 'vol ' + fmtInr(c.volInr) : '') + '</span>' +
+        '<span class="scan-go">' + (warm ? 'loading books…' : 'Open →') + '</span>' +
+      '</div>';
+    }).join('');
+}
+// Loop candidates across the WHOLE market: best "INR → c1 → USDT" entries ×
+// best "USDT → c2 → INR" exits, estimated by adding the two edges.
+function scanPairRows(shownPairs) {
+  const ranked = liveScan.ranked || [];
+  if (!ranked.length) return '';
+  const ins = ranked.filter(c => c.buyEdge != null).sort((a, b) => b.buyEdge - a.buyEdge).slice(0, 8);
+  const outs = ranked.filter(c => c.sellEdge != null).sort((a, b) => b.sellEdge - a.sellEdge).slice(0, 8);
+  const pairs = [];
+  for (const a of ins) for (const b of outs) {
+    if (a.coin === b.coin || shownPairs.has(a.coin + ':' + b.coin)) continue;
+    pairs.push({ c1: a.coin, c2: b.coin, est: +(a.buyEdge + b.sellEdge).toFixed(2) });
+  }
+  pairs.sort((x, y) => y.est - x.est);
+  if (!pairs.length) return '';
+  return '<div class="scanhead">FULL MARKET SCAN — best rotation candidates across <b>' + (liveScan.universe || ranked.length) + '</b> WazirX coins. ' +
+      '≈ estimate from top-of-book; tap a pair for full books and exact numbers.</div>' +
+    pairs.slice(0, 15).map(p => {
+      const warm = pairWarm.has(p.c1 + ':' + p.c2);
+      return '<div class="scanrow' + (warm ? ' warm' : '') + '" onclick="watchPair(\'' + p.c1 + '\',\'' + p.c2 + '\')">' +
+        '<span class="scan-coin">' + esc(p.c1.toUpperCase()) + ' → ' + esc(p.c2.toUpperCase()) + '</span>' +
+        '<span class="scan-edges">≈ ' + edgePill(p.est, 'buy') + '</span>' +
+        '<span class="scan-go" style="margin-left:auto;">' + (warm ? 'loading books…' : 'Open →') + '</span>' +
+      '</div>';
+    }).join('');
+}
+
 // ---------------- DIRECT (spot vs perp) ----------------
 function execPreview(o) {
   if (!activeExec || activeExec.coin !== o.coin || !actSide[activeExec.action]) return '';
   const C = o.coin.toUpperCase();
   const lv = o[activeExec.side] || [];
   const held = o.held || 0;
-  let target = dTotal(lv) * activeExec.pct / 100;
+  // lvl set = a ladder-row tap: everything down to that book level
+  let target = activeExec.lvl ? lv.slice(0, activeExec.lvl).reduce((a, l) => a + l.size, 0) : dTotal(lv) * activeExec.pct / 100;
   let capNote = '';
   if (activeExec.action === 'sell_wazirx') { if (target > held) { target = held; capNote = ' (capped at your ' + fmtSz(held) + ' holding)'; } }
   if (activeExec.action === 'hedge_binance' && held > 0 && target > held) { target = held; capNote = ' (capped at your ' + fmtSz(held) + ' holding)'; }
@@ -1613,17 +1746,19 @@ function execPreview(o) {
   const venue = activeExec.action === 'hedge_binance' ? '@Binance perp' : '@WazirX';
   const money = activeExec.action === 'hedge_binance' ? '' : ' · ' + (activeExec.action === 'buy_wazirx' ? 'cost' : 'get') + ' ' + fmtInr(w.cost);
   const levels = w.taken.filter(x => x > 0).length;
+  const sizeTxt = activeExec.lvl ? 'Till book level ' + activeExec.lvl : activeExec.pct + '% of depth';
+  const btnTxt = activeExec.lvl ? 'till level ' + activeExec.lvl : activeExec.pct + '%';
   return '<div class="preview">' +
-    '<div class="pv-line">' + activeExec.pct + '% of depth → <b>' + verb + ' ' + fmtSz(w.qty) + ' ' + C + '</b> ' + venue + ' · avg ' + (activeExec.action === 'hedge_binance' ? '' : '₹') + fmtP(w.avg) + money + ' · walks <b>' + levels + '</b> level(s)' + capNote + '</div>' +
+    '<div class="pv-line">' + sizeTxt + ' → <b>' + verb + ' ' + fmtSz(w.qty) + ' ' + C + '</b> ' + venue + ' · avg ' + (activeExec.action === 'hedge_binance' ? '' : '₹') + fmtP(w.avg) + money + ' · walks <b>' + levels + '</b> level(s)' + capNote + '</div>' +
     '<div class="pv-actions">' +
-      '<button class="pv-exec ' + kls + '" onclick="event.stopPropagation();doExec(\'' + o.coin + '\')">Execute · ' + verb + ' ' + activeExec.pct + '%</button>' +
+      '<button class="pv-exec ' + kls + '" onclick="event.stopPropagation();doExec(\'' + o.coin + '\')">Execute · ' + verb + ' ' + btnTxt + '</button>' +
       '<button class="pv-cancel" onclick="event.stopPropagation();clearExec()">Cancel</button>' +
     '</div>' +
   '</div>';
 }
 function pctChips(key, action, kind, disabled) {
   return '<div class="pctrow">' + [25, 50, 75, 100].map(p => {
-    const on = activeExec && activeExec.key === key && activeExec.action === action && activeExec.pct === p;
+    const on = activeExec && !activeExec.lvl && activeExec.key === key && activeExec.action === action && activeExec.pct === p;
     return '<button class="pctbtn ' + kind + (on ? ' active' : '') + '"' + (disabled ? ' disabled' : '') +
       ' onclick="event.stopPropagation();pickExec(\'' + key + '\',\'' + action + '\',' + p + ')">' + p + '%</button>';
   }).join('') + '</div>';
@@ -1637,7 +1772,8 @@ function manualPanel(o) {
   let tWzxAsk = null, tWzxBid = null, tPerpBid = null;
   if (activeExec && activeExec.coin === o.coin && actSide[activeExec.action]) {
     const lv = o[activeExec.side] || [];
-    const taken = walkDepthC(lv, dTotal(lv) * activeExec.pct / 100).taken;
+    const target = activeExec.lvl ? lv.slice(0, activeExec.lvl).reduce((a, l) => a + l.size, 0) : dTotal(lv) * activeExec.pct / 100;
+    const taken = walkDepthC(lv, target).taken;
     if (activeExec.side === 'wzxAsks') tWzxAsk = taken;
     if (activeExec.side === 'wzxBids') tWzxBid = taken;
     if (activeExec.side === 'perpBids') tPerpBid = taken;
@@ -1646,6 +1782,7 @@ function manualPanel(o) {
     obBanner('Buy ' + C + ' with rupees on WazirX and short the same size on the Binance ' + C + ' perp — market-neutral the moment both legs fill. The books below are the two markets you trade, plus the USDT/INR book that turns the perp price into rupees.') +
     dirRow(o.buyPlan, 'INR → ' + C + ' @WazirX → short ' + C + ' perp @Binance',
       o.buyPlan ? 'max ' + fmtSz(o.buyPlan.qty) + ' ' + C + ' walkable' : '', false) +
+    (o.buyPlan ? ladderTable(o.coin, 'buy_wazirx', o.buyPlan.ladder, false) : '') +
     obLegend('trade') +
     bookGrid([
       { venue: 'WAZIRX', sym: o.coin + 'inr', asks: o.wzxAsks, bids: o.wzxBids, cur: '₹', tAsk: tWzxAsk, tBid: tWzxBid },
@@ -1655,7 +1792,7 @@ function manualPanel(o) {
     '<div class="execwrap">' +
       '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">BUY</span> Buy ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of ask depth</span></div>' + pctChips(o.coin, 'buy_wazirx', 'buy', false) + '</div>' +
       '<div class="execrow"><div class="execrow-hd"><span class="mtag sell">SELL</span> Sell ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of bid depth' + (held > 0 ? ', hold ' + fmtSz(held) : ' (buy first)') + '</span></div>' + pctChips(o.coin, 'sell_wazirx', 'sell', noHold) + '</div>' +
-      '<div class="execrow"><div class="execrow-hd"><span class="mtag hedge">HEDGE</span> Short ' + C + ' @Binance <span class="hint" style="font-weight:600;">— % of perp depth' + (held > 0 ? '' : ' (buy first)') + '</span></div>' + pctChips(o.coin, 'hedge_binance', 'hedge', noHold) + '</div>' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag hedge">HEDGE</span> Short ' + C + ' @Binance <span class="hint" style="font-weight:600;">— % of perp depth' + (held > 0 ? '' : ' (buy first)') + ' · needs the Binance futures key, coming later</span></div>' + pctChips(o.coin, 'hedge_binance', 'hedge', noHold) + '</div>' +
       execPreview(o) +
     '</div>' +
     '<div class="hint" style="margin-top:8px;">Pick a leg and how deep to walk the book — the consumed levels light up above. Sandbox fills instantly; live mode confirms first.</div>' +
@@ -1672,16 +1809,24 @@ function legLadder(legs) {
       '<span class="legpx">' + (l.cur || '') + fmtP(l.price) + '</span>' +
     '</div>').join('') + '</div>';
 }
-// Multi-leg preview: the server re-walks the books at execution time, so the
-// numbers here are the full-depth plan scaled to the chosen %, shown as ≈.
+// Multi-leg preview. A % tap shows the full-depth plan scaled to that %
+// (≈, the server re-walks live). A LADDER tap shows that row's EXACT numbers
+// — that row came from the server's coupled walk at that very cutoff.
 function chainPreview(key, plan, label, action, coin, coin2) {
   if (!activeExec || activeExec.key !== key || activeExec.action !== action) return '';
-  const f = activeExec.pct / 100;
+  const row = activeExec.lvl ? ladderRow(plan, activeExec.lvl) : null;
+  const f = row ? 1 : activeExec.pct / 100;
+  const cost = row ? row.costInr : plan.costInr * f;
+  const expect = row ? row.costInr + row.profitInr : plan.expectInr * f;
+  const profit = row ? row.profitInr : plan.profitInr * f;
+  const pctShown = row ? row.netPct : plan.netPct;
+  const sizeTxt = row ? 'Till book level ' + activeExec.lvl : activeExec.pct + '% of walkable depth';
+  const btnTxt = row ? 'till level ' + activeExec.lvl : activeExec.pct + '%';
   return '<div class="preview">' +
-    '<div class="pv-line">' + activeExec.pct + '% of walkable depth → put in <b>≈' + fmtInr(plan.costInr * f) + '</b>, expect back <b>≈' + fmtInr(plan.expectInr * f) + '</b> · profit <b>≈' + fmtInr(plan.profitInr * f) + '</b> at <b>' + plan.netPct.toFixed(2) + '%</b></div>' +
+    '<div class="pv-line">' + sizeTxt + ' → put in <b>' + (row ? '' : '≈') + fmtInr(cost) + '</b>, expect back <b>≈' + fmtInr(expect) + '</b> · profit <b>≈' + fmtInr2(profit) + '</b> at <b>' + pctShown.toFixed(2) + '%</b></div>' +
     '<div class="pv-line" style="font-weight:600;color:var(--gray-600);">' + esc(label) + ' · the server re-walks every book the moment you tap and only fills what still pays.</div>' +
     '<div class="pv-actions">' +
-      '<button class="pv-exec" onclick="event.stopPropagation();doChain(\'' + action + '\',\'' + coin + '\',' + (coin2 ? '\'' + coin2 + '\'' : 'null') + ')">Execute · ' + activeExec.pct + '%</button>' +
+      '<button class="pv-exec" onclick="event.stopPropagation();doChain(\'' + action + '\',\'' + coin + '\',' + (coin2 ? '\'' + coin2 + '\'' : 'null') + ')">Execute · ' + btnTxt + '</button>' +
       '<button class="pv-cancel" onclick="event.stopPropagation();clearExec()">Cancel</button>' +
     '</div>' +
   '</div>';
@@ -1697,7 +1842,9 @@ function intraPanel(o) {
   // to the % you tapped), otherwise the better of the two at full walkable depth.
   const sel = (activeExec && activeExec.key === key) ? dirs.find(d => d.p && d.action === activeExec.action) : null;
   const shown = sel || dirs.filter(d => d.p).sort((a, b) => b.p.netPct - a.p.netPct)[0] || null;
-  const f = sel ? activeExec.pct / 100 : 1;
+  // ladder tap → scale bars by that row's share of the full walk; % tap → the %
+  const selRow = sel && activeExec.lvl ? ladderRow(sel.p, activeExec.lvl) : null;
+  const f = sel ? (selRow ? (selRow.qty / sel.p.qty) : activeExec.pct / 100) : 1;
   const tk = (name) => scaleTaken(shown && shown.p && shown.p.taken ? shown.p.taken[name] : null, f);
 
   let body = '';
@@ -1707,6 +1854,7 @@ function intraPanel(o) {
       '<div class="execrow-hd"><span class="pathpill">' + esc(d.label) + '</span> ' + edgePill(d.p.netPct, 'buy') +
         '<span class="hint" style="font-weight:600;margin-left:auto;">' + fmtInr(d.p.costInr) + ' in · profit ' + fmtInr(d.p.profitInr) + '</span></div>' +
       legLadder(d.p.legs) +
+      ladderTable(key, d.action, d.p.ladder, false) +
       pctChips(key, d.action, 'buy', false) +
       chainPreview(key, d.p, d.label, d.action, o.coin, null) +
     '</div>';
@@ -1732,7 +1880,8 @@ function loopPanel(l) {
   // the two coins' books already arrived with the opps list — no extra fetch
   const o1 = oppOf(l.c1), o2 = oppOf(l.c2);
   const sel = !!(activeExec && activeExec.key === key);
-  const f = sel ? activeExec.pct / 100 : 1;
+  const selRow = sel && activeExec.lvl ? ladderRow(l, activeExec.lvl) : null;
+  const f = sel ? (selRow ? (selRow.qty / l.qty1) : activeExec.pct / 100) : 1;
   const tk = (name) => scaleTaken(l.taken ? l.taken[name] : null, f);
   const grid = (o1 && o2) ? bookGrid([
     { venue: 'WAZIRX', sym: l.c1 + 'inr', asks: o1.wzxAsks, bids: o1.wzxBids, cur: '₹', tAsk: tk('c1Asks') },
@@ -1748,7 +1897,8 @@ function loopPanel(l) {
     obLegend('loop') +
     grid +
     '<div class="execwrap">' +
-      '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">LOOP</span> Size — % of walkable depth</div>' +
+      '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">LOOP</span> Size — tap a ladder row or a % of walkable depth</div>' +
+        ladderTable(key, 'loop', l.ladder, false) +
         pctChips(key, 'loop', 'buy', false) +
         chainPreview(key, l, l.path, 'loop', l.c1, l.c2) +
       '</div>' +
@@ -1763,39 +1913,52 @@ function pickExec(key, action, pct) {
   activeExec = { key, coin, action, pct, side: actSide[action] };
   renderLiveList();
 }
+// Ladder-row tap: arm at "everything down to book level lvl" — the server is
+// sent lvl and re-walks exactly that cutoff on the live books.
+function pickLvl(key, action, lvl) {
+  const coin = key.indexOf(':') >= 0 ? key.split(':')[1] : key;
+  activeExec = { key, coin, action, lvl, pct: 100, side: actSide[action] };
+  renderLiveList();
+}
 function clearExec() { activeExec = null; renderLiveList(); }
+const sizePhrase = () => activeExec.lvl ? 'everything till book level ' + activeExec.lvl : activeExec.pct + '% of order-book depth';
 async function doExec(coin) {
   if (!activeExec || activeExec.coin !== coin) return;
-  const { action, pct } = activeExec;
+  const { action, pct, lvl } = activeExec;
   const label = action === 'buy_wazirx' ? 'Buy ' + coin.toUpperCase() + ' @WazirX'
     : action === 'sell_wazirx' ? 'Sell ' + coin.toUpperCase() + ' @WazirX'
     : 'Short ' + coin.toUpperCase() + ' @Binance';
+  const sizeTxt = sizePhrase();
   if (!SANDBOX && manualMode === 'live') {
-    if (!confirm('LIVE MANUAL: ' + label + ' — ' + pct + '% of order-book depth?\nThis places a REAL order with REAL money.')) return;
+    if (!confirm('LIVE MANUAL: ' + label + ' — ' + sizeTxt + '?\nThis places a REAL order with REAL money.')) return;
   }
+  const body = { coin, action, pct, mode: SANDBOX ? 'paper' : manualMode };
+  if (lvl) body.lvl = lvl;
   try {
-    await apiJson('/api/trader/manual', { method: 'POST', body: JSON.stringify({ coin, action, pct, mode: SANDBOX ? 'paper' : manualMode }) });
-    toast('✅ ' + label + ' · ' + pct + '% depth');
+    await apiJson('/api/trader/manual', { method: 'POST', body: JSON.stringify(body) });
+    toast('✅ ' + label + ' · ' + (lvl ? 'till level ' + lvl : pct + '% depth'));
     activeExec = null;
     refreshLive(); refreshOrders(); refreshPositions(); if (SANDBOX) refreshWallet();
   } catch (e) { toast('Failed: ' + e.message); }
 }
 async function doChain(action, coin, coin2) {
   if (!activeExec) return;
-  const pct = activeExec.pct;
+  const { pct, lvl } = activeExec;
   const C = coin.toUpperCase();
   const label = action === 'loop' ? 'Loop INR → ' + C + ' → USDT → ' + String(coin2).toUpperCase() + ' → INR'
     : action === 'intraloop_b' ? 'Intra loop INR → USDT → ' + C + ' → INR'
     : 'Intra loop INR → ' + C + ' → USDT → INR';
   const legs = action === 'loop' ? 4 : 3;
+  const sizeTxt = sizePhrase();
   if (!SANDBOX && manualMode === 'live') {
-    if (!confirm('LIVE MANUAL: ' + label + '\n' + legs + ' real WazirX orders at ' + pct + '% of walkable depth.\nThis spends REAL money.')) return;
+    if (!confirm('LIVE MANUAL: ' + label + '\n' + legs + ' real WazirX orders — ' + sizeTxt + '.\nThis spends REAL money.')) return;
   }
   const body = { coin, action, pct, mode: SANDBOX ? 'paper' : manualMode };
+  if (lvl) body.lvl = lvl;
   if (coin2) body.coin2 = coin2;
   try {
     await apiJson('/api/trader/manual', { method: 'POST', body: JSON.stringify(body) });
-    toast('✅ ' + label + ' · ' + pct + '%');
+    toast('✅ ' + label + ' · ' + (lvl ? 'till level ' + lvl : pct + '%'));
     activeExec = null;
     refreshLive(); refreshOrders(); refreshPositions(); if (SANDBOX) refreshWallet();
   } catch (e) { toast('Failed: ' + e.message); }
@@ -1821,9 +1984,10 @@ function renderLiveList() {
     const what = liveSeg === 'direct' ? 'Buy the coin on WazirX and short the same coin\'s perp on Binance — market-neutral, needs both keys.'
       : liveSeg === 'loop' ? 'INR → coin1 → USDT → coin2 → INR. Four orders, all on WazirX, one key, no transfers.'
       : 'INR → coin → USDT → INR. Three orders, all on WazirX, one key, no transfers.';
-    const watching = liveOpps.length
-      ? ' · watching <b>' + liveOpps.length + '</b> coin' + (liveOpps.length === 1 ? '' : 's')
-      : ' · <b>no coin books yet</b>';
+    const watching = (liveOpps.length
+      ? ' · full books on <b>' + liveOpps.length + '</b> coin' + (liveOpps.length === 1 ? '' : 's')
+      : ' · <b>no coin books yet</b>') +
+      (liveScan.universe ? ' · scanning <b>ALL ' + liveScan.universe + '</b>' : '');
     hint.innerHTML = esc(what) + ' Showing only edges <b>≥ ' + liveMin + '%</b>' + watching +
       (liveRate ? ' · USDT/INR <b>₹' + fnum(liveRate, 3) + '</b>' : ' · <b>no USDT/INR book</b>') + '.';
   }
@@ -1890,8 +2054,13 @@ function renderDirectCards(box, items) {
   }).join(''));
 }
 function renderIntraCards(box, items) {
-  if (!items.length) return emptyMsg(box, 'intra-loop arbs');
-  setList(box, items.map(o => {
+  // cards for the coins with full 100ms books, then the FULL-MARKET scan —
+  // every other WazirX coin, exactly what the scanner shows, tap to open
+  const scan = scanRows(new Set(items.map(o => o.coin)));
+  if (!items.length && !scan) return emptyMsg(box, 'intra-loop arbs');
+  const lead = items.length ? '' :
+    '<div class="empty" style="padding:12px;">No full-book intra-loop card ≥ ' + liveMin + '% right now — the full-market scan below still sees every coin.</div>';
+  setList(box, lead + items.map(o => {
     const open = liveExpanded.has('intra:' + o.coin);
     const C = esc(o.coin.toUpperCase());
     const a = o.intraA ? o.intraA.netPct : null, b = o.intraB ? o.intraB.netPct : null;
@@ -1908,11 +2077,14 @@ function renderIntraCards(box, items) {
       '</div>' +
       (open ? intraPanel(o) : '') +
     '</div>';
-  }).join(''));
+  }).join('') + scan);
 }
 function renderLoopCards(box, items) {
-  if (!items.length) return emptyMsg(box, 'loop arbs');
-  setList(box, items.map(l => {
+  const scan = scanPairRows(new Set(items.map(l => l.c1 + ':' + l.c2)));
+  if (!items.length && !scan) return emptyMsg(box, 'loop arbs');
+  const lead = items.length ? '' :
+    '<div class="empty" style="padding:12px;">No full-book rotation ≥ ' + liveMin + '% right now — the full-market candidates below still cover every coin.</div>';
+  setList(box, lead + items.map(l => {
     const id = 'loop:' + l.c1 + ':' + l.c2;
     const open = liveExpanded.has(id);
     return '<div class="livecard ' + (open ? 'open' : '') + '">' +
@@ -1927,7 +2099,7 @@ function renderLoopCards(box, items) {
       '</div>' +
       (open ? loopPanel(l) : '') +
     '</div>';
-  }).join(''));
+  }).join('') + scan);
 }
 function toggleLive(id) {
   if (liveExpanded.has(id)) { liveExpanded.delete(id); activeExec = null; }
