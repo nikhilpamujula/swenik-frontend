@@ -4788,7 +4788,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   };
 
   // ---------- state ----------
-  var ft = { pct: 25, lvl: null, mode: 'paper', plan: null, timer: null, watched: {} };
+  // ready: the trader has live books for the open coin. Pinning a coin makes
+  // the trader open its 100ms streams, which takes a few seconds — tapping
+  // Execute inside that gap used to fail with "no live WazirX ask book".
+  var ft = { pct: 25, lvl: null, mode: 'paper', plan: null, timer: null, watched: {}, ready: false, retries: 0 };
 
   function ftWatch(coin) {
     // pin the coin on the trader so its 100ms books + ladder warm up
@@ -4838,7 +4841,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         'background:' + (ft.mode === 'live' ? '#d33131' : 'var(--primary, #2b6ea3)') + ';color:#fff;">Execute · ' + a.label +
         ' · ' + (ft.lvl != null ? 'till level ' + ft.lvl : ft.pct + '%') + '</button>';
     }).join('');
-    return head + note + pcts + lad + btns + '<div id="ftMsg" style="font-size:11.5px;font-weight:700;"></div>';
+    var st = ft.ready
+      ? '<div style="font-size:10.5px;font-weight:700;color:var(--success);">● trader books live — Execute is armed</div>'
+      : '<div style="font-size:10.5px;font-weight:700;color:var(--gray-500);">◌ warming the trader’s live books (a few seconds)… Execute retries by itself if tapped early</div>';
+    return head + note + pcts + lad + btns + st + '<div id="ftMsg" style="font-size:11.5px;font-weight:700;"></div>';
   }
   function ftRender() {
     var body = document.getElementById('modalBody');
@@ -4857,18 +4863,23 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     if (m) { m.textContent = t; m.style.color = bad ? 'var(--danger)' : 'var(--success)'; }
   }
 
-  // ---------- trader ladder poll (while a modal is open) ----------
+  // ---------- trader poll (while a modal is open) ----------
+  // Watches the trader until the pinned coin's live books arrive (→ ready),
+  // and pulls the depth ladder for the panels that show one.
   async function ftPoll() {
     var p = ft.plan;
-    if (!p || !p.wantLadder) return;
+    if (!p || !p.acts.length) return;
     try {
       var live = await traderApi('/api/trader/live');
-      var lad = null;
+      var lad = null, seen = false;
+      var o = (live.opps || []).find(function (x) { return x.coin === p.coin; });
       if (p.kind === 'loop') {
+        var o2 = (live.opps || []).find(function (x) { return x.coin === p.coin2; });
+        seen = !!(o && o2);
         var L = (live.loops || []).find(function (l) { return l.c1 === p.coin && l.c2 === p.coin2; });
         lad = L && L.ladder;
       } else {
-        var o = (live.opps || []).find(function (x) { return x.coin === p.coin; });
+        seen = !!o; // liveOpps only emits a coin once its WazirX book is live
         if (o) {
           if (p.kind === 'direct') lad = o.buyPlan && o.buyPlan.ladder;
           else {
@@ -4877,7 +4888,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           }
         }
       }
-      if (lad && lad.length) { p.ladder = lad; ftRender(); }
+      var changed = seen !== ft.ready;
+      ft.ready = seen;
+      if (p.wantLadder && lad && lad.length) { p.ladder = lad; changed = true; }
+      if (changed) ftRender();
     } catch (e) { /* trader briefly unreachable — panel still works on % */ }
   }
 
@@ -4885,15 +4899,18 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   function ftAttach(plan) {
     ft.plan = plan;
     ft.lvl = null;
+    ft.ready = false;
+    ft.retries = 0;
     ftWatch(plan.coin);
     if (plan.coin2) ftWatch(plan.coin2);
     ftRender();
     clearInterval(ft.timer);
-    if (plan.wantLadder) { ftPoll(); ft.timer = setInterval(ftPoll, 5000); }
+    if (plan.acts.length) { ftPoll(); ft.timer = setInterval(ftPoll, 2500); }
   }
   function ftDetach() {
     ft.plan = null;
     ft.lvl = null;
+    ft.ready = false;
     clearInterval(ft.timer);
     ft.timer = null;
   }
@@ -4909,12 +4926,13 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     } else ft.mode = 'paper';
     ftRender();
   };
-  window.__ftFire = async function (i) {
+  window.__ftFire = async function (i, isRetry) {
     var p = ft.plan;
     if (!p || !p.acts[i]) return;
     var a = p.acts[i];
     var sz = ft.lvl != null ? 'everything till book level ' + ft.lvl : ft.pct + '% of walkable depth';
-    if (ft.mode === 'live' && !confirm('LIVE: ' + a.label + ' — ' + sz + '?\nThis spends REAL money on WazirX.')) return;
+    if (!isRetry && ft.mode === 'live' && !confirm('LIVE: ' + a.label + ' — ' + sz + '?\nThis spends REAL money on WazirX.')) return;
+    if (!isRetry) ft.retries = 0;
     var body = { coin: p.coin, action: a.action, pct: ft.pct, mode: ft.mode };
     if (ft.lvl != null) body.lvl = ft.lvl;
     if (a.action === 'loop') body.coin2 = p.coin2;
@@ -4922,7 +4940,17 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     try {
       var r = await ftPost('/api/trader/manual', body);
       ftMsg('✅ done — order #' + (r.id || '?') + ' · full story in Auto Trader → Activity');
-    } catch (e) { ftMsg('❌ ' + e.message, true); }
+    } catch (e) {
+      // Tapped inside the warm-up gap: the trader hasn't opened this coin's
+      // stream yet. Books arrive in seconds — retry by itself, max 4 times.
+      if (/no live|no walkable|not enough depth/i.test(e.message || '') && ft.retries < 4) {
+        ft.retries++;
+        ftMsg('◌ books still warming — retrying in 3s (' + ft.retries + '/4)…');
+        setTimeout(function () { if (ft.plan === p) window.__ftFire(i, true); }, 3000);
+        return;
+      }
+      ftMsg('❌ ' + e.message, true);
+    }
   };
 
   // ---------- 4. hook the three modals ----------
