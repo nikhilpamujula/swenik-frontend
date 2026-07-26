@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v7 · empty-state diagnostics · TEST
+     SWENIK AUTO TRADER — v8 · full scanner detail view · TEST
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -240,6 +240,40 @@
   .kk-ob-fill { position:absolute; left:0; top:0; height:100%; }
   .kk-ob-pct { font-size:10px; font-weight:700; }
   .kk-ob-consumed { font-size:9px; }
+  /* ---- full scanner detail view: N books side by side, one aligned table ---- */
+  .obbanner { background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:10px; padding:10px 12px; font-size:11.5px; line-height:1.5; color:var(--gray-800); margin-bottom:10px; }
+  .dirrow { border-radius:10px; padding:9px 12px; margin-bottom:7px; border:1px solid transparent; }
+  .dirrow.good { background:var(--success-soft); border-color:#bfe6d3; }
+  .dirrow.bad { background:var(--danger-soft); border-color:#f6ccd4; }
+  .dirrow.none { background:var(--gray-50,#f7f9fc); border-color:var(--border); color:var(--gray-600); font-size:11.5px; font-weight:600; }
+  .dirrow.sel { box-shadow:0 0 0 2px var(--accent-line) inset; }
+  .dir-pct { font-size:19px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  .dirrow.good .dir-pct { color:var(--success); }
+  .dirrow.bad .dir-pct { color:var(--danger); }
+  .dir-path { font-size:11.5px; font-weight:600; color:var(--gray-600); margin-top:2px; }
+  .oblegend { display:flex; flex-wrap:wrap; gap:14px; margin:10px 0 6px; font-size:10.5px; font-weight:700; color:var(--gray-700); }
+  .oblegend .lg { display:flex; align-items:center; gap:5px; }
+  .oblegend .lg-sw { width:13px; height:13px; border-radius:3px; border:1px solid var(--border); }
+  .oblegend .lg-sw.ask { background:var(--ask-bg); }
+  .oblegend .lg-sw.bid { background:var(--bid-bg); }
+  .oblegend .lg-ln { width:16px; height:0; border-top:3px solid currentColor; border-radius:2px; }
+  .oblegend .lg.ask { color:var(--danger); }
+  .oblegend .lg.bid { color:var(--success); }
+  .obtitle { font-size:12.5px; font-weight:800; color:var(--gray-800); margin:2px 0 6px; }
+  .obgrid-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--border); border-radius:12px; background:#fff; margin-bottom:10px; }
+  table.obgrid { border-collapse:collapse; font-size:11px; width:100%; }
+  table.obgrid th, table.obgrid td { padding:4px 10px; border:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  table.obgrid tr.obg-venue th { font-size:10px; font-weight:800; letter-spacing:.06em; color:var(--gray-800); text-align:center; padding-top:9px; }
+  table.obgrid tr.obg-sym th { font-size:10.5px; font-weight:700; color:var(--gray-500); text-align:center; padding-bottom:8px; }
+  table.obgrid tr.obg-cols th { font-size:9.5px; font-weight:800; letter-spacing:.05em; color:var(--gray-600); background:var(--gray-100); }
+  table.obgrid tr.obg-cols th.obg-l { text-align:left; }
+  table.obgrid tr.obg-cols th.obg-r { text-align:right; }
+  table.obgrid tr.kk-ask-row td { background:var(--ask-bg); }
+  table.obgrid tr.kk-bid-row td { background:var(--bid-bg); }
+  table.obgrid tr.kk-spread-row td { background:var(--spread-bg); color:var(--gray-700); font-weight:800; font-size:10px; text-align:left; }
+  table.obgrid tr.kk-spread-row td.obg-spread-v { text-align:right; }
+  table.obgrid td.obg-pad { background:#fff !important; }
+  table.obgrid td.obg-gap, table.obgrid th.obg-gap { padding:0 5px; background:#fff !important; border-left:1px solid var(--border); }
   .execwrap { margin-top:4px; }
   .execrow { margin-bottom:10px; }
   .execrow-hd { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:800; margin-bottom:6px; }
@@ -480,7 +514,7 @@
     </div>
     <div>
       <h1>SWENIK Trader — Sandbox</h1>
-      <div class="subtitle">Practice mode · fake money, fake fills · <span style="opacity:.95;font-weight:800;">v7 · empty-state diagnostics · TEST</span></div>
+      <div class="subtitle">Practice mode · fake money, fake fills · <span style="opacity:.95;font-weight:800;">v8 · full scanner detail view · TEST</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -2178,6 +2212,10 @@ async function saveWallet() {
 // The "show ≥ %" box is the only filter: at 0 you see positive arbs only,
 // raise it to hide the small ones, or type a negative to watch everything.
 let liveOpps = [], liveLoops = [], liveRate = null, liveTs = 0;
+// the USDT/INR book — the third market every triangle actually routes through,
+// and the one the old panel never showed
+let liveUsdtAsks = [], liveUsdtBids = [];
+const oppOf = (coin) => liveOpps.find(o => o.coin === coin) || null;
 const liveExpanded = new Set();
 const fnum = (n, d) => n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 4 : d });
 const fmtFund = (f) => f == null ? '—' : f + '%';
@@ -2217,6 +2255,8 @@ async function refreshLive() {
   liveOpps = data.opps || [];
   liveLoops = data.loops || [];
   liveRate = data.rate == null ? null : data.rate;
+  liveUsdtAsks = data.usdtAsks || [];
+  liveUsdtBids = data.usdtBids || [];
   liveTs = data.ts || 0;
   renderLiveList();
 }
@@ -2266,41 +2306,68 @@ function kkBar(taken, size, colorVar) {
     '<span class="kk-ob-pct" style="color:var(' + colorVar + ');">' + pct.toFixed(0) + '%</span></div>' +
     '<div class="kk-ob-consumed" style="color:var(' + colorVar + ');">(' + fmtSz(taken) + ')</div>';
 }
-function bookTable(title, asks, bids, cur, conAsk, conBid) {
-  if (!asks || !bids || !asks.length || !bids.length) return '';
-  const row = (l, i, side, con) => {
-    const colorVar = side === 'ask' ? '--danger' : '--success';
-    const bar = con ? kkBar(con[i] || 0, l.size, colorVar) : '';
-    return '<tr class="kk-' + side + '-row">' +
-      '<td class="ob-size-cell"><div class="kk-ob-size">' + fmtSz(l.size) + '</div>' + bar + '</td>' +
-      '<td class="ob-price-cell">' + cur + fmtP(l.price) + '</td>' +
-    '</tr>';
-  };
-  const askRows = asks.map((l, i) => ({ l, i })).reverse().map((x) => row(x.l, x.i, 'ask', conAsk)).join('');
-  const bidRows = bids.map((l, i) => row(l, i, 'bid', conBid)).join('');
-  const spread = ((asks[0].price - bids[0].price) / bids[0].price * 100).toFixed(2);
-  return '<div class="obook">' +
-    '<div class="obook-hd"><span>' + esc(title) + '</span><span class="oh-cols">size · price</span></div>' +
-    '<table class="ob-table">' + askRows +
-    '<tr class="kk-spread-row"><td colspan="2">SPREAD ' + spread + '%</td></tr>' +
-    bidRows + '</table>' +
+
+// ================= FULL SCANNER DETAIL VIEW =================
+// The scanner's detail modal, ported whole: an explanatory banner, one big
+// coloured row per direction (% and the rupees it is worth), the asks/bids
+// legend, then EVERY book the route touches, side by side.
+//
+// It is one single table with two columns per book. That is not cosmetic:
+// separate tables drift out of line the moment one book has a consumed bar,
+// and the whole point of the scanner view is that the SPREAD rows line up so
+// you can read all three or four markets at a glance.
+function obBanner(text) { return '<div class="obbanner">' + esc(text) + '</div>'; }
+function obLegend(what) {
+  return '<div class="oblegend">' +
+    '<span class="lg ask"><span class="lg-sw ask"></span><span class="lg-ln"></span>Asks — % consumed by this ' + esc(what) + '</span>' +
+    '<span class="lg bid"><span class="lg-sw bid"></span><span class="lg-ln"></span>Bids — % consumed by this ' + esc(what) + '</span>' +
   '</div>';
 }
-function orderBook(o, venue) {
-  const asks = venue === 'wzx' ? o.wzxAsks : o.perpAsks;
-  const bids = venue === 'wzx' ? o.wzxBids : o.perpBids;
-  const cur = venue === 'wzx' ? '₹' : '';
-  let conAsk = null, conBid = null;
-  if (activeExec && activeExec.coin === o.coin && actSide[activeExec.action]) {
-    const lv = o[activeExec.side] || [];
-    const taken = walkDepthC(lv, dTotal(lv) * activeExec.pct / 100).taken;
-    if (activeExec.side === 'wzxAsks' && venue === 'wzx') conAsk = taken;
-    if (activeExec.side === 'wzxBids' && venue === 'wzx') conBid = taken;
-    if (activeExec.side === 'perpBids' && venue === 'perp') conBid = taken;
-  }
-  const title = venue === 'wzx' ? 'WazirX ' + o.coin.toUpperCase() + '/INR' : 'Binance ' + o.coin.toUpperCase() + ' perp';
-  return bookTable(title, asks, bids, cur, conAsk, conBid);
+// paise matter on a ₹5,000 loop, so this one does NOT round to whole rupees
+const fmtInr2 = (n) => (Number(n) < 0 ? '-₹' : '₹') + Math.abs(Number(n) || 0).toFixed(2);
+function dirRow(p, path, maxLine, selected) {
+  if (!p) return '<div class="dirrow none">' + esc(path) + ' — not walkable right now</div>';
+  return '<div class="dirrow ' + (p.netPct >= 0 ? 'good' : 'bad') + (selected ? ' sel' : '') + '">' +
+    '<div class="dir-pct">' + p.netPct.toFixed(2) + '% (' + fmtInr2(p.profitInr) + ')</div>' +
+    '<div class="dir-path">' + esc(path) + (maxLine ? ' · ' + esc(maxLine) : '') + '</div>' +
+  '</div>';
 }
+// cols: [{venue, sym, asks, bids, cur, tAsk, tBid}] — tAsk/tBid are consumed
+// quantities per level, index-aligned with asks/bids (null = draw no bar).
+function bookGrid(cols) {
+  cols = (cols || []).filter(c => c && c.asks && c.bids && c.asks.length && c.bids.length);
+  if (!cols.length) return '';
+  const nAsk = cols.reduce((m, c) => Math.max(m, c.asks.length), 0);
+  const nBid = cols.reduce((m, c) => Math.max(m, c.bids.length), 0);
+  const cell = (c, l, i, side) => {
+    if (!l) return '<td class="obg-pad"></td><td class="obg-pad"></td>';
+    const cv = side === 'ask' ? '--danger' : '--success';
+    const t = side === 'ask' ? c.tAsk : c.tBid;
+    return '<td class="ob-size-cell"><div class="kk-ob-size">' + fmtSz(l.size) + '</div>' +
+        kkBar(t ? (t[i] || 0) : 0, l.size, cv) + '</td>' +
+      '<td class="ob-price-cell">' + (c.cur || '') + fmtP(l.price) + '</td>';
+  };
+  const row = (cls, parts) => '<tr class="' + cls + '">' + parts.join('<td class="obg-gap"></td>') + '</tr>';
+  let body = '';
+  // asks are ascending from the server; print them reversed so the BEST ask
+  // sits right on top of the spread row, exactly like every exchange book
+  for (let r = nAsk - 1; r >= 0; r--) body += row('kk-ask-row', cols.map(c => cell(c, c.asks[r], r, 'ask')));
+  body += row('kk-spread-row', cols.map((c) => {
+    const sp = c.asks[0].price - c.bids[0].price;
+    return '<td>Spread</td><td class="obg-spread-v">' + (c.cur || '') + fmtP(sp) + '</td>';
+  }));
+  for (let r = 0; r < nBid; r++) body += row('kk-bid-row', cols.map(c => cell(c, c.bids[r], r, 'bid')));
+  const head =
+    '<tr class="obg-venue">' + cols.map(c => '<th colspan="2">' + esc(c.venue) + '</th>').join('<th class="obg-gap"></th>') + '</tr>' +
+    '<tr class="obg-sym">' + cols.map(c => '<th colspan="2">' + esc(c.sym) + '</th>').join('<th class="obg-gap"></th>') + '</tr>' +
+    '<tr class="obg-cols">' + cols.map(() => '<th class="obg-l">SIZE</th><th class="obg-r">PRICE</th>').join('<th class="obg-gap"></th>') + '</tr>';
+  return '<div class="obtitle">Order Book <span class="hint" style="font-weight:600;">— ' + cols.length +
+      ' market' + (cols.length === 1 ? '' : 's') + ', ' + nAsk + ' levels a side · swipe sideways</span></div>' +
+    '<div class="obgrid-wrap"><table class="obgrid"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+}
+// Scale a server-sent consumed array to the % the user actually tapped. The
+// server re-walks at execution time, so this is a preview, not a promise.
+const scaleTaken = (arr, f) => (arr && arr.length ? arr.map(v => v * f) : null);
 
 // ---------------- DIRECT (spot vs perp) ----------------
 function execPreview(o) {
@@ -2337,9 +2404,26 @@ function manualPanel(o) {
   const C = o.coin.toUpperCase();
   const held = o.held || 0;
   const noHold = held <= 0;
+  // Direct legs are single-leg walks, so the consumed bars are computed right
+  // here from the % you tapped — no server round trip needed.
+  let tWzxAsk = null, tWzxBid = null, tPerpBid = null;
+  if (activeExec && activeExec.coin === o.coin && actSide[activeExec.action]) {
+    const lv = o[activeExec.side] || [];
+    const taken = walkDepthC(lv, dTotal(lv) * activeExec.pct / 100).taken;
+    if (activeExec.side === 'wzxAsks') tWzxAsk = taken;
+    if (activeExec.side === 'wzxBids') tWzxBid = taken;
+    if (activeExec.side === 'perpBids') tPerpBid = taken;
+  }
   return '<div class="mexec">' +
-    orderBook(o, 'wzx') +
-    orderBook(o, 'perp') +
+    obBanner('Buy ' + C + ' with rupees on WazirX and short the same size on the Binance ' + C + ' perp — market-neutral the moment both legs fill. The books below are the two markets you trade, plus the USDT/INR book that turns the perp price into rupees.') +
+    dirRow(o.buyPlan, 'INR → ' + C + ' @WazirX → short ' + C + ' perp @Binance',
+      o.buyPlan ? 'max ' + fmtSz(o.buyPlan.qty) + ' ' + C + ' walkable' : '', false) +
+    obLegend('trade') +
+    bookGrid([
+      { venue: 'WAZIRX', sym: o.coin + 'inr', asks: o.wzxAsks, bids: o.wzxBids, cur: '₹', tAsk: tWzxAsk, tBid: tWzxBid },
+      { venue: 'BINANCE', sym: o.coin + 'usdt perp', asks: o.perpAsks, bids: o.perpBids, cur: '', tBid: tPerpBid },
+      { venue: 'WAZIRX', sym: 'usdtinr', asks: liveUsdtAsks, bids: liveUsdtBids, cur: '₹' },
+    ]) +
     '<div class="execwrap">' +
       '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">BUY</span> Buy ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of ask depth</span></div>' + pctChips(o.coin, 'buy_wazirx', 'buy', false) + '</div>' +
       '<div class="execrow"><div class="execrow-hd"><span class="mtag sell">SELL</span> Sell ' + C + ' @WazirX <span class="hint" style="font-weight:600;">— % of bid depth' + (held > 0 ? ', hold ' + fmtSz(held) : ' (buy first)') + '</span></div>' + pctChips(o.coin, 'sell_wazirx', 'sell', noHold) + '</div>' +
@@ -2381,6 +2465,13 @@ function intraPanel(o) {
     { p: o.intraA, action: 'intraloop_a', label: 'INR → ' + C + ' → USDT → INR' },
     { p: o.intraB, action: 'intraloop_b', label: 'INR → USDT → ' + C + ' → INR' },
   ];
+  // Which direction paints the consumed bars: the one you have selected (scaled
+  // to the % you tapped), otherwise the better of the two at full walkable depth.
+  const sel = (activeExec && activeExec.key === key) ? dirs.find(d => d.p && d.action === activeExec.action) : null;
+  const shown = sel || dirs.filter(d => d.p).sort((a, b) => b.p.netPct - a.p.netPct)[0] || null;
+  const f = sel ? activeExec.pct / 100 : 1;
+  const tk = (name) => scaleTaken(shown && shown.p && shown.p.taken ? shown.p.taken[name] : null, f);
+
   let body = '';
   for (const d of dirs) {
     if (!d.p) { body += '<div class="execrow"><div class="execrow-hd">' + esc(d.label) + ' <span class="hint" style="font-weight:600;">— not walkable right now</span></div></div>'; continue; }
@@ -2392,18 +2483,42 @@ function intraPanel(o) {
       chainPreview(key, d.p, d.label, d.action, o.coin, null) +
     '</div>';
   }
+  const head = dirs.map(d => dirRow(d.p, d.label,
+    d.p ? 'max ' + fmtSz(d.p.qty) + ' ' + C + ' walkable' : '', !!(sel && sel === d))).join('');
   return '<div class="mexec">' +
-    bookTable('WazirX ' + C + '/INR', o.wzxAsks, o.wzxBids, '₹', null, null) +
-    bookTable('WazirX ' + C + '/USDT', o.cuAsks, o.cuBids, '', null, null) +
+    obBanner('Same-exchange WazirX triangle — three legs on your one WazirX key, instant, no transfers. The three books below are the markets it routes through.') +
+    head +
+    obLegend('loop') +
+    bookGrid([
+      { venue: 'WAZIRX', sym: o.coin + 'inr', asks: o.wzxAsks, bids: o.wzxBids, cur: '₹', tAsk: tk('wzxAsks'), tBid: tk('wzxBids') },
+      { venue: 'WAZIRX', sym: o.coin + 'usdt', asks: o.cuAsks, bids: o.cuBids, cur: '', tAsk: tk('cuAsks'), tBid: tk('cuBids') },
+      { venue: 'WAZIRX', sym: 'usdtinr', asks: liveUsdtAsks, bids: liveUsdtBids, cur: '₹', tAsk: tk('usdtAsks'), tBid: tk('usdtBids') },
+    ]) +
     '<div class="execwrap">' + body + '</div>' +
     '<div class="hint" style="margin-top:8px;">All three legs are WazirX orders on your one WazirX key — no transfers, no Binance, nothing to whitelist.</div>' +
   '</div>';
 }
 function loopPanel(l) {
   const key = 'loop:' + l.c1 + ':' + l.c2;
+  const U1 = l.c1.toUpperCase(), U2 = l.c2.toUpperCase();
+  // the two coins' books already arrived with the opps list — no extra fetch
+  const o1 = oppOf(l.c1), o2 = oppOf(l.c2);
+  const sel = !!(activeExec && activeExec.key === key);
+  const f = sel ? activeExec.pct / 100 : 1;
+  const tk = (name) => scaleTaken(l.taken ? l.taken[name] : null, f);
+  const grid = (o1 && o2) ? bookGrid([
+    { venue: 'WAZIRX', sym: l.c1 + 'inr', asks: o1.wzxAsks, bids: o1.wzxBids, cur: '₹', tAsk: tk('c1Asks') },
+    { venue: 'WAZIRX', sym: l.c1 + 'usdt', asks: o1.cuAsks, bids: o1.cuBids, cur: '', tBid: tk('c1uBids') },
+    { venue: 'WAZIRX', sym: l.c2 + 'usdt', asks: o2.cuAsks, bids: o2.cuBids, cur: '', tAsk: tk('c2uAsks') },
+    { venue: 'WAZIRX', sym: l.c2 + 'inr', asks: o2.wzxAsks, bids: o2.wzxBids, cur: '₹', tBid: tk('c2Bids') },
+  ]) : '';
   return '<div class="mexec">' +
+    obBanner('Two coins, one exchange — buy ' + U1 + ' with rupees, sell it for USDT, buy ' + U2 + ' with that USDT, sell ' + U2 + ' back to rupees. Four WazirX orders; no coin ever leaves the exchange. The four books below are the markets it routes through.') +
+    dirRow(l, l.path, 'max ' + fmtSz(l.qty1) + ' ' + U1 + ' walkable', sel) +
     legLadder(l.legs) +
     '<div class="live-meta num" style="margin:-4px 0 10px;">in <b>' + fmtInr(l.costInr) + '</b> · through <b>' + fnum(l.usdtMid, 2) + ' USDT</b> · back <b>' + fmtInr(l.expectInr) + '</b> · profit <b>' + fmtInr(l.profitInr) + '</b></div>' +
+    obLegend('loop') +
+    grid +
     '<div class="execwrap">' +
       '<div class="execrow"><div class="execrow-hd"><span class="mtag buy">LOOP</span> Size — % of walkable depth</div>' +
         pctChips(key, 'loop', 'buy', false) +
