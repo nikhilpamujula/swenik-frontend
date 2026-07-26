@@ -4718,5 +4718,18 @@ document.addEventListener('visibilitychange', () => {
 // scrolling, and the scroll nudge reverts within the same frame (no jitter).
 document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, passive: true });
 </script>
+
+<!-- ==== CLONE NAME-TAG (the only change vs the scanner) ==== -->
+<script>
+(function(){
+  try {
+    document.title = 'SWENIK Track Live — clone';
+    var h1 = document.querySelector('.topbar h1');
+    if (h1) h1.textContent = 'Swenik Track Live';
+    var sub = document.querySelector('.topbar .subtitle');
+    if (sub) sub.innerHTML = 'cloned scanner page — execute features land here · <span style="opacity:.9;font-weight:700;">original scanner untouched</span>';
+  } catch (e) {}
+})();
+</script>
 </body>
 </html>
