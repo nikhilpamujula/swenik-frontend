@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v21 · level profit cutoff
+     SWENIK AUTO TRADER — v22 · cross-exchange loop + reverse direct + scanner bridge
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -558,7 +558,7 @@
     </div>
     <div>
       <h1>SWENIK Fast Trader</h1>
-      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v21 · level profit cutoff</span></div>
+      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v22 · cross-exchange loop + reverse direct + scanner bridge</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -733,8 +733,8 @@
           <div class="f"><label>Strategy</label>
             <select id="rf_strategy" onchange="stratHint()">
               <option value="intraloop">Intra loop (WazirX triangle)</option>
-              <option value="direct_hedge">Direct arb + futures short</option>
-              <option value="loop_pair">Loop arbitrage — auto ARB1/ARB2 (source vs support)</option>
+              <option value="direct_hedge">Direct arb — both directions (WazirX ↔ Binance spot, futures hedge)</option>
+              <option value="loop_pair">Loop arbitrage — ARB1/ARB2 across WazirX ↔ Binance spot (futures hedge)</option>
             </select>
           </div>
           <div class="f" id="pathWrap"><label>Intra path</label>
