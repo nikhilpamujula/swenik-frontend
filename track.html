@@ -4834,6 +4834,95 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       'border:1px solid ' + (on ? '#1c8a5c;background:#e7f6ee;color:#177a4c' : 'var(--border);background:#fff;color:var(--gray-700)') + ';">' + txt + '</button>';
   }
   var fmtQ = function (n) { return n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n >= 1 ? (+n.toFixed(3)).toString() : (+n.toPrecision(3)).toString(); };
+
+  // ---------- SIZE PREVIEW ----------
+  // Nikhil: "it's showing 25% 50% etc but when we selected it should show the
+  // 25% values of currently and equivalent inr value as well." A bare "25%"
+  // says nothing about what he is about to spend, so every size now prints as
+  // BOTH the coin quantity AND the money — on the chips' tally line, on the
+  // Execute button, and in the confirm dialog. Direct, loop and intra loop.
+  var fmtMoney = function (amt, ccy) {
+    if (amt == null || !isFinite(amt)) return null;
+    if (ccy === 'USDT') return (amt >= 1000 ? Math.round(amt).toLocaleString('en-US') : (+amt.toFixed(2)).toString()) + ' USDT';
+    return '₹' + (amt >= 100 ? Math.round(amt).toLocaleString('en-IN') : (+amt.toFixed(2)).toLocaleString('en-IN'));
+  };
+  // A USDT leg is still money he can feel in rupees. Take the rate the page
+  // itself is already using — the loop's own usdtInrUsed, else the live
+  // USDT/INR book behind the intra-loop triangle. No rate → no ₹ line, never
+  // an invented one. (USDT/INR stays a REFERENCE rate, not a traded leg.)
+  function usdtInrRate() {
+    var v = function (x) { return x && typeof x === 'object' ? x.rate : x; };
+    try {
+      var e = (typeof loopLiveEntry !== 'undefined' && loopLiveEntry) || null;
+      var u = (e && e.usdtInrUsed) || {};
+      var r = Number(v(u.entry)) || Number(v(u.exit)) || 0;
+      if (r > 0) return r;
+    } catch (x) {}
+    try {
+      var ie = (typeof intraLoopLiveEntry !== 'undefined' && intraLoopLiveEntry) || null;
+      var lgs = (ie && ie.liveBooks && ie.liveBooks.legs) || [];
+      for (var i = 0; i < lgs.length; i++) {
+        if (String(lgs[i].market || '').toLowerCase() !== 'usdtinr') continue;
+        var b = (lgs[i].bids || [])[0] || (lgs[i].asks || [])[0];
+        if (b && Number(b.price) > 0) return Number(b.price);
+      }
+    } catch (x) {}
+    return null;
+  }
+  // What a slice of a leg actually costs: walk the consumed rows in order,
+  // cheapest first — the same rows the red/green bars are drawn on, so the
+  // money quoted here is the money the order will move.
+  function sliceValue(v, qty) {
+    if (!v || !(qty > 0)) return null;
+    if (Array.isArray(v.rows) && v.rows.length) {
+      var left = qty, val = 0;
+      for (var i = 0; i < v.rows.length && left > 1e-12; i++) {
+        var take = Math.min(left, v.rows[i].qty);
+        val += take * v.rows[i].price;
+        left -= take;
+      }
+      if (left > 1e-9) val += left * v.rows[v.rows.length - 1].price;  // past the walk — hold the last price
+      return val;
+    }
+    // No per-level record (older payloads, or the intra-loop's top-of-book
+    // legs) — scale the leg's own total. Inside one level that is exact.
+    if (v.amount != null && v.qty > 0) return v.amount * qty / v.qty;
+    return null;
+  }
+  // { q: '0.0522 ETH', m: '₹10,341' } for the chosen %. Either half may be
+  // missing; the callers just drop what isn't there.
+  function sizeParts(v, pct) {
+    if (!v) return {};
+    var qty = Number(v.qty) > 0 ? v.qty * pct / 100 : null;
+    var out = {};
+    if (qty) out.q = fmtQ(qty) + ' ' + String(v.unit || '').toUpperCase();
+    var val = sliceValue(v, qty);
+    var m = fmtMoney(val, v.ccy);
+    if (m) {
+      if (v.ccy === 'USDT') { var r = usdtInrRate(); if (r) m += ' (≈ ' + fmtMoney(val * r, 'INR') + ')'; }
+      out.m = m;
+    }
+    return out;
+  }
+  // The one line under the % chips. A single leg reads "25% of this leg =
+  // 0.0522 ETH ≈ ₹10,341"; a whole rotation reads as the money going IN and
+  // the coin the first leg buys with it.
+  function sizeLine(act, pct) {
+    var s = sizeParts(act && act.view, pct);
+    if (!s.q && !s.m) return pct + '% of the walkable depth';
+    if (act.view && act.view.chain) {
+      return pct + '% of this rotation = ' + (s.m ? '<b>' + s.m + '</b> in' : '')
+        + (s.q ? (s.m ? ' → ' : '') + '<b>' + s.q + '</b> on leg 1' : '');
+    }
+    return pct + '% of this leg = ' + [s.q, s.m].filter(Boolean).map(function (t) { return '<b>' + t + '</b>'; }).join(' ≈ ');
+  }
+  // The same numbers, unbolded, for the Execute button and the confirm dialog.
+  function sizeShort(act, pct) {
+    var s = sizeParts(act && act.view, pct);
+    var bits = [s.q, s.m].filter(Boolean);
+    return bits.length ? bits.join(' · ') : null;
+  }
+
   function ftPanelHtml() {
     var p = ft.plan;
     if (!p) return '';
@@ -4875,10 +4964,15 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         [25, 50, 75, 100].map(function (x) {
           return pill(x + '%', ft.lvl == null && ft.pct === x, '__ftPct(' + x + ')');
         }).join('') + '</div>';
+      // A tapped ladder level carries its own quantity and cost — print those
+      // too, so "till level 2" is never just a number either.
+      var lvlRow = ft.lvl != null ? (p.ladder || []).filter(function (r) { return r.lvl === ft.lvl; })[0] : null;
       tally = '<div style="font-size:11px;font-weight:700;color:var(--gray-600);margin-bottom:8px;">' +
-        (ft.lvl != null ? 'ladder level ' + ft.lvl + ' selected'
-          : sel.base ? ft.pct + '% of this leg = <b>' + fmtQ(sel.base * ft.pct / 100) + ' ' + String(sel.coin || p.coin).toUpperCase() + '</b>'
-          : ft.pct + '% of the walkable depth') + '</div>';
+        (ft.lvl != null
+          ? 'till book level ' + ft.lvl + (lvlRow
+              ? ' = <b>' + fmtQ(lvlRow.qty) + ' ' + String(sel.coin || p.coin).toUpperCase() + '</b> ≈ <b>' + fmtMoney(lvlRow.costInr, 'INR') + '</b>'
+              : ' selected')
+          : sizeLine(sel, ft.pct)) + '</div>';
     }
 
     var lad = '';
@@ -4943,9 +5037,8 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var col = sel.side === 'buy' ? '#1c8a5c' : sel.side === 'sell' ? '#d33131' : sel.side === 'hedge' ? '#4653d0' : '#1c2f4a';
     var szTxt = sel.side === 'hedge'
       ? (selFill ? fmtQ(selFill.qty) + ' ' + String(sel.coin || p.coin).toUpperCase() + ' (the fill)' : 'locked')
-      : ft.lvl != null ? 'till level ' + ft.lvl
-      : sel.base ? fmtQ(sel.base * ft.pct / 100) + ' ' + String(sel.coin || p.coin).toUpperCase()
-      : ft.pct + '%';
+      : ft.lvl != null ? 'till level ' + ft.lvl + (lvlRow ? ' · ' + fmtMoney(lvlRow.costInr, 'INR') : '')
+      : sizeShort(sel, ft.pct) || (ft.pct + '%');
     var btn = hedgeBlocked
       ? '<button disabled style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;margin-bottom:6px;background:#c6ccd6;color:#fff;">Execute · ' + selLabel + ' — verification pending</button>'
       : '<button onclick="__ftFire(' + ft.sel + ')" style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;cursor:pointer;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:7px;' +
@@ -5257,9 +5350,14 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var aLabel = a.side === 'hedge' ? hedgeLabel(a.coin || p.coin, aDir) : a.label;
     var qty = a.side === 'hedge' ? hedgeFill.qty
       : ft.lvl == null && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null;
+    // The confirm dialog is the last thing he reads before real money moves —
+    // it names the money, not just the percentage.
+    var money = sizeParts(a.view, ft.pct).m;
+    var lRow = ft.lvl != null ? (p.ladder || []).filter(function (r) { return r.lvl === ft.lvl; })[0] : null;
     var sz = a.side === 'hedge' ? hedgeFill.qty + ' ' + String(a.coin || p.coin).toUpperCase() + ' (your WazirX fill, order #' + hedgeFill.orderId + ')'
-      : ft.lvl != null ? 'everything till book level ' + ft.lvl
-      : qty ? qty + ' ' + String(a.coin || p.coin).toUpperCase() + ' (' + ft.pct + '% of this arb)'
+      : ft.lvl != null ? 'everything till book level ' + ft.lvl + (lRow ? ' — ' + fmtQ(lRow.qty) + ' ' + String(a.coin || p.coin).toUpperCase() + ' ≈ ' + fmtMoney(lRow.costInr, 'INR') : '')
+      : qty ? qty + ' ' + String(a.coin || p.coin).toUpperCase() + (money ? ' ≈ ' + money : '') + ' (' + ft.pct + '% of this arb)'
+      : money ? money + ' (' + ft.pct + '% of this rotation)'
       : ft.pct + '% of walkable depth';
     if (!isRetry && ft.mode === 'live' && !confirm('LIVE: ' + aLabel + ' — ' + sz + '?\nThis spends REAL money.')) return;
     if (!isRetry) ft.retries = 0;
@@ -5312,10 +5410,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // the consumption BARS (what's on screen), falling back to the walked
     // summary. Never the whole order book.
     var w = entry.walked || entry.fixed || {};
-    var buyBase = legConsumed(entry, function (l) { return l.exchange === entry.buyExchange; })
-      || (Number(w.buyQty) > 0 ? Number(w.buyQty) : null);
-    var sellBase = legConsumed(entry, function (l) { return l.exchange === entry.sellExchange; })
-      || (Number(w.sellQty) > 0 ? Number(w.sellQty) : buyBase);
+    var buySlice = legSlice(entry, function (l) { return l.exchange === entry.buyExchange; });
+    var sellSlice = legSlice(entry, function (l) { return l.exchange === entry.sellExchange; });
+    var buyBase = (buySlice && buySlice.qty) || (Number(w.buyQty) > 0 ? Number(w.buyQty) : null);
+    var sellBase = (sellSlice && sellSlice.qty) || (Number(w.sellQty) > 0 ? Number(w.sellQty) : buyBase);
+    // When the popup has no per-level record yet, the walked summary still
+    // knows what the whole arb costs and earns — enough to price a %.
+    var ccyOf = function (mktStr, ex) { return ex === 'binance' ? 'USDT' : (/usdt\s*$/i.test(String(mktStr || '')) ? 'USDT' : 'INR'); };
+    var sliceFor = function (side, slice, base, mktStr, ex) {
+      if (slice) return mkView(slice, null, entry.coin);
+      var total = side === 'buy' ? Number(w.buyCost) : Number(w.sellRevenue);
+      var price = side === 'buy' ? Number(w.buyPrice) : Number(w.sellPrice);
+      if (!(total > 0) && price > 0 && base > 0) total = price * base;
+      return mkView(null, base, entry.coin, { amount: total > 0 ? total : null, ccy: ccyOf(mktStr, ex) });
+    };
     var acts = [];
     // Both legs of the arb, matching its direction (his rule 1). The legs
     // mirror the book's bars: red bar = the BUY side, green bar = the SELL.
@@ -5326,6 +5434,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       var wm = ex === 'wazirx' ? mktOf(mktStr) : null;
       return {
         action: side + '_' + ex, side: side, ex: ex, coin: entry.coin, base: base, market: wm,
+        view: sliceFor(side, side === 'buy' ? buySlice : sellSlice, base, mktStr, ex),
         label: (side === 'buy' ? 'BUY ' : 'SELL ') + C + ' @' + (ex === 'binance' ? 'Binance spot' : 'WazirX' + (wm === 'usdt' ? '·USDT mkt' : '')),
         legLabel: '<span>' + (side === 'buy' ? '🟢 BUY' : '🔴 SELL') + '</span>' + exChip(ex) + (wm === 'usdt' ? '<span style="font-weight:700;color:#5b6472;">USDT</span>' : ''),
       };
@@ -5374,19 +5483,50 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   // the volume the bars mark, so the % chips tally with what Nikhil sees.
   // (The walked summary fields drifted from the bars on loops — his BNB
   // "1.365 for 100%" bug — so the bars win.)
-  function legConsumed(entry, matchFn) {
+  //
+  // It returns the consumed rows themselves, not just the total, so the panel
+  // can price ANY slice of the leg — that is what puts a ₹ figure next to the
+  // 25 / 50 / 75 / 100% chips.
+  //
+  // Two book shapes exist and BOTH must be read: the Direct popup's legs carry
+  // `levels`, while Loop and Intra Loop legs carry `asks` + `bids`. Reading
+  // only `levels` is why the loop panel used to fall back to a bare "25% of
+  // the walkable depth" with no quantity at all — his ETH → USDT screenshot.
+  function legSlice(entry, matchFn) {
     try {
       var legs = entry && entry.liveBooks && entry.liveBooks.legs;
       if (!Array.isArray(legs)) return null;
       var best = null;
       legs.forEach(function (leg) {
-        if (!matchFn(leg) || !Array.isArray(leg.levels)) return;
-        var s = 0;
-        leg.levels.forEach(function (l) { s += Number(l.consumedQty) || 0; });
-        if (s > 0 && (best == null || s > best)) best = s;
+        if (!matchFn(leg)) return;
+        [leg.levels, leg.asks, leg.bids].forEach(function (rows) {
+          if (!Array.isArray(rows)) return;
+          var qty = 0, out = [];
+          rows.forEach(function (l) {
+            var q = Number(l.consumedQty) || 0;
+            if (q > 0) { qty += q; out.push({ price: Number(l.price) || 0, qty: q }); }
+          });
+          if (qty > 0 && (best == null || qty > best.qty)) {
+            // WHICH money this leg is priced in. A WazirX leg is not always
+            // rupees: the USDT-pair arbs (NMR/USDT and friends) trade on the
+            // coin/USDT book, so their prices are USDT and printing a ₹ sign
+            // on them would quote a number ~90× too small.
+            best = { qty: qty, rows: out, market: leg.market,
+              ccy: leg.currency || (leg.exchange === 'binance' || /usdt\s*$/i.test(String(leg.market || '')) ? 'USDT' : 'INR') };
+          }
+        });
       });
       return best;
     } catch (e) { return null; }
+  }
+  function legConsumed(entry, matchFn) { var s = legSlice(entry, matchFn); return s ? s.qty : null; }
+  // Turn a slice (or a bare qty + total) into the `view` the panel prices.
+  function mkView(slice, qty, unit, extra) {
+    var v = slice ? { qty: slice.qty, rows: slice.rows, ccy: slice.ccy } : (qty > 0 ? { qty: qty } : null);
+    if (!v) return null;
+    v.unit = String(unit || '').toUpperCase();
+    if (extra) for (var k in extra) if (v[k] == null) v[k] = extra[k];
+    return v;
   }
   var mktHas = function (leg, coin) { return String(leg.market || '').toLowerCase().indexOf(String(coin).toLowerCase()) === 0; };
   wrap('renderIntraLoopModal', function () {
@@ -5399,8 +5539,26 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // Nikhil: only the PROFITABLE direction is offered — the scanner's own
     // route label says which way this triangle pays right now. The opposite
     // rotation would lose by roughly the same amount, so its button is noise.
-    var pathA = { action: 'intraloop_a', side: 'chain', ex: 'wazirx', label: 'Path A · INR → ' + C + ' → USDT → INR', legLabel: '<span>Path A</span>' + exChip('wazirx') };
-    var pathB = { action: 'intraloop_b', side: 'chain', ex: 'wazirx', label: 'Path B · INR → USDT → ' + C + ' → INR', legLabel: '<span>Path B</span>' + exChip('wazirx') };
+    // A triangle spends INR on its first leg — that first leg IS the size of
+    // the rotation, in coin and in rupees, so the chips can quote both.
+    var intraView = function (wantB) {
+      try {
+        var e = (typeof intraLoopLiveEntry !== 'undefined' && intraLoopLiveEntry) || null;
+        var ops = (e && e.opportunities) || [];
+        var op = null;
+        for (var i = 0; i < ops.length; i++) {
+          var startsUsdt = /INR\s*→\s*USDT/i.test(String(ops[i].pathLabel || ''));
+          if (startsUsdt === !!wantB) { op = ops[i]; break; }
+        }
+        var lg = (op && op.walked && op.walked.legs) || [];
+        var first = lg[0];
+        if (!first || !(Number(first.qty) > 0)) return null;
+        return { qty: Number(first.qty), unit: String(first.asset || oc.coin).toUpperCase(),
+          amount: Number(first.valueInr) || null, ccy: 'INR', chain: true };
+      } catch (x) { return null; }
+    };
+    var pathA = { action: 'intraloop_a', side: 'chain', ex: 'wazirx', view: intraView(false), label: 'Path A · INR → ' + C + ' → USDT → INR', legLabel: '<span>Path A</span>' + exChip('wazirx') };
+    var pathB = { action: 'intraloop_b', side: 'chain', ex: 'wazirx', view: intraView(true), label: 'Path B · INR → USDT → ' + C + ' → INR', legLabel: '<span>Path B</span>' + exChip('wazirx') };
     var pl = String(oc.pathLabel || '');
     var acts = [];
     if (wz) {
@@ -5416,7 +5574,13 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         : 'This triangle runs on ' + (oc.venueId || 'another venue') + ', not WazirX — the WazirX key cannot fire it.',
     };
   });
-  wrap('renderLoopModal', function () {
+  // The loop popup paints its shell ONCE and then patches itself in place
+  // (updateLoopModalLive) every time fresh books land — renderLoopModal is
+  // never called again. So the Execute plan has to be rebuilt on the update
+  // path too; hooking only the render is why the loop chips were sized from
+  // the very first paint, when loopLiveEntry was still null, and never caught
+  // up. Same plan function, both doors.
+  var loopPlan = function () {
     var oc = getOpenCard();
     if (!oc.coin1 || !oc.coin2) return null;
     var C1 = String(oc.coin1).toUpperCase(), C2 = String(oc.coin2).toUpperCase();
@@ -5426,13 +5590,23 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // the walked summary field disagreed with the bars — the bars win).
     var le = null;
     try { le = (typeof loopLiveEntry !== 'undefined' && loopLiveEntry) || null; } catch (e) {}
-    var q1 = legConsumed(le, function (l) { return l.exchange === 'wazirx' && mktHas(l, oc.coin1); });
-    var q2 = legConsumed(le, function (l) { return l.exchange === 'wazirx' && mktHas(l, oc.coin2); });
+    var s1 = legSlice(le, function (l) { return l.exchange === 'wazirx' && mktHas(l, oc.coin1); });
+    var s2 = legSlice(le, function (l) { return l.exchange === 'wazirx' && mktHas(l, oc.coin2); });
+    var q1 = s1 ? s1.qty : null, q2 = s2 ? s2.qty : null;
+    // The whole rotation's money: what leg 1 spends. The walk already knows it
+    // (finalCostInr), so the FULL LOOP chip can quote ₹ even though a chain has
+    // no single leg quantity of its own.
+    var lw = (le && le.walked) || {};
+    var v1 = mkView(s1, q1, oc.coin1);
+    if (!v1 && Number(lw.trbQty) > 0) v1 = mkView(null, Number(lw.trbQty), oc.coin1, { amount: Number(lw.finalCostInr) || null, ccy: 'INR' });
+    var v2 = mkView(s2, q2, oc.coin2);
+    var vChain = v1 ? { qty: v1.qty, rows: v1.rows, unit: v1.unit, ccy: v1.ccy, chain: true } : null;
+    if (vChain && !vChain.rows && Number(lw.finalCostInr) > 0) { vChain.amount = Number(lw.finalCostInr); vChain.ccy = 'INR'; }
     // WazirX legs + the futures HEDGE for each coin ("same applicable to loop").
     var acts = [];
-    if (wz) acts.push({ action: 'loop', side: 'chain', ex: 'wazirx', label: 'FULL LOOP ' + C1 + ' → ' + C2, legLabel: '<span>FULL LOOP</span>' + exChip('wazirx') });
-    acts.push({ action: 'buy_wazirx', side: 'buy', ex: 'wazirx', coin: oc.coin1, base: q1, label: 'BUY ' + C1 + ' @WazirX', legLabel: '<span>🟢 BUY ' + C1 + '</span>' + exChip('wazirx') });
-    acts.push({ action: 'sell_wazirx', side: 'sell', ex: 'wazirx', coin: oc.coin2, base: q2, label: 'SELL ' + C2 + ' @WazirX', legLabel: '<span>🔴 SELL ' + C2 + '</span>' + exChip('wazirx') });
+    if (wz) acts.push({ action: 'loop', side: 'chain', ex: 'wazirx', view: vChain, label: 'FULL LOOP ' + C1 + ' → ' + C2, legLabel: '<span>FULL LOOP</span>' + exChip('wazirx') });
+    acts.push({ action: 'buy_wazirx', side: 'buy', ex: 'wazirx', coin: oc.coin1, base: q1, view: v1, label: 'BUY ' + C1 + ' @WazirX', legLabel: '<span>🟢 BUY ' + C1 + '</span>' + exChip('wazirx') });
+    acts.push({ action: 'sell_wazirx', side: 'sell', ex: 'wazirx', coin: oc.coin2, base: q2, view: v2, label: 'SELL ' + C2 + ' @WazirX', legLabel: '<span>🔴 SELL ' + C2 + '</span>' + exChip('wazirx') });
     acts.push({ action: 'hedge_binance', side: 'hedge', ex: 'binance', coin: oc.coin1, base: q1, label: 'HEDGE ' + C1 + ' @Binance Futures (short)', legLabel: '<span>🛡 HEDGE ' + C1 + '</span><span style="font-weight:700;color:#4653d0;">FUT</span>' });
     acts.push({ action: 'hedge_binance', side: 'hedge', ex: 'binance', coin: oc.coin2, base: q2, label: 'HEDGE ' + C2 + ' @Binance Futures (short)', legLabel: '<span>🛡 HEDGE ' + C2 + '</span><span style="font-weight:700;color:#4653d0;">FUT</span>' });
     return {
@@ -5443,7 +5617,9 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         : 'This rotation crosses exchanges — no one-tap chain. ')
         + 'WazirX legs sized by the bars above; the HEDGE legs SHORT the coin’s perp on Binance FUTURES (needs the perp + ≥5× leverage).',
     };
-  });
+  };
+  wrap('renderLoopModal', loopPlan);
+  wrap('updateLoopModalLive', loopPlan);
   var _cm = window.closeModal;
   if (typeof _cm === 'function') window.closeModal = function () { ftDetach(); return _cm.apply(this, arguments); };
 
