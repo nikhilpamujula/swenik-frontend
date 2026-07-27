@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v11 · track.html scanner clone · TEST
+     SWENIK AUTO TRADER — v24 · TEST
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -558,7 +558,7 @@
     </div>
     <div>
       <h1>SWENIK Trader — Sandbox</h1>
-      <div class="subtitle">Practice mode · fake money, fake fills · <span style="opacity:.95;font-weight:800;">v11 · track.html scanner clone · TEST</span></div>
+      <div class="subtitle">Practice mode · fake money, fake fills · <span style="opacity:.95;font-weight:800;">v24 · TEST</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -733,8 +733,8 @@
           <div class="f"><label>Strategy</label>
             <select id="rf_strategy" onchange="stratHint()">
               <option value="intraloop">Intra loop (WazirX triangle)</option>
-              <option value="direct_hedge">Direct arb + futures short</option>
-              <option value="loop_pair">Loop arbitrage — auto ARB1/ARB2 (source vs support)</option>
+              <option value="direct_hedge">Direct arb — both directions (WazirX ↔ Binance spot, futures hedge)</option>
+              <option value="loop_pair">Loop arbitrage — ARB1/ARB2 across WazirX ↔ Binance spot (futures hedge)</option>
             </select>
           </div>
           <div class="f" id="pathWrap"><label>Intra path</label>
@@ -746,6 +746,7 @@
           </div>
           <div class="f"><label>Min net profit %</label><input id="rf_minpct" type="number" step="0.05" value="0.5"><div class="sub">re-checked at live depth at the moment of execution</div></div>
           <div class="f"><label>Min profit ₹ (at your size)</label><input id="rf_mininr" type="number" step="10" value="50"></div>
+          <div class="f"><label>Sanity ceiling % (too-good-to-be-true)</label><input id="rf_maxpct" type="number" step="1" min="1" value="8"><div class="sub">refuse anything ABOVE this — a 797% "arb" is a dead order book, not money. Raise it only if you truly expect bigger.</div></div>
           <div class="f"><label>Coins (blank = any)</label><input id="rf_coins" placeholder="trx, xrp, shib"></div>
           <div class="f"><label>Exclude coins</label><input id="rf_excl" placeholder=""></div>
           <div class="f full"><label>Signal must persist (ms)</label><input id="rf_persist" type="number" min="0" step="50" value="250"><div class="sub">the arb must stay alive this many milliseconds before firing — one-tick flickers never trade. 0 = fire on first sight</div></div>
@@ -765,7 +766,7 @@
               <option value="6">6</option>
             </select>
           </div>
-          <div class="f"><label>Marginal % cutoff</label><input id="rf_dstop" type="number" step="0.05" value="0.10" oninput="drawDepthPreview()"><div class="sub">stop taking depth the moment the NEXT level's marginal net % drops below this</div></div>
+          <div class="f"><label>Level profit cutoff %</label><input id="rf_dstop" type="number" step="0.05" value="0.10" oninput="drawDepthPreview()"><div class="sub">a level is only taken if the volume at THAT level, by itself, still earns at least this net % — e.g. set 1 and no level earning under 1% alone is ever touched</div></div>
           <div class="f full"><label>Max share of any level</label><input id="rf_share" type="number" min="5" max="100" step="5" value="50" oninput="drawDepthPreview()"><div class="sub">% of a level's shown size you allow yourself to take — don't be the whole book</div></div>
           <div class="f full">
             <div class="dpv">
@@ -780,6 +781,8 @@
       <div class="fsec">
         <div class="fsec-h">Size &amp; risk</div>
         <div class="frm">
+          <div class="f"><label>Take % of the arb's size</label><input id="rf_sizepct" type="number" min="1" max="100" step="5" value="100"><div class="sub">execute only this % of the arb's walkable volume — with the ₹ cap this gives "₹10k arb → ₹5k trade"</div></div>
+          <div class="f"><label>Prefer % over size</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_preferpct" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--primary);"> low volume · high %</label><div class="sub">tries every stop point inside the arb's own span and picks the HIGHEST net % that still clears your min ₹ profit — instead of walking as deep as the cutoff allows</div></div>
           <div class="f"><label>Max ₹ per trade</label><input id="rf_max" type="number" step="100" value="1000"></div>
           <div class="f"><label>Max % of free INR balance</label><input id="rf_balpct" type="number" step="5" value="25"><div class="sub">live mode checks your real balance first</div></div>
           <div class="f"><label>Daily ₹ cap</label><input id="rf_daily" type="number" step="500" value="10000"></div>
@@ -1869,7 +1872,8 @@ function renderRules() {
       '<div class="facts num">' +
         '<span class="fact">≥ <b>' + Number(r.min_net_pct) + '%</b> net</span>' +
         '<span class="fact">≥ <b>' + inr(r.min_profit_inr) + '</b></span>' +
-        '<span class="fact depth">depth <b>' + (cfg.maxLevels || 3) + ' lvls</b> · cutoff <b>' + (cfg.depthStopPct != null ? cfg.depthStopPct : 0.1) + '%</b> · ≤<b>' + (cfg.maxLevelSharePct || 50) + '%</b>/level</span>' +
+        '<span class="fact">ceiling <b>' + (cfg.maxNetPct || 8) + '%</b></span>' +
+        '<span class="fact depth">depth <b>' + (cfg.maxLevels || 3) + ' lvls</b> · level ≥<b>' + (cfg.depthStopPct != null ? cfg.depthStopPct : 0.1) + '%</b> · ≤<b>' + (cfg.maxLevelSharePct || 50) + '%</b>/level</span>' +
         '<span class="fact">max <b>' + inr(r.max_inr_per_trade) + '</b>/trade</span>' +
         '<span class="fact"><b>' + Number(r.balance_pct) + '%</b> of balance</span>' +
         '<span class="fact">day cap <b>' + inr(r.daily_inr_cap) + '</b></span>' +
@@ -1877,10 +1881,12 @@ function renderRules() {
         '<span class="fact">entry <b>' + (cfg.entryAttempts || 1) + '-shot</b> · mid ×<b>' + (cfg.midAttempts || 3) + '</b></span>' +
         (win ? '<span class="fact">🕒 <b>' + win + '</b></span>' : '') +
         (cfg.maxTradesPerDay ? '<span class="fact">≤<b>' + cfg.maxTradesPerDay + '</b> trades/day</span>' : '') +
+        (cfg.sizePct && cfg.sizePct < 100 ? '<span class="fact">take <b>' + cfg.sizePct + '%</b> of arb</span>' : '') +
+        (cfg.preferPct ? '<span class="fact">prefer <b>% over size</b></span>' : '') +
         '<span class="fact">cooldown <b>' + r.cooldown_sec + 's</b></span>' +
         (coins ? '<span class="fact">coins: <b>' + esc(coins) + '</b></span>' : '<span class="fact">any coin</span>') +
         (r.strategy === 'intraloop' && cfg.path && cfg.path !== 'any' ? '<span class="fact">path <b>' + cfg.path + '</b></span>' : '') +
-        (r.strategy === 'direct_hedge' ? '<span class="fact">≤<b>' + (cfg.maxOpenPositions || 1) + '</b> open hedge</span>' : '') +
+        (r.strategy === 'direct_hedge' || r.strategy === 'loop_pair' ? '<span class="fact">≤<b>' + (cfg.maxOpenPositions || 1) + '</b> open hedge</span>' : '') +
         (Number(r.consec_fails) > 0 && !r.tripped ? '<span class="fact warn">fails in a row: <b>' + r.consec_fails + '/' + r.max_consec_fails + '</b></span>' : '') +
       '</div>' +
       (r.tripped ? '<div class="trip-reason selectable">⛔ ' + esc(r.tripped_reason || 'repeated failures') + '</div>' : '') +
@@ -1983,6 +1989,7 @@ function openRuleForm(id) {
   $('rf_excl').value = (cfg.excludeCoins || []).join(', ');
   $('rf_minpct').value = r ? Number(r.min_net_pct) : 0.5;
   $('rf_mininr').value = r ? Number(r.min_profit_inr) : 50;
+  $('rf_maxpct').value = cfg.maxNetPct || 8;
   $('rf_persist').value = cfg.persistMs != null ? cfg.persistMs : (cfg.persistTicks ? (cfg.persistTicks - 1) * 2500 : 250);
   $('rf_maxlvl').value = cfg.maxLevels || 3;
   $('rf_dstop').value = cfg.depthStopPct != null ? cfg.depthStopPct : 0.10;
@@ -2002,6 +2009,8 @@ function openRuleForm(id) {
   $('rf_aggr').value = cfg.aggressionBps || 0;
   $('rf_lev').value = cfg.futLeverage || 1;
   $('rf_maxpos').value = cfg.maxOpenPositions || 1;
+  $('rf_sizepct').value = cfg.sizePct || 100;
+  $('rf_preferpct').checked = !!cfg.preferPct;
   $('rf_fund').value = cfg.maxAdverseFunding != null ? cfg.maxAdverseFunding : 0.03;
   stratHint();
   drawDepthPreview();
@@ -2040,7 +2049,10 @@ async function saveRule() {
       aggressionBps: Number($('rf_aggr').value),
       futLeverage: Number($('rf_lev').value),
       maxOpenPositions: Number($('rf_maxpos').value),
-      maxAdverseFunding: Number($('rf_fund').value)
+      maxAdverseFunding: Number($('rf_fund').value),
+      sizePct: Number($('rf_sizepct').value) || 100,
+      maxNetPct: Number($('rf_maxpct').value) || 8,
+      preferPct: $('rf_preferpct').checked
     }
   };
   if (!body.name) { toast('Give the rule a name.'); return; }
