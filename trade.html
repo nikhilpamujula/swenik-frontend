@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v24
+     SWENIK AUTO TRADER — v26
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -558,7 +558,7 @@
     </div>
     <div>
       <h1>SWENIK Fast Trader</h1>
-      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v24</span></div>
+      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v26</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -783,6 +783,7 @@
         <div class="frm">
           <div class="f"><label>Take % of the arb's size</label><input id="rf_sizepct" type="number" min="1" max="100" step="5" value="100"><div class="sub">execute only this % of the arb's walkable volume — with the ₹ cap this gives "₹10k arb → ₹5k trade"</div></div>
           <div class="f"><label>Prefer % over size</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_preferpct" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--primary);"> low volume · high %</label><div class="sub">tries every stop point inside the arb's own span and picks the HIGHEST net % that still clears your min ₹ profit — instead of walking as deep as the cutoff allows</div></div>
+          <div class="f" id="walWrap"><label>Skip wallet-disabled coins</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_skipwal" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--primary);"> never auto-trade a shut wallet</label><div class="sub">uses the scanner's own wallet status — a coin whose WazirX deposits AND withdrawals are blocked in both directions is refused. Coins the scanner hasn't reported stay tradeable, so a scanner outage can't freeze the engine. <b>Does not apply to intra-loop</b>: that strategy never leaves WazirX, so there is no transfer a shut wallet could block.</div></div>
           <div class="f"><label>Max ₹ per trade</label><input id="rf_max" type="number" step="100" value="1000"></div>
           <div class="f"><label>Max % of free INR balance</label><input id="rf_balpct" type="number" step="5" value="25"><div class="sub">live mode checks your real balance first</div></div>
           <div class="f"><label>Daily ₹ cap</label><input id="rf_daily" type="number" step="500" value="10000"></div>
@@ -939,6 +940,7 @@ async function refreshStatus() {
   if (ST.lastTick && ST.lastTick.at) latBits.push('last signal ' + ago(ST.lastTick.at));
   if (ST.evalPerSec) latBits.push(ST.evalPerSec + ' evals/s');
   if (ST.latency && ST.latency.avgTotalMs != null) latBits.push('⏱ avg signal→done ' + ST.latency.avgTotalMs + 'ms');
+  if (ST.wallets && ST.wallets.disabled) latBits.push('🚫 ' + ST.wallets.disabled + ' wallet-disabled coin' + (ST.wallets.disabled === 1 ? '' : 's') + ' blocked');
   if (ST.lastTick && ST.lastTick.error) latBits.push('⚠ ' + ST.lastTick.error);
   $('engineTick').textContent = latBits.join(' · ');
   $('cntRules').textContent = (ST.rules || []).length;
@@ -1111,6 +1113,9 @@ function renderRules() {
         (cfg.maxTradesPerDay ? '<span class="fact">≤<b>' + cfg.maxTradesPerDay + '</b> trades/day</span>' : '') +
         (cfg.sizePct && cfg.sizePct < 100 ? '<span class="fact">take <b>' + cfg.sizePct + '%</b> of arb</span>' : '') +
         (cfg.preferPct ? '<span class="fact">prefer <b>% over size</b></span>' : '') +
+        (r.strategy === 'intraloop' ? ''
+          : cfg.skipWalletDisabled === false ? '<span class="fact warn">wallet-disabled coins <b>ALLOWED</b></span>'
+          : '<span class="fact">skips <b>shut wallets</b></span>') +
         '<span class="fact">cooldown <b>' + r.cooldown_sec + 's</b></span>' +
         (coins ? '<span class="fact">coins: <b>' + esc(coins) + '</b></span>' : '<span class="fact">any coin</span>') +
         (r.strategy === 'intraloop' && cfg.path && cfg.path !== 'any' ? '<span class="fact">path <b>' + cfg.path + '</b></span>' : '') +
@@ -1168,6 +1173,9 @@ function stratHint() {
   $('hedgeSec').style.display = (s === 'direct_hedge' || s === 'loop_pair') ? '' : 'none';
   $('fundWrap').style.display = s === 'loop_pair' ? '' : 'none';
   $('pathWrap').style.display = s === 'intraloop' ? '' : 'none';
+  // Intra-loop never leaves WazirX, so wallet status can't block it — hide the
+  // switch rather than show one that does nothing.
+  $('walWrap').style.display = s === 'intraloop' ? 'none' : '';
 }
 // Illustrative marginal % ladder for the depth preview (typical decay shape).
 const DPV_PCTS = [1.85, 1.22, 0.74, 0.38, 0.14, 0.03];
@@ -1239,6 +1247,7 @@ function openRuleForm(id) {
   $('rf_maxpos').value = cfg.maxOpenPositions || 1;
   $('rf_sizepct').value = cfg.sizePct || 100;
   $('rf_preferpct').checked = !!cfg.preferPct;
+  $('rf_skipwal').checked = cfg.skipWalletDisabled !== false; // default ON, incl. rules made before this existed
   $('rf_fund').value = cfg.maxAdverseFunding != null ? cfg.maxAdverseFunding : 0.03;
   stratHint();
   drawDepthPreview();
@@ -1280,6 +1289,7 @@ async function saveRule() {
       maxAdverseFunding: Number($('rf_fund').value),
       sizePct: Number($('rf_sizepct').value) || 100,
       maxNetPct: Number($('rf_maxpct').value) || 8,
+      skipWalletDisabled: $('rf_skipwal').checked,
       preferPct: $('rf_preferpct').checked
     }
   };
