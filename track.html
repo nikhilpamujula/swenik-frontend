@@ -5302,14 +5302,23 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // On a venue page (Zebpay/CoinDCX) the triangle runs on THAT exchange —
     // the WazirX key cannot fire it.
     var wz = !oc.venueId || oc.venueId === 'wazirx';
+    // Nikhil: only the PROFITABLE direction is offered — the scanner's own
+    // route label says which way this triangle pays right now. The opposite
+    // rotation would lose by roughly the same amount, so its button is noise.
+    var pathA = { action: 'intraloop_a', side: 'chain', ex: 'wazirx', label: 'Path A · INR → ' + C + ' → USDT → INR', legLabel: '<span>Path A</span>' + exChip('wazirx') };
+    var pathB = { action: 'intraloop_b', side: 'chain', ex: 'wazirx', label: 'Path B · INR → USDT → ' + C + ' → INR', legLabel: '<span>Path B</span>' + exChip('wazirx') };
+    var pl = String(oc.pathLabel || '');
+    var acts = [];
+    if (wz) {
+      if (/INR\s*→\s*USDT/i.test(pl)) acts = [pathB];            // route starts INR → USDT: B pays
+      else if (pl) acts = [pathA];                                // route starts INR → coin: A pays
+      else acts = [pathA, pathB];                                 // unknown route → keep both (safe)
+    }
     return {
       kind: 'intra', coin: oc.coin, wantLadder: wz,
-      acts: wz ? [
-        { action: 'intraloop_a', side: 'chain', ex: 'wazirx', label: 'Path A · INR → ' + C + ' → USDT → INR', legLabel: '<span>Path A</span>' + exChip('wazirx') },
-        { action: 'intraloop_b', side: 'chain', ex: 'wazirx', label: 'Path B · INR → USDT → ' + C + ' → INR', legLabel: '<span>Path B</span>' + exChip('wazirx') },
-      ] : [],
+      acts: acts,
       note: wz
-        ? 'Three WazirX orders back to back on your one key — instant, no transfers. The % chips size against THIS triangle’s walkable depth (not the whole book); the ladder shows only the profitable levels.'
+        ? 'Three WazirX orders back to back on your one key — instant, no transfers. Only the direction that pays right now is shown. The % chips size against THIS triangle’s walkable depth (not the whole book); the ladder shows only the profitable levels.'
         : 'This triangle runs on ' + (oc.venueId || 'another venue') + ', not WazirX — the WazirX key cannot fire it.',
     };
   });
