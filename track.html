@@ -4941,6 +4941,37 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       : '<div style="font-size:10.5px;font-weight:700;color:var(--gray-500);">◌ warming the trader’s live books (a few seconds)… Execute retries by itself if tapped early</div>';
     return head + note + legs + pcts + tally + hedgeBox + lad + btn + st + '<div id="ftMsg" style="font-size:11.5px;font-weight:700;"></div>';
   }
+  // ---------- SCROLL ANCHOR ----------
+  // The popup body is repainted wholesale every few seconds. The panel below
+  // it is destroyed and re-appended in the same tick, so the modal's scroll
+  // box briefly gets shorter and the browser clamps the scroll position —
+  // that is the "screen moving" while reading the Execute panel. Snapshot the
+  // scroll offsets of every scrollable ancestor before the repaint, put them
+  // back after the panel is re-attached.
+  var ftScroll = null;
+  function ftSnapScroll(el) {
+    var list = [];
+    try {
+      var n = el;
+      while (n && n !== document.body && n !== document.documentElement) {
+        if (n.scrollHeight > n.clientHeight + 1) list.push([n, n.scrollTop]);
+        n = n.parentElement;
+      }
+    } catch (e) {}
+    ftScroll = { at: Date.now(), list: list, win: window.scrollY || window.pageYOffset || 0 };
+  }
+  function ftRestoreScroll() {
+    var s = ftScroll;
+    if (!s || Date.now() - s.at > 500) return; // stale → the user is in control
+    try {
+      for (var i = 0; i < s.list.length; i++) {
+        if (s.list[i][0].scrollTop !== s.list[i][1]) s.list[i][0].scrollTop = s.list[i][1];
+      }
+      var w = window.scrollY || window.pageYOffset || 0;
+      if (Math.abs(w - s.win) > 1) window.scrollTo(0, s.win);
+    } catch (e) {}
+  }
+
   function ftRender() {
     var body = document.getElementById('modalBody');
     if (!body || !ft.plan) return;
@@ -4955,6 +4986,9 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // but only touches the DOM when something actually changed.
     var html = ftPanelHtml();
     if (el.__ftPanelHtml !== html) { el.__ftPanelHtml = html; el.innerHTML = html; }
+    // Panel is back at full height → the popup can hold its place again.
+    ftRestoreScroll();
+    requestAnimationFrame(function () { ftRestoreScroll(); ftScroll = null; });
   }
   function ftMsg(t, bad) {
     var m = document.getElementById('ftMsg');
@@ -5085,6 +5119,11 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     if (!p || !p.acts.length) return;
     try {
       var live = await traderApi('/api/trader/live');
+      // The popup may have repainted while this was in flight and swapped in a
+      // fresh plan object for the SAME trade — write the results into the plan
+      // that is on screen now, not the stale one (that is how the depth ladder
+      // used to go missing for a poll cycle).
+      if (ft.plan && ft.plan !== p && planSig(ft.plan) === planSig(p)) p = ft.plan;
       var lad = null, seen = false;
       var o = (live.opps || []).find(function (x) { return x.coin === p.coin; });
       if (p.kind === 'loop') {
@@ -5123,24 +5162,55 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     plan.hedgeInfo = plan.hedgeInfo || {};
     var coins = [];
     plan.acts.forEach(function (a) { if (a.side === 'hedge' && coins.indexOf(a.coin || plan.coin) < 0) coins.push(a.coin || plan.coin); });
+    // still the same trade on screen? (object identity is not enough — the
+    // popup hands us a new plan object on every one of its own repaints)
+    var live = function () { return ft.plan === plan || (ft.plan && planSig(ft.plan) === planSig(plan)); };
     coins.forEach(function (c) {
       traderApi('/api/trader/hedge/info?coin=' + encodeURIComponent(c))
-        .then(function (info) { if (ft.plan === plan) { plan.hedgeInfo[c] = info; ftRender(); } })
-        .catch(function (e) { if (ft.plan === plan) { plan.hedgeInfo[c] = { hedgeOk: false, reason: e.message }; ftRender(); } });
+        .then(function (info) { if (live()) { plan.hedgeInfo[c] = info; ftRender(); } })
+        .catch(function (e) { if (live()) { plan.hedgeInfo[c] = { hedgeOk: false, reason: e.message }; ftRender(); } });
     });
   }
+  // Identity of a trade as far as the panel is concerned: same popup, same
+  // legs, same direction. Prices and sizes move every refresh — those must
+  // NOT count, or the panel would reset itself every few seconds.
+  function planSig(p) {
+    if (!p) return '';
+    return [p.kind, p.coin || '', p.coin2 || '', (p.acts || []).map(function (a) {
+      return [a.action, a.side, a.coin || '', a.market || ''].join('~');
+    }).join(',')].join('|');
+  }
   function ftAttach(plan) {
+    var prev = ft.plan;
+    // The popup re-renders on its own live clock (4–6s). When it comes back
+    // with the SAME trade, everything the user chose has to survive it —
+    // his report: "it can't stand on futures hedge option, it's moving back
+    // to wazirx option". The selected leg, the % / ladder choice, the futures
+    // verification box and the poll timer all carry over untouched.
+    var same = !!prev && planSig(prev) === planSig(plan);
+    if (same) {
+      plan.hedgeInfo = prev.hedgeInfo || {};
+      plan.hedgeAt = prev.hedgeAt || 0;
+      if ((!plan.ladder || !plan.ladder.length) && prev.ladder) plan.ladder = prev.ladder;
+      plan.acts.forEach(function (a, i) { // a refresh can arrive without sizes
+        if (a.base == null && prev.acts[i] && prev.acts[i].base != null) a.base = prev.acts[i].base;
+      });
+    }
     ft.plan = plan;
-    ft.lvl = null;
-    ft.sel = 0;
-    ft.ready = false;
-    ft.retries = 0;
+    if (!same) { ft.lvl = null; ft.sel = 0; ft.ready = false; ft.retries = 0; }
+    if (ft.sel >= plan.acts.length) ft.sel = 0;
     ftWatch(plan.coin);
     if (plan.coin2) ftWatch(plan.coin2);
-    ftHedgeInfo(plan);
+    // Mark price / funding do drift — refresh the hedge box on its own slow
+    // clock instead of on every popup repaint (which made it flash "checking
+    // Binance futures…" and knocked the layout about).
+    if (Date.now() - (plan.hedgeAt || 0) > 30000) { plan.hedgeAt = Date.now(); ftHedgeInfo(plan); }
     ftRender();
-    clearInterval(ft.timer);
-    if (plan.acts.length) { ftPoll(); ft.timer = setInterval(ftPoll, 2500); }
+    if (!same || !ft.timer) {
+      clearInterval(ft.timer);
+      ft.timer = null;
+      if (plan.acts.length) { ftPoll(); ft.timer = setInterval(ftPoll, 2500); }
+    }
   }
   function ftDetach() {
     ft.plan = null;
@@ -5409,6 +5479,9 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         set: function (v) {
           if (this.__ftLastHtml === v) return; // identical repaint → nothing to do
           this.__ftLastHtml = v;
+          // Remember where the popup was parked BEFORE the teardown; ftRender
+          // puts it back once the Execute panel is re-attached.
+          if (this.id === 'modalBody') ftSnapScroll(this);
           var scrolls = [];
           try {
             var all = this.querySelectorAll('*');
