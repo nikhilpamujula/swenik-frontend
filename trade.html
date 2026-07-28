@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK AUTO TRADER — v27
+     SWENIK AUTO TRADER — v30 · one-tap coin skip
      Design system v2 (matches scanner build 89): light fintech
      dashboard, deep-navy command deck, indigo accent, emerald profit.
      Charts follow the house dataviz spec: 2px lines, ≥8px end
@@ -526,6 +526,120 @@
   .f .sub { font-size:10.5px; color:var(--gray-500); margin-top:3px; line-height:1.4; }
   @media (max-width:430px){ .frm { grid-template-columns:1fr; } }
 
+  /* collapsible sections — OPEN by default, so nothing is ever hidden from a
+     first-time reader; folding is there for the second visit, on a phone,
+     when you already know which three fields you came to change. */
+  .fsec-h { cursor:pointer; user-select:none; }
+  .cx { font-size:9px; color:var(--gray-500); transition:transform .18s var(--ease); display:inline-block; }
+  .fsec.folded .cx { transform:rotate(-90deg); }
+  .fsec.folded > *:not(.fsec-h) { display:none; }
+
+  /* sticky jump bar — a 640px modal on a Fold is a lot of scrolling */
+  .jumpbar {
+    position:sticky; top:53px; z-index:2; background:#fff; display:flex; gap:6px;
+    overflow-x:auto; padding:9px 0 10px; margin:0 -2px; border-bottom:1px solid var(--gray-100);
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
+  }
+  .jumpbar::-webkit-scrollbar { display:none; }
+  .jbtn {
+    flex:none; border:1px solid var(--border); background:var(--gray-100); color:var(--gray-700);
+    font:inherit; font-size:11px; font-weight:700; padding:6px 11px; border-radius:999px; cursor:pointer;
+    white-space:nowrap;
+  }
+  .jbtn:hover { background:var(--gray-200); }
+  .jbtn.on { background:var(--primary); border-color:var(--primary); color:#fff; }
+
+  /* per-coin override rows in the rule editor */
+  .cr { border:1px solid var(--border); border-radius:12px; padding:10px 11px 11px; margin-bottom:9px; background:var(--gray-100); }
+  .cr-top { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
+  .cr-coin {
+    flex:1; min-width:0; font:inherit; font-size:13.5px; font-weight:700; text-transform:uppercase;
+    padding:8px 10px; border:1px solid var(--border); border-radius:9px; background:#fff; color:#26303f;
+  }
+  .cr-coin:focus { outline:none; box-shadow:var(--ring); }
+  .cr-pause {
+    flex:none; display:flex; align-items:center; gap:5px; font-size:11px; font-weight:700;
+    color:var(--gray-700); cursor:pointer; white-space:nowrap;
+  }
+  .cr-pause input { width:17px; height:17px; accent-color:var(--danger); }
+  .cr-x { flex:none; border:none; background:var(--danger-soft); color:var(--danger); width:28px; height:28px; border-radius:50%; font-size:15px; font-weight:700; cursor:pointer; }
+  .cr-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  @media (max-width:430px){ .cr-grid { grid-template-columns:repeat(2,1fr); } }
+  .cr-grid .f label { font-size:9.5px; letter-spacing:.02em; }
+  .cr-grid .f input { padding:7px 8px; font-size:12.5px; background:#fff; }
+  .cr-note { font-size:10.5px; color:var(--gray-500); margin-top:8px; line-height:1.45; }
+  .cr-note b { color:var(--accent-600); }
+
+  /* live Coin Control panel */
+  .cc { display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:9px; }
+  .cc-card { border:1px solid var(--border); border-radius:12px; padding:10px 11px; background:#fff; }
+  .cc-top { display:flex; align-items:center; gap:7px; }
+  .cc-coin { font-weight:800; font-size:13px; letter-spacing:.02em; }
+  .cc-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); flex:none; }
+  .cc-st { margin-left:auto; font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; padding:3px 8px; border-radius:999px; }
+  .cc-st.armed { background:var(--success-soft); color:var(--success); }
+  .cc-st.cooling { background:var(--warning-soft); color:var(--warning); }
+  .cc-st.holding { background:var(--accent-soft); color:var(--accent-600); }
+  .cc-st.paused { background:var(--danger-soft); color:var(--danger); }
+  .cc-st.idle { background:var(--gray-100); color:var(--gray-500); }
+  .cc-rule { font-size:10px; color:var(--gray-500); margin-top:3px; }
+  .cc-meta { font-size:10.5px; color:var(--gray-700); margin-top:7px; line-height:1.55; }
+  .cc-meta b { color:#26303f; }
+  .cc-bar { height:4px; border-radius:3px; background:var(--gray-200); overflow:hidden; margin-top:7px; }
+  .cc-fill { height:100%; width:0%; border-radius:3px; background:var(--accent); transition:width .3s linear; }
+  .cc-fill.cool { background:var(--warning); }
+  .cc-st.skipped { background:var(--gray-200); color:var(--gray-700); }
+  .cc-card.off { background:var(--gray-100); border-style:dashed; }
+  .cc-card.off .cc-coin { text-decoration:line-through; color:var(--gray-500); }
+  .cc-card.hot { border-color:rgba(224,151,58,.55); box-shadow:0 0 0 3px var(--warning-soft); }
+  .cc-move { margin-left:auto; font-size:10px; font-weight:800; color:var(--gray-500); }
+  .cc-move.hot { color:var(--warning); }
+  .cc-acts { display:flex; gap:6px; margin-top:9px; }
+  .cc-acts .btn { padding:5px 10px; font-size:11px; }
+
+  /* ---- SKIP: the one-tap "don't trade this coin right now" surface ---- */
+  /* A skip has no expiry, so the list of what is switched off has to be the
+     loudest thing on the page — otherwise a coin stays off for a week. */
+  .offbar { background:var(--gray-100); border:1px solid var(--border); border-left:4px solid var(--gray-500);
+            border-radius:12px; padding:11px 13px; margin-bottom:13px; }
+  .offbar-h { font-size:11.5px; font-weight:800; color:#26303f; letter-spacing:.02em; display:flex; align-items:center; gap:7px; }
+  .offbar-h .n { background:var(--gray-500); color:#fff; border-radius:999px; padding:1px 8px; font-size:10.5px; }
+  .offbar-sub { font-size:10.5px; color:var(--gray-500); margin-top:4px; line-height:1.5; }
+  .chipwrap { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .coin-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:#fff;
+               border-radius:999px; padding:5px 11px; font-size:11.5px; font-weight:700; color:#26303f;
+               cursor:pointer; user-select:none; transition:all .15s var(--ease); }
+  .coin-chip:active { transform:scale(.95); }
+  .coin-chip .x { font-size:13px; line-height:1; color:var(--gray-500); font-weight:800; }
+  .coin-chip.off { background:var(--gray-200); color:var(--gray-500); text-decoration:line-through; border-color:transparent; }
+  .coin-chip.off .x { color:var(--success); text-decoration:none; }
+  .coin-chip.hot { border-color:var(--warning); background:var(--warning-soft); color:#8a5a17; }
+  .coin-chip .rl { font-weight:600; font-size:10px; color:var(--gray-500); text-decoration:none; }
+  .coin-chip.off .rl { color:var(--gray-500); }
+
+  /* ---- MOVERS: a warning, never a brake ---- */
+  .mv-strip { display:flex; gap:7px; overflow-x:auto; padding-bottom:3px; -webkit-overflow-scrolling:touch; }
+  .mv-strip::-webkit-scrollbar { display:none; }
+  .mv { flex:none; min-width:88px; border:1px solid var(--border); border-radius:12px; padding:8px 11px; background:#fff;
+        cursor:pointer; user-select:none; transition:all .15s var(--ease); }
+  .mv:active { transform:scale(.96); }
+  .mv.hot { border-color:rgba(224,151,58,.55); background:var(--warning-soft); }
+  .mv-coin { font-size:12px; font-weight:800; letter-spacing:.02em; color:#26303f; }
+  .mv-pct { font-size:16px; font-weight:800; margin-top:2px; color:var(--gray-700); }
+  .mv.hot .mv-pct { color:var(--warning); }
+  .mv-dir { font-size:10px; font-weight:700; margin-top:1px; }
+  .mv-dir.up { color:var(--success); } .mv-dir.down { color:var(--danger); }
+  .mv-off { font-size:9.5px; font-weight:800; color:var(--gray-500); margin-top:3px; text-transform:uppercase; letter-spacing:.05em; }
+
+  /* per-rule coin row inside a rule card */
+  .rcoins { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); }
+  .rcoins-h { font-size:10px; font-weight:800; color:var(--gray-500); text-transform:uppercase; letter-spacing:.06em; }
+  .addskip { display:flex; gap:6px; margin-top:8px; }
+  .addskip input { flex:1; min-width:0; padding:7px 11px; border:1px solid var(--border); border-radius:999px;
+                   font-size:12px; font-family:inherit; text-transform:uppercase; }
+  .addskip input:focus { outline:none; border-color:var(--accent); box-shadow:var(--ring); }
+  .addskip .btn { padding:6px 13px; font-size:11.5px; white-space:nowrap; }
+
   /* depth preview widget */
   .dpv { background:var(--gray-100); border-radius:12px; padding:12px 14px; }
   .dpv-title { font-size:11px; font-weight:800; color:var(--gray-700); margin-bottom:8px; }
@@ -558,7 +672,7 @@
     </div>
     <div>
       <h1>SWENIK Fast Trader</h1>
-      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v27</span></div>
+      <div class="subtitle">Automated arbitrage · WazirX × Binance · <span style="opacity:.95;font-weight:800;">v30 · one-tap coin skip</span></div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -681,6 +795,33 @@
         <div style="display:flex;justify-content:flex-end;margin-top:10px;"><button class="btn primary" onclick="saveSettings()">Save global settings</button></div>
       </div>
     </div>
+    <!-- Everything he has switched off, in one place. A skip never expires, so
+         this list is the only thing that will remind him it is still off. -->
+    <div class="offbar" id="offPanel" style="display:none;">
+      <div class="offbar-h">⏸ Switched off <span class="n" id="offCount">0</span></div>
+      <div class="offbar-sub">These stay off until you turn them back on — nothing here expires on its own. Tap one to trade it again.</div>
+      <div class="chipwrap" id="offChips"></div>
+    </div>
+
+    <div class="panel" id="moversPanel" style="display:none;">
+      <div class="panel-h"><h2>Moving fast right now</h2><span class="hint" id="moversHint"></span></div>
+      <div class="panel-b">
+        <div class="mv-strip" id="moversStrip"></div>
+        <div class="hint" style="margin-top:10px;">
+          Biggest high-to-low swing over the last 5 minutes. <b>This is a heads-up, not a brake</b> — the engine keeps trading every coin here unless you switch one off yourself. Tap a coin to switch it off.
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="coinPanel" style="display:none;">
+      <div class="panel-h"><h2>Coin Control — why each coin is or isn't trading right now</h2><span class="hint" id="coinHint"></span></div>
+      <div class="panel-b">
+        <div class="cc" id="coinGrid"></div>
+        <div class="hint" style="margin-top:11px;">
+          <b>armed</b> = ready, waiting for an arb worth taking · <b>holding</b> = an arb is on screen and the coin is serving its hold-to-trigger time · <b>cooling</b> = it just traded (or missed) and is serving its cooling period · <b>skipped</b> = you switched this coin off for that rule. Switching off is instant, applies to that one rule only, and survives a restart.
+        </div>
+      </div>
+    </div>
     <div class="notice">New rules always start in <b>Paper</b> mode. Watch a rule behave in Activity first, then switch it to Live from its card. Repeated failures trip the rule's circuit breaker and disarm it automatically.</div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
       <button class="btn primary" onclick="openRuleForm()">+ New rule</button>
@@ -726,8 +867,18 @@
     <div class="modal-hd"><span id="ruleModalTitle">New rule</span><button class="close-x" onclick="closeRuleForm()">×</button></div>
     <div class="modal-bd">
 
-      <div class="fsec" style="margin-top:12px;">
-        <div class="fsec-h">Entry signal</div>
+      <div class="jumpbar" id="ruleJump">
+        <button class="jbtn" type="button" onclick="jumpSec('sec-entry')">Entry</button>
+        <button class="jbtn" type="button" onclick="jumpSec('sec-depth')">Depth</button>
+        <button class="jbtn" type="button" onclick="jumpSec('sec-size')">Size &amp; risk</button>
+        <button class="jbtn" type="button" onclick="jumpSec('sec-coins')">Per-coin</button>
+        <button class="jbtn" type="button" onclick="jumpSec('sec-timing')">Timing</button>
+        <button class="jbtn" type="button" onclick="jumpSec('sec-exec')">Execution</button>
+        <button class="jbtn" type="button" id="jmpHedge" onclick="jumpSec('sec-hedge')">Hedge</button>
+      </div>
+
+      <div class="fsec" id="sec-entry" style="margin-top:12px;">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Entry signal</div>
         <div class="frm">
           <div class="f full"><label>Rule name</label><input id="rf_name" placeholder="e.g. TRX intra loop, small size"></div>
           <div class="f"><label>Strategy</label>
@@ -748,13 +899,16 @@
           <div class="f"><label>Min profit ₹ (at your size)</label><input id="rf_mininr" type="number" step="10" value="50"></div>
           <div class="f"><label>Sanity ceiling % (too-good-to-be-true)</label><input id="rf_maxpct" type="number" step="1" min="1" value="8"><div class="sub">refuse anything ABOVE this — a 797% "arb" is a dead order book, not money. Raise it only if you truly expect bigger.</div></div>
           <div class="f"><label>Coins (blank = any)</label><input id="rf_coins" placeholder="trx, xrp, shib"></div>
-          <div class="f"><label>Exclude coins</label><input id="rf_excl" placeholder=""></div>
+          <div class="f"><label>Switched off — never trade these</label><input id="rf_excl" placeholder="" oninput="drawExclChips()"><div class="sub">the same list the one-tap switch writes. Coins here stay off until you remove them — nothing expires on its own.</div>
+            <div class="chipwrap" id="rf_exclChips"></div>
+          </div>
+          <div class="f full"><label>Warn me when a coin swings more than</label><input id="rf_volwarn" type="number" step="0.5" min="0" value="3"><div class="sub">% high-to-low over 5 minutes. This only <b>flags</b> the coin on the Rules tab — the engine keeps trading it until you switch it off yourself.</div></div>
           <div class="f full"><label>Signal must persist (ms)</label><input id="rf_persist" type="number" min="0" step="50" value="250"><div class="sub">the arb must stay alive this many milliseconds before firing — one-tick flickers never trade. 0 = fire on first sight</div></div>
         </div>
       </div>
 
-      <div class="fsec">
-        <div class="fsec-h">Depth — how deep may this rule walk the book</div>
+      <div class="fsec" id="sec-depth">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Depth — how deep may this rule walk the book</div>
         <div class="frm">
           <div class="f"><label>Max levels per leg</label>
             <select id="rf_maxlvl" onchange="drawDepthPreview()">
@@ -778,8 +932,8 @@
         </div>
       </div>
 
-      <div class="fsec">
-        <div class="fsec-h">Size &amp; risk</div>
+      <div class="fsec" id="sec-size">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Size &amp; risk</div>
         <div class="frm">
           <div class="f"><label>Take % of the arb's size</label><input id="rf_sizepct" type="number" min="1" max="100" step="5" value="100"><div class="sub">execute only this % of the arb's walkable volume — with the ₹ cap this gives "₹10k arb → ₹5k trade"</div></div>
           <div class="f"><label>Prefer % over size</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_preferpct" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--primary);"> low volume · high %</label><div class="sub">tries every stop point inside the arb's own span and picks the HIGHEST net % that still clears your min ₹ profit — instead of walking as deep as the cutoff allows</div></div>
@@ -788,11 +942,22 @@
           <div class="f"><label>Max % of free INR balance</label><input id="rf_balpct" type="number" step="5" value="25"><div class="sub">live mode checks your real balance first</div></div>
           <div class="f"><label>Daily ₹ cap</label><input id="rf_daily" type="number" step="500" value="10000"></div>
           <div class="f"><label>Breaker: fails in a row</label><input id="rf_breaker" type="number" min="1" max="10" value="3"><div class="sub">then the rule disarms itself</div></div>
+          <div class="f"><label>Daily loss stop ₹</label><input id="rf_losscap" type="number" min="0" step="100" value="0"><div class="sub">if this rule's <b>realised</b> profit for the day falls to minus this amount, it stops taking new trades until tomorrow. 0 = off. Live mode only — paper losses never stop anything.</div></div>
+          <div class="f"><label>Back off on repeated misses</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_missbackoff" type="checkbox" style="width:18px;height:18px;accent-color:var(--primary);"> double the wait each miss</label><div class="sub">a miss means the market beat you to the fill. Normally the coin retries after 2s. With this on the wait doubles each consecutive miss — 2s, 4s, 8s… up to that coin's cooling period — so a coin you keep losing races on steps aside quietly instead of filling Activity with MISSED rows. One real fill resets it.</div></div>
         </div>
       </div>
 
-      <div class="fsec">
-        <div class="fsec-h">Timing</div>
+      <div class="fsec" id="sec-coins">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Per-coin controls — override this rule for individual coins</div>
+        <div class="sub" style="font-size:11px;color:var(--gray-500);margin:-4px 0 11px;line-height:1.5;">
+          Every box you leave <b>blank</b> keeps the rule's own setting for that coin — the placeholder shows you what that is. A coin not listed here behaves exactly as it does today. Use this to give a fast, thin coin a longer cooling period, make a jumpy coin hold its signal longer before firing, demand a higher % from a coin that keeps slipping, or pause one coin without touching the rest of the rule.
+        </div>
+        <div id="rf_coinrules"></div>
+        <button class="btn" type="button" onclick="addCoinRule()">+ Add coin</button>
+      </div>
+
+      <div class="fsec" id="sec-timing">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Timing</div>
         <div class="frm">
           <div class="f"><label>Active from (IST hour)</label>
             <select id="rf_from"></select>
@@ -805,8 +970,8 @@
         </div>
       </div>
 
-      <div class="fsec">
-        <div class="fsec-h">Execution — IOC style: never rest in the book</div>
+      <div class="fsec" id="sec-exec">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Execution — IOC style: never rest in the book</div>
         <div class="frm">
           <div class="f"><label>Entry attempts</label><input id="rf_entryatt" type="number" min="1" max="3" value="1"><div class="sub">1 = one shot: if the first WazirX order isn't taken, cancel instantly and walk away (a miss, not a failure)</div></div>
           <div class="f"><label>Entry timeout (ms)</label><input id="rf_entryto" type="number" min="300" step="100" value="900"></div>
@@ -817,7 +982,7 @@
       </div>
 
       <div class="fsec" id="hedgeSec" style="display:none;">
-        <div class="fsec-h">Hedge (Binance futures)</div>
+        <div class="fsec-h" id="sec-hedge" onclick="toggleSec(this)"><span class="cx">▼</span>Hedge (Binance futures)</div>
         <div class="frm">
           <div class="f"><label>Futures leverage</label><input id="rf_lev" type="number" min="1" max="20" value="1"><div class="sub">margin efficiency only — profit is the basis, and high leverage adds liquidation risk on pumps</div></div>
           <div class="f"><label>Max open positions</label><input id="rf_maxpos" type="number" min="1" max="10" value="1"><div class="sub">no new entries while this many hedges are open</div></div>
@@ -948,6 +1113,9 @@ async function refreshStatus() {
   renderJudgment();
   renderTgFeed();
   renderRules();
+  renderOff();
+  renderMovers();
+  renderCoins();
 }
 
 async function toggleArm() {
@@ -1089,6 +1257,10 @@ function renderRules() {
   $('rulesList').innerHTML = rules.map(r => {
     const cfg = cfgOf(r);
     const coins = (cfg.coins || []).join(', ');
+    const crs = Array.isArray(cfg.coinRules) ? cfg.coinRules.filter(c => c && c.coin) : [];
+    const crPaused = crs.filter(c => c.paused === true).length;
+    const rExcl = (Array.isArray(cfg.excludeCoins) ? cfg.excludeCoins : [])
+      .map(c => String(c || '').trim().toLowerCase()).filter(Boolean);
     const win = (cfg.activeFrom != null && cfg.activeTo != null && cfg.activeFrom !== cfg.activeTo)
       ? fmtHr(cfg.activeFrom) + '–' + fmtHr(cfg.activeTo) + ' IST' : null;
     return '<div class="rule ' + (r.tripped ? 'tripped' : '') + '">' +
@@ -1117,12 +1289,17 @@ function renderRules() {
           : cfg.skipWalletDisabled === false ? '<span class="fact warn">wallet-disabled coins <b>ALLOWED</b></span>'
           : '<span class="fact">skips <b>shut wallets</b></span>') +
         '<span class="fact">cooldown <b>' + r.cooldown_sec + 's</b></span>' +
-        (coins ? '<span class="fact">coins: <b>' + esc(coins) + '</b></span>' : '<span class="fact">any coin</span>') +
+        (crs.length ? '<span class="fact">per-coin rules: <b>' + crs.length + '</b>' + (crPaused ? ' · <b>' + crPaused + ' paused</b>' : '') + '</span>' : '') +
+        (Number(cfg.dailyLossCapInr) > 0 ? '<span class="fact warn">loss stop <b>' + inr(cfg.dailyLossCapInr) + '</b>/day</span>' : '') +
+        (cfg.missBackoff ? '<span class="fact">miss <b>back-off</b></span>' : '') +
+        (coins ? '' : '<span class="fact">any coin</span>') +
+        (rExcl.length ? '<span class="fact warn">off: <b>' + rExcl.length + ' coin' + (rExcl.length === 1 ? '' : 's') + '</b></span>' : '') +
         (r.strategy === 'intraloop' && cfg.path && cfg.path !== 'any' ? '<span class="fact">path <b>' + cfg.path + '</b></span>' : '') +
         (r.strategy === 'direct_hedge' || r.strategy === 'loop_pair' ? '<span class="fact">≤<b>' + (cfg.maxOpenPositions || 1) + '</b> open hedge</span>' : '') +
         (Number(r.consec_fails) > 0 && !r.tripped ? '<span class="fact warn">fails in a row: <b>' + r.consec_fails + '/' + r.max_consec_fails + '</b></span>' : '') +
       '</div>' +
       (r.tripped ? '<div class="trip-reason selectable">⛔ ' + esc(r.tripped_reason || 'repeated failures') + '</div>' : '') +
+      ruleCoinRow(r, cfg, rExcl) +
       '<div class="rule-actions">' +
         '<button class="btn" onclick="openRuleForm(' + r.id + ')">Edit</button>' +
         (r.mode === 'paper'
@@ -1133,6 +1310,48 @@ function renderRules() {
       '</div>' +
     '</div>';
   }).join('');
+}
+
+// One tap per coin, right on the rule that owns it — this is the whole feature.
+// A live coin is a plain chip you tap to switch off; a switched-off coin is
+// struck through and tapping it puts the coin straight back to work.
+function ruleCoinRow(r, cfg, rExcl) {
+  const live = ((ST && ST.coins) || []).filter(c => c.ruleId === r.id);
+  const seen = {};
+  const rows = [];
+  live.forEach(c => { if (!seen[c.coin]) { seen[c.coin] = 1; rows.push(c); } });
+  // A coin listed in the rule but not yet reported by the engine still deserves
+  // a chip — he should be able to switch it off before it ever ticks.
+  (cfg.coins || []).concat(rExcl).forEach(x => {
+    const k = String(x || '').trim().toLowerCase();
+    if (!k || seen[k]) return;
+    seen[k] = 1;
+    rows.push({ ruleId: r.id, coin: k, state: rExcl.indexOf(k) !== -1 ? 'skipped' : 'armed', movePct: null, volWarnPct: 3 });
+  });
+  rows.sort((a, b) => (isOff(a) === isOff(b) ? a.coin.localeCompare(b.coin) : (isOff(a) ? -1 : 1)));
+  const chips = rows.map(c => {
+    const off = isOff(c);
+    const warn = Number(c.volWarnPct) > 0 ? Number(c.volWarnPct) : 3;
+    // A coin he already switched off still wears its swing — that number is
+    // exactly why it is off, and the reason to leave it off a while longer.
+    // Only the orange HOT styling is reserved for coins that are still trading.
+    const swing = c.movePct != null && Number(c.movePct) >= warn;
+    const hot = swing && !off;
+    return '<span class="coin-chip' + (off ? ' off' : '') + (hot ? ' hot' : '') + '" ' +
+      'onclick="setCoinOff(' + r.id + ', \'' + esc(c.coin) + '\', ' + (off ? 'false' : 'true') + ')">' +
+      esc(String(c.coin).toUpperCase()) +
+      (swing ? '<span class="rl">' + Number(c.movePct).toFixed(1) + '%</span>' : '') +
+      '<span class="x">' + (off ? '↺' : '×') + '</span>' +
+    '</span>';
+  }).join('');
+  return '<div class="rcoins">' +
+    '<div class="rcoins-h">Coins — tap one to stop trading it' + (rows.length ? '' : ' (this rule takes any coin)') + '</div>' +
+    (chips ? '<div class="chipwrap">' + chips + '</div>' : '') +
+    '<div class="addskip">' +
+      '<input id="sk_' + r.id + '" placeholder="coin to switch off, e.g. shib" onkeydown="addSkipKey(event,' + r.id + ')">' +
+      '<button class="btn danger" onclick="addSkip(' + r.id + ')">Switch off</button>' +
+    '</div>' +
+  '</div>';
 }
 
 async function toggleRule(id, enabled) {
@@ -1167,6 +1386,310 @@ async function delRule(id) {
   refreshStatus();
 }
 
+// ---------------- rule form: sections ----------------
+// Every section starts OPEN. Folding is a convenience for the second visit on a
+// phone, never a way for a setting to be hidden from someone who hasn't met it.
+function toggleSec(h) {
+  const sec = h.closest ? h.closest('.fsec') : h.parentNode;
+  if (sec) sec.classList.toggle('folded');
+}
+function jumpSec(id) {
+  const el = $(id);
+  if (!el) return;
+  const sec = el.classList.contains('fsec') ? el : (el.closest ? el.closest('.fsec') : el.parentNode);
+  if (sec) sec.classList.remove('folded'); // never scroll someone to a closed drawer
+  const target = sec || el;
+  const md = target.closest ? target.closest('.modal') : null;
+  if (md) {
+    // measured, not offsetTop — the overlay is position:fixed, so offsetParent
+    // is not the scroller and offsetTop would land in the wrong place
+    const delta = target.getBoundingClientRect().top - md.getBoundingClientRect().top;
+    md.scrollTop = Math.max(0, md.scrollTop + delta - 104); // clear both sticky bars
+  } else if (target.scrollIntoView) target.scrollIntoView({ block: 'start' });
+  document.querySelectorAll('#ruleJump .jbtn').forEach(b => b.classList.remove('on'));
+  const btn = Array.prototype.find.call(document.querySelectorAll('#ruleJump .jbtn'),
+    b => (b.getAttribute('onclick') || '').indexOf("'" + id + "'") !== -1);
+  if (btn) btn.classList.add('on');
+}
+
+// ---------------- rule form: per-coin controls ----------------
+// The engine reads cfg.coinRules = [{coin, paused, cooldownSec, holdMs,
+// minNetPct, minInr, maxInr, sizePct}]. Every field left blank is simply absent
+// from the object, and the engine falls back to the rule's own value — so a
+// half-filled row is a real, safe thing to save, and the placeholder shows the
+// number that will actually be used.
+function coinPh() {
+  const v = id => { const e = $(id); return e ? e.value : ''; };
+  return {
+    cooldownSec: v('rf_cool') || '120',
+    holdMs: v('rf_persist') || '250',
+    minNetPct: v('rf_minpct') || '0.5',
+    minInr: v('rf_mininr') || '50',
+    maxInr: v('rf_max') || '1000',
+    sizePct: v('rf_sizepct') || '100'
+  };
+}
+function syncCoinPlaceholders() {
+  const p = coinPh();
+  document.querySelectorAll('#rf_coinrules .cr').forEach(row => {
+    Object.keys(p).forEach(k => {
+      const i = row.querySelector('[data-k="' + k + '"]');
+      if (i) i.placeholder = 'rule: ' + p[k];
+    });
+  });
+}
+function addCoinRule(e) {
+  e = e || {};
+  const p = coinPh();
+  const val = k => (e[k] === 0 ? '0' : (e[k] == null || e[k] === '' ? '' : String(e[k])));
+  const cell = (k, label, step, hint) =>
+    '<div class="f"><label>' + label + '</label>' +
+    '<input class="num" data-k="' + k + '" type="number" step="' + step + '" min="0" ' +
+    'value="' + esc(val(k)) + '" placeholder="rule: ' + esc(p[k]) + '"' +
+    (hint ? ' title="' + esc(hint) + '"' : '') + '></div>';
+  const row = document.createElement('div');
+  row.className = 'cr';
+  row.innerHTML =
+    '<div class="cr-top">' +
+      '<input class="cr-coin" data-k="coin" placeholder="coin, e.g. trx" value="' + esc(String(e.coin || '')) + '">' +
+      '<label class="cr-pause"><input type="checkbox" data-k="paused"' + (e.paused === true ? ' checked' : '') + '> pause</label>' +
+      '<button class="cr-x" type="button" title="remove this coin" onclick="this.closest(\'.cr\').remove()">×</button>' +
+    '</div>' +
+    '<div class="cr-grid">' +
+      cell('cooldownSec', 'Cooling period (s)', '5', 'after this coin trades, misses or fails, wait this long before touching it again') +
+      cell('holdMs', 'Hold to trigger (ms)', '50', 'the arb must stay alive this long on THIS coin before it fires') +
+      cell('minNetPct', 'Min net %', '0.05', 'demand at least this net % from this coin') +
+      cell('minInr', 'Min profit ₹', '10', 'skip this coin unless the trade clears this many rupees') +
+      cell('maxInr', 'Max ₹ / trade', '100', 'hard ceiling on what this coin may deploy') +
+      cell('sizePct', 'Take % of arb', '5', 'take only this share of the arb\'s walkable size on this coin') +
+    '</div>' +
+    '<div class="cr-note">Blank = inherit the rule. <b>0 is a real value</b> — 0 cooling means no wait at all, 0 hold means fire on first sight.</div>';
+  $('rf_coinrules').appendChild(row);
+  return row;
+}
+function readCoinRules() {
+  const out = [];
+  document.querySelectorAll('#rf_coinrules .cr').forEach(row => {
+    const coin = (row.querySelector('[data-k="coin"]').value || '').trim().toLowerCase();
+    if (!coin) return; // a blank row is someone who changed their mind — drop it
+    const e = { coin: coin };
+    ['cooldownSec', 'holdMs', 'minNetPct', 'minInr', 'maxInr', 'sizePct'].forEach(k => {
+      const raw = (row.querySelector('[data-k="' + k + '"]').value || '').trim();
+      if (raw !== '' && isFinite(Number(raw))) e[k] = Number(raw);
+    });
+    if (row.querySelector('[data-k="paused"]').checked) e.paused = true;
+    out.push(e);
+  });
+  // last one wins if a coin is listed twice, so the saved config never contains
+  // two rows quietly disagreeing about the same coin
+  const seen = {};
+  out.forEach(e => { seen[e.coin] = e; });
+  return Object.keys(seen).map(k => seen[k]);
+}
+
+// ---------------- live Coin Control ----------------
+// A coin is "off" whether it got there by the new one-tap skip (excludeCoins)
+// or by an older per-coin pause. Two names for one idea would be two things to
+// remember, so the page only ever says OFF and turning it back on clears both.
+function isOff(c) { return c.state === 'skipped' || c.state === 'paused'; }
+
+// ---- everything switched off, gathered in one place ----
+function renderOff() {
+  const box = $('offPanel');
+  if (!box) return;
+  const off = ((ST && ST.coins) || []).filter(isOff);
+  if (!off.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  $('offCount').textContent = off.length;
+  $('offChips').innerHTML = off.map(c =>
+    '<span class="coin-chip off" onclick="setCoinOff(' + c.ruleId + ', \'' + esc(c.coin) + '\', false)">' +
+      esc(String(c.coin).toUpperCase()) +
+      '<span class="rl">' + esc(c.rule) + '</span>' +
+      '<span class="x">↺</span>' +
+    '</span>').join('');
+}
+
+// ---- "moving fast right now" — informational only ----
+// The threshold is the most sensitive one across his rules, so a coin that would
+// read as hot for ANY rule reads as hot here. Nothing on this strip stops a trade.
+function warnPctNow() {
+  const ps = ((ST && ST.coins) || []).map(c => Number(c.volWarnPct)).filter(v => v > 0);
+  return ps.length ? Math.min.apply(null, ps) : 3;
+}
+function renderMovers() {
+  const box = $('moversPanel');
+  if (!box) return;
+  const mv = (ST && ST.movers) || [];
+  if (!mv.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const warn = warnPctNow();
+  const hot = mv.filter(m => Number(m.movePct) >= warn).length;
+  $('moversHint').textContent = hot
+    ? hot + ' over your ' + warn + '% mark'
+    : 'nothing over your ' + warn + '% mark';
+  // Which coins are already off, so the strip never offers to switch off twice.
+  const offSet = {};
+  ((ST && ST.coins) || []).filter(isOff).forEach(c => { offSet[c.coin] = true; });
+  $('moversStrip').innerHTML = mv.map(m => {
+    const isHot = Number(m.movePct) >= warn;
+    const net = Number(m.netPct) || 0;
+    return '<div class="mv' + (isHot ? ' hot' : '') + '" onclick="askSkip(\'' + esc(m.coin) + '\')">' +
+      '<div class="mv-coin">' + esc(String(m.coin).toUpperCase()) + '</div>' +
+      '<div class="mv-pct">' + Number(m.movePct).toFixed(1) + '%</div>' +
+      '<div class="mv-dir ' + (net >= 0 ? 'up' : 'down') + '">' + (net >= 0 ? '▲' : '▼') + ' ' + Math.abs(net).toFixed(1) + '% net</div>' +
+      (offSet[m.coin] ? '<div class="mv-off">switched off</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+// Tapping a mover asks WHICH rule to switch it off for — his answer was
+// per-rule, not global, so this never silently changes more than one rule.
+function askSkip(coin) {
+  const rows = ((ST && ST.coins) || []).filter(c => c.coin === coin);
+  const on = rows.filter(c => !isOff(c));
+  const up = String(coin).toUpperCase();
+  if (!rows.length) { toast(up + ' is not in any rule right now'); return; }
+  if (!on.length) {
+    if (confirm(up + ' is already switched off.\n\nTrade it again?')) {
+      rows.forEach(c => setCoinOff(c.ruleId, coin, false));
+    }
+    return;
+  }
+  if (on.length === 1) {
+    if (confirm('Stop trading ' + up + ' on "' + on[0].rule + '"?\n\nIt stays off until you turn it back on.')) {
+      setCoinOff(on[0].ruleId, coin, true);
+    }
+    return;
+  }
+  const menu = on.map((c, i) => '  ' + (i + 1) + ') ' + c.rule).join('\n');
+  const pick = prompt('Stop trading ' + up + ' on which rule?\n\n' + menu + '\n  0) all of them\n\nNumber:');
+  if (pick === null || pick === '') return;
+  const n = Number(pick);
+  if (n === 0) { on.forEach(c => setCoinOff(c.ruleId, coin, true)); return; }
+  const t = on[n - 1];
+  if (!t) { toast('No rule ' + pick); return; }
+  setCoinOff(t.ruleId, coin, true);
+}
+
+function renderCoins() {
+  const coins = (ST && ST.coins) || [];
+  const box = $('coinPanel');
+  if (!box) return;
+  if (!coins.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const nOff = coins.filter(isOff).length;
+  const nCool = coins.filter(c => c.state === 'cooling').length;
+  $('coinHint').textContent = coins.length + ' coin' + (coins.length === 1 ? '' : 's') +
+    (nCool ? ' · ' + nCool + ' cooling' : '') + (nOff ? ' · ' + nOff + ' switched off' : '');
+  $('coinGrid').innerHTML = coins.map(c => {
+    const custom = (c.custom || []).length;
+    let bar = '';
+    if (c.state === 'cooling' && c.cooldownSec > 0) {
+      const done = 100 - Math.min(100, (c.coolLeftMs / (c.cooldownSec * 1000)) * 100);
+      bar = '<div class="cc-bar"><div class="cc-fill cool" style="width:' + done.toFixed(1) + '%;"></div></div>';
+    } else if (c.state === 'holding' && c.holdMs > 0) {
+      const done = Math.min(100, ((c.heldMs || 0) / c.holdMs) * 100);
+      bar = '<div class="cc-bar"><div class="cc-fill" style="width:' + done.toFixed(1) + '%;"></div></div>';
+    }
+    const off = isOff(c);
+    const warn = Number(c.volWarnPct) > 0 ? Number(c.volWarnPct) : 3;
+    const hasMove = c.movePct != null;
+    const isHot = hasMove && Number(c.movePct) >= warn;
+    const line =
+      off ? 'switched off — <b>stays off until you turn it back on</b>' :
+      c.state === 'cooling' ? 'ready in <b>' + Math.ceil(c.coolLeftMs / 1000) + 's</b>' :
+      c.state === 'holding' ? 'held <b>' + Math.round(c.heldMs || 0) + 'ms</b> of ' + c.holdMs + 'ms' :
+      c.state === 'idle' ? 'engine is disarmed' :
+      'waiting for ≥<b>' + c.minNetPct + '%</b> and ' + inr(c.minInr);
+    return '<div class="cc-card' + (off ? ' off' : '') + (isHot && !off ? ' hot' : '') + '">' +
+      '<div class="cc-top">' +
+        (custom ? '<span class="cc-dot" title="' + esc((c.custom || []).join(', ')) + '"></span>' : '') +
+        '<span class="cc-coin">' + esc(String(c.coin).toUpperCase()) + '</span>' +
+        '<span class="cc-st ' + esc(c.state) + '">' + esc(c.state) + '</span>' +
+      '</div>' +
+      '<div class="cc-rule">' + esc(c.rule) + '</div>' +
+      '<div class="cc-meta">' + line +
+        (hasMove ? '<br><span class="cc-move' + (isHot ? ' hot' : '') + '">' + (isHot ? '⚡ ' : '') +
+          'swinging <b>' + Number(c.movePct).toFixed(1) + '%</b> over 5 min</span>' : '') +
+        '<br>cool <b>' + c.cooldownSec + 's</b> · hold <b>' + c.holdMs + 'ms</b> · max <b>' + inr(c.maxInr) + '</b>' +
+        (c.misses ? ' · <b>' + c.misses + '</b> miss' + (c.misses === 1 ? '' : 'es') + ' in a row' : '') +
+      '</div>' + bar +
+      '<div class="cc-acts">' +
+        '<button class="btn' + (off ? ' primary' : ' danger') + '" onclick="setCoinOff(' + c.ruleId + ', \'' + esc(c.coin) + '\', ' + (off ? 'false' : 'true') + ')">' +
+          (off ? '↺ Trade again' : '⏸ Switch off') + '</button>' +
+        '<button class="btn" onclick="openRuleForm(' + c.ruleId + ');jumpSec(\'sec-coins\')">Settings</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ---- the one write that switches a coin off, and back on ----
+// Off is cfg.excludeCoins: per-rule (his answer), no expiry (his answer), and
+// already the gate the engine has always honoured — so nothing new can block a
+// trade by accident. Turning a coin back on also clears any older per-coin
+// pause, because the page only shows him one switch and it must mean one thing.
+async function setCoinOff(ruleId, coin, off) {
+  const r = ((ST && ST.rules) || []).find(x => x.id === ruleId);
+  if (!r) return;
+  const key = String(coin || '').trim().toLowerCase();
+  if (!key) return;
+  const cfg = JSON.parse(JSON.stringify(cfgOf(r)));
+  const excl = (Array.isArray(cfg.excludeCoins) ? cfg.excludeCoins : [])
+    .map(c => String(c || '').trim().toLowerCase()).filter(Boolean);
+  const i = excl.indexOf(key);
+  if (off) { if (i === -1) excl.push(key); }
+  else if (i !== -1) excl.splice(i, 1);
+  cfg.excludeCoins = excl;
+
+  if (!off) {
+    // clear a legacy pause on the same coin, else it would look switched on and
+    // still refuse to trade — the worst possible outcome for a switch.
+    const list = Array.isArray(cfg.coinRules) ? cfg.coinRules.filter(e => e && e.coin) : [];
+    const j = list.findIndex(e => String(e.coin).toLowerCase() === key);
+    if (j !== -1 && list[j].paused) {
+      delete list[j].paused;
+      if (Object.keys(list[j]).length === 1) list.splice(j, 1); // a row saying nothing is noise
+      cfg.coinRules = list;
+    }
+  }
+  try {
+    await apiJson('/api/trader/rules/' + ruleId, { method: 'PUT', body: JSON.stringify({ config: cfg }) });
+    toast(key.toUpperCase() + (off ? ' switched off' : ' trading again'));
+  } catch (e) { toast('Failed: ' + e.message); }
+  refreshStatus();
+}
+
+// Switch off a coin that isn't on the rule's list yet — typed from the rule card.
+function addSkip(ruleId) {
+  const el = $('sk_' + ruleId);
+  if (!el) return;
+  const v = String(el.value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!v) return;
+  el.value = '';
+  setCoinOff(ruleId, v, true);
+}
+function addSkipKey(ev, ruleId) { if (ev && ev.key === 'Enter') { ev.preventDefault(); addSkip(ruleId); } }
+
+// In the editor the switched-off list is still a plain text field — but each
+// coin in it also draws as a chip you can tap to remove, so he never has to
+// edit a comma-separated string on a phone keyboard.
+function drawExclChips() {
+  const box = $('rf_exclChips');
+  const inp = $('rf_excl');
+  if (!box || !inp) return;
+  const parts = String(inp.value || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  box.innerHTML = parts.map(c =>
+    '<span class="coin-chip off" onclick="dropExcl(\'' + esc(c) + '\')">' + esc(c.toUpperCase()) + '<span class="x">↺</span></span>'
+  ).join('');
+}
+function dropExcl(coin) {
+  const inp = $('rf_excl');
+  if (!inp) return;
+  const parts = String(inp.value || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  inp.value = parts.filter(c => c !== String(coin).toLowerCase()).join(', ');
+  drawExclChips();
+}
+
 // ---------------- rule form ----------------
 function stratHint() {
   const s = $('rf_strategy').value;
@@ -1176,6 +1699,8 @@ function stratHint() {
   // Intra-loop never leaves WazirX, so wallet status can't block it — hide the
   // switch rather than show one that does nothing.
   $('walWrap').style.display = s === 'intraloop' ? 'none' : '';
+  const jh = $('jmpHedge');
+  if (jh) jh.style.display = (s === 'direct_hedge' || s === 'loop_pair') ? '' : 'none';
 }
 // Illustrative marginal % ladder for the depth preview (typical decay shape).
 const DPV_PCTS = [1.85, 1.22, 0.74, 0.38, 0.14, 0.03];
@@ -1223,6 +1748,8 @@ function openRuleForm(id) {
   $('rf_path').value = cfg.path || 'any';
   $('rf_coins').value = (cfg.coins || []).join(', ');
   $('rf_excl').value = (cfg.excludeCoins || []).join(', ');
+  $('rf_volwarn').value = cfg.volWarnPct != null ? cfg.volWarnPct : 3;
+  drawExclChips();
   $('rf_minpct').value = r ? Number(r.min_net_pct) : 0.5;
   $('rf_mininr').value = r ? Number(r.min_profit_inr) : 50;
   $('rf_maxpct').value = cfg.maxNetPct || 8;
@@ -1249,11 +1776,24 @@ function openRuleForm(id) {
   $('rf_preferpct').checked = !!cfg.preferPct;
   $('rf_skipwal').checked = cfg.skipWalletDisabled !== false; // default ON, incl. rules made before this existed
   $('rf_fund').value = cfg.maxAdverseFunding != null ? cfg.maxAdverseFunding : 0.03;
+  $('rf_losscap').value = cfg.dailyLossCapInr != null ? cfg.dailyLossCapInr : 0;
+  $('rf_missbackoff').checked = !!cfg.missBackoff;
+  $('rf_coinrules').innerHTML = '';
+  (Array.isArray(cfg.coinRules) ? cfg.coinRules : []).forEach(e => { if (e && e.coin) addCoinRule(e); });
+  document.querySelectorAll('#ruleModal .fsec').forEach(s => s.classList.remove('folded'));
+  document.querySelectorAll('#ruleJump .jbtn').forEach(b => b.classList.remove('on'));
+  const md = document.querySelector('#ruleModal .modal');
+  if (md) md.scrollTop = 0;
   stratHint();
   drawDepthPreview();
   $('ruleModal').classList.remove('hidden');
 }
 function closeRuleForm() { $('ruleModal').classList.add('hidden'); }
+// keep the per-coin placeholders honest while the rule's own numbers are edited
+['rf_cool', 'rf_persist', 'rf_minpct', 'rf_mininr', 'rf_max', 'rf_sizepct'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('input', syncCoinPlaceholders);
+});
 
 async function saveRule() {
   const list = v => v.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -1271,6 +1811,7 @@ async function saveRule() {
     config: {
       coins: list($('rf_coins').value),
       excludeCoins: list($('rf_excl').value),
+      volWarnPct: Number($('rf_volwarn').value) || 0,
       path: $('rf_path').value,
       persistMs: Number($('rf_persist').value),
       maxLevels: Number($('rf_maxlvl').value),
@@ -1290,7 +1831,10 @@ async function saveRule() {
       sizePct: Number($('rf_sizepct').value) || 100,
       maxNetPct: Number($('rf_maxpct').value) || 8,
       skipWalletDisabled: $('rf_skipwal').checked,
-      preferPct: $('rf_preferpct').checked
+      preferPct: $('rf_preferpct').checked,
+      dailyLossCapInr: Number($('rf_losscap').value) || 0,
+      missBackoff: $('rf_missbackoff').checked,
+      coinRules: readCoinRules()
     }
   };
   if (!body.name) { toast('Give the rule a name.'); return; }
