@@ -5043,8 +5043,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       ? (selFill ? fmtQ(selFill.qty) + ' ' + String(sel.coin || p.coin).toUpperCase() + ' (the fill)' : 'locked')
       : ft.lvl != null ? 'till level ' + ft.lvl + (lvlRow ? ' · ' + fmtMoney(lvlRow.costInr, 'INR') : '')
       : sizeShort(sel, ft.pct) || (ft.pct + '%');
+    // ---- THE ARB GATE, ON BOTH SIDES. A WazirX leg is only offered while
+    // there is a total positive arbitrage to trade into. The depth ladder is
+    // the trader's own live verdict: no profitable level means no arb, and the
+    // button greys out rather than letting him trade into a loss. This covers
+    // the SELL too, on his instruction — he would rather a sell never fill and
+    // move the coins to Binance by hand than take whatever the book has left.
+    var arbDead = (sel.action === 'buy_wazirx' || sel.action === 'sell_wazirx') &&
+      p.ladder && p.ladder.length > 0 && posRows.length === 0;
+    var arbSide = sel.action === 'sell_wazirx' ? 'Selling' : 'Buying';
     var btn = hedgeBlocked
       ? '<button disabled style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;margin-bottom:6px;background:#c6ccd6;color:#fff;">Execute · ' + selLabel + ' — verification pending</button>'
+      : arbDead
+      ? '<button disabled style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;margin-bottom:4px;background:#c6ccd6;color:#fff;">Execute · ' + selLabel + ' — no positive arbitrage</button>' +
+        '<div style="font-size:11px;font-weight:700;color:#b7791f;background:#fff7e6;border:1px solid #f0dcae;border-radius:8px;padding:9px 10px;margin-bottom:6px;line-height:1.5;">' + arbSide + ' is switched off while every level of this book prices worse than Binance after fees. It re-arms by itself the moment a profitable level appears.</div>'
       : '<button onclick="__ftFire(' + ft.sel + ')" style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;cursor:pointer;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:7px;' +
         'background:' + col + ';color:#fff;">Execute · ' + selLabel + ' · ' + szTxt + '</button>';
 
@@ -5164,12 +5176,23 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // partial fill says so — his point 5.
     var openOrder = /STILL OPEN on WazirX/i.test((o && o.error) || '');
     var partial = !!r.partial;
+    // Held the price, found no taker, pulled the order. Its own outcome — not
+    // a failure, and it must not read like one.
+    var cancelled = !!r.cancelled || !!r.notFilled;
+    var lim = r.limitPrice != null ? num(r.limitPrice, 8) : null;
     var hero = openOrder
       ? '<div style="font-size:40px;text-align:center;">🕒</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">ORDER IS IN OPEN ORDERS</div>' +
         '<div style="font-size:12px;font-weight:700;color:#b7791f;text-align:center;margin:-4px 0 10px;">It did not fill in time and the cancel didn’t confirm — open the WazirX app → Open Orders and cancel or watch it there.</div>'
+      : cancelled
+        ? '<div style="font-size:40px;text-align:center;">🚫</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">NOT FILLED — ORDER CANCELLED</div>' +
+          '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin:-4px 0 10px;">Nothing filled at' + (lim ? ' your limit of ' + lim : ' your price') +
+          ', so the order was cancelled. Nothing was traded, no money moved, and nothing is left open on WazirX.</div>'
       : ok && partial
-        ? '<div style="font-size:40px;text-align:center;">◑</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">PARTIALLY FILLED</div>' +
-          '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin:-4px 0 10px;">Only part of your size filled at your price — the remainder was cancelled, nothing is resting.</div>'
+        ? '<div style="font-size:40px;text-align:center;">◑</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">PARTIALLY FILLED — REST CANCELLED</div>' +
+          '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin:-4px 0 10px;">' +
+          (r.askedQty != null ? num(r.qty) + ' of ' + num(r.askedQty) + ' filled' : 'Only part of your size filled') +
+          (lim ? ' at your ' + lim + ' limit' : ' at your price') + ' — the remaining ' +
+          (r.cancelledQty != null ? num(r.cancelledQty) + ' was' : 'size was') + ' cancelled, not chased. Nothing is resting.</div>'
       : ok
         ? '<div style="font-size:40px;text-align:center;">✅</div><div style="font-size:17px;font-weight:800;text-align:center;color:#177a4c;margin:4px 0 10px;">ORDER EXECUTED</div>'
       : soft
@@ -5178,6 +5201,37 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var rows = ftRow('What', (o && o.path_label) || label) + ftRow('Mode', String((o && o.mode) || ft.mode).toUpperCase()) +
       ftRow('Status', status.toUpperCase()) + ftRow('Order #', orderId);
     if (r.qty != null) rows += ftRow('Filled', num(r.qty) + (r.avgPrice != null ? ' @ ' + num(r.avgPrice, 8) : ''));
+    if ((cancelled || partial) && r.askedQty != null) rows += ftRow('You asked for', num(r.askedQty));
+    if ((cancelled || partial) && r.cancelledQty != null) rows += ftRow('Cancelled', '<span style="color:#b7791f;">' + num(r.cancelledQty) + ' — never placed at a worse price</span>');
+    if ((cancelled || partial) && lim != null) rows += ftRow('Your limit held at', lim);
+    // PER-LEVEL BREAKDOWN. Each price he approved went out as its own order, so
+    // each one gets its own verdict here: ₹1.51 × 3,500 FILLED, ₹1.483 × 5,000
+    // CANCELLED. The combined total above is what that adds up to.
+    if (Array.isArray(r.rungs) && r.rungs.length) {
+      var rcur = r.cur != null ? r.cur : '₹';
+      rows += '<div style="font-size:11.5px;font-weight:800;color:#3a4653;margin:12px 0 5px;">' +
+        'Level by level · ' + r.rungs.length + ' order(s) placed</div>';
+      rows += '<div style="border:1.5px solid #cfd8e3;border-radius:10px;overflow:hidden;">';
+      rows += '<div style="display:flex;gap:8px;padding:7px 10px;background:#eef2f7;font-size:10.5px;font-weight:800;color:#5b6472;">' +
+        '<span style="flex:1.2;">PRICE</span><span style="flex:1;text-align:right;">ASKED</span>' +
+        '<span style="flex:1;text-align:right;">FILLED</span><span style="flex:1.1;text-align:right;">OUTCOME</span></div>';
+      for (var ri = 0; ri < r.rungs.length; ri++) {
+        var R = r.rungs[ri];
+        var st = String(R.status || (Number(R.filledQty) > 0 ? 'filled' : 'cancelled')).toLowerCase();
+        var stCol = st === 'filled' ? '#177a4c' : st === 'partial' ? '#b7791f' : st === 'open' ? '#b7791f' : '#8a5a00';
+        var stTxt = st === 'filled' ? 'FILLED' : st === 'partial' ? 'PART FILL' : st === 'open' ? 'STILL OPEN' :
+          st === 'rejected' ? 'REJECTED' : 'CANCELLED';
+        rows += '<div style="display:flex;gap:8px;align-items:center;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
+          (ri ? 'border-top:1px solid #e6ebf1;' : '') + '">' +
+          '<span style="flex:1.2;">' + rcur + num(R.price, 8) + '</span>' +
+          '<span style="flex:1;text-align:right;color:#5b6472;">' + num(R.qty) + '</span>' +
+          '<span style="flex:1;text-align:right;">' + num(R.filledQty) + '</span>' +
+          '<span style="flex:1.1;text-align:right;font-size:10.5px;font-weight:800;color:' + stCol + ';">' + stTxt + '</span></div>';
+      }
+      rows += '</div>';
+      rows += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:6px 0 4px;line-height:1.5;">' +
+        'Every level went out at exactly the price on your confirmation page. Anything marked CANCELLED found no counterparty there and was pulled — it was never chased to a worse price.</div>';
+    }
     if (r.costInr != null) rows += ftRow('Put in', '₹' + num(r.costInr, 2));
     if (r.proceedsInr != null) rows += ftRow('Received', '₹' + num(r.proceedsInr, 2));
     if (r.usdt != null) rows += ftRow('USDT value', num(r.usdt, 2) + ' USDT');
@@ -5245,10 +5299,35 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           : 'No WazirX order has been executed — this is a look at the numbers, not an order.') +
       '</div>';
 
+    // ---- THE FILL IS THE CEILING -------------------------------------------
+    // Only what actually filled on WazirX may be hedged, and only the part of
+    // it that is not already covered. The three numbers are printed together
+    // so the arithmetic is visible rather than taken on trust — this is the
+    // COTI hole in reverse, where the hedge quietly sized itself off a balance
+    // instead of off the fill.
+    var capBox = '';
+    if (pv.filledQty != null) {
+      var leftQty = Number(pv.hedgeableQty || 0);
+      capBox = '<div style="border:1.5px solid ' + (leftQty > 0 ? '#cfd8e3' : '#f0c0c0') + ';background:' +
+          (leftQty > 0 ? '#f7f9fc' : '#fdecec') + ';border-radius:10px;padding:10px 12px;margin:10px 0 2px;">' +
+        '<div style="font-size:11.5px;font-weight:800;color:#3a4653;margin-bottom:6px;">What may be hedged</div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:#3a4653;padding:2px 0;">' +
+          '<span>Filled on WazirX</span><span>' + num(pv.filledQty) + ' ' + C + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:#5b6472;padding:2px 0;">' +
+          '<span>Already hedged</span><span>' + num(pv.alreadyHedged || 0) + ' ' + C + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:900;color:' +
+          (leftQty > 0 ? '#177a4c' : '#c31d1d') + ';padding:4px 0 0;border-top:1px solid #e3e9f1;margin-top:5px;">' +
+          '<span>Still hedgeable</span><span>' + num(leftQty) + ' ' + C + '</span></div>' +
+        '<div style="font-size:11px;font-weight:600;color:#5b6472;margin-top:7px;line-height:1.5;">' +
+          'A futures position larger than the fill is not a hedge — it is a naked bet. Anything your WazirX order did not fill was cancelled, so there is nothing there to cover.</div>' +
+        '</div>';
+    }
+
     if (pv.blocker) {
       return head +
         '<div style="font-size:12.5px;font-weight:800;color:#c31d1d;background:#fdecec;border:1px solid #f0c0c0;border-radius:9px;padding:11px;line-height:1.5;">' +
           'This hedge cannot be placed: ' + pv.blocker + '</div>' +
+        capBox +
         ftWarns(pv.warnings) +
         '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
     }
@@ -5261,7 +5340,8 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         '<span style="color:#c31d1d;">' + num(pv.requestedQty) + ' ' + C +
         ' · ' + num(pv.requestedQty - pv.qty) + ' NOT hedged</span>');
     }
-    if (o.orderId) rows += ftRow('Your WazirX fill', 'order #' + o.orderId);
+    rows += capBox;
+    if (o.orderId || pv.fillOrderId) rows += ftRow('Your WazirX fill', 'order #' + (o.orderId || pv.fillOrderId));
     if (pv.heldQty != null) {
       rows += ftRow('WazirX shows', num(pv.heldQty) + ' ' + C +
         (pv.balanceSettled === false ? ' <span style="color:#b7791f;">· still settling</span>' : ''));
@@ -5357,6 +5437,234 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       qty: ft.lvl == null && a && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null,
       pct: ft.pct, lvl: ft.lvl, orderId: null, canFire: false,
     });
+  };
+
+  // ---------- WAZIRX BUY / SELL CONFIRMATION PAGE ----------
+  // THE COTI SWEEP, 29 Jul 15:00:38. The card said ₹1.483. The order filled
+  // 11,488.2 COTI across twelve levels from ₹1.550 to ₹1.999 — 5,228.8 of them
+  // (45% of the order) at the top price — averaging ₹1.852, about 23% above
+  // Binance's 24h high. Every number was correct; ₹1.483 was the best ask and
+  // ₹2.003 was the sweep's limit. Only one of them was ever on screen.
+  //
+  // So this page prints the whole ladder of prices: top of book, THE AVERAGE
+  // HE ACTUALLY PAYS, the worst level the sweep reaches, and the limit that
+  // goes to WazirX — plus the gap to Binance spot, which is the number that
+  // would have screamed +23% here. That limit is then sent BACK as maxPrice,
+  // so if the book moves after he looks, the order fills partially at his
+  // price instead of chasing.
+  function ftWzxCard(pv, o) {
+    var C = String(o.coin).toUpperCase();
+    var isBuy = (pv.side || o.side) !== 'sell';
+    var cur = pv.cur != null ? pv.cur : '₹';
+    var mkt = pv.quote || 'INR';
+    // canExecute is the server's own arbitrage verdict. A leg with no positive
+    // total arb — buy or sell — never gets a PROCEED button. Same rule that
+    // greys Execute on the panel, enforced again here in case the panel was
+    // read minutes ago.
+    var canGo = !pv.blocker && Number(pv.qty) > 0 && pv.canExecute !== false;
+    var head = '<div style="font-size:36px;text-align:center;">' + (isBuy ? '🟢' : '🔴') + '</div>' +
+      '<div style="font-size:17px;font-weight:800;text-align:center;margin:4px 0 2px;">CONFIRM ' + (isBuy ? 'BUY' : 'SELL') + '</div>' +
+      '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin-bottom:11px;line-height:1.5;">' +
+        C + ' / ' + mkt + ' · WazirX<br>Nothing is placed until you tap PROCEED.</div>';
+
+    if (pv.blocker) {
+      return head +
+        '<div style="font-size:12.5px;font-weight:800;color:#c31d1d;background:#fdecec;border:1px solid #f0c0c0;border-radius:9px;padding:11px;line-height:1.5;">' +
+          'This order cannot be placed: ' + pv.blocker + '</div>' +
+        ftWarns(pv.warnings) +
+        '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
+    }
+
+    var px8 = function (v) { return v == null ? '—' : cur + num(v, 8); };
+    var rows = '';
+    // 1. SIZE.
+    rows += ftRow('Tokens to ' + (isBuy ? 'buy' : 'sell'), '<span style="font-size:14.5px;">' + num(pv.qty) + ' ' + C + '</span>');
+    if (pv.requestedQty != null && pv.qty != null && Math.abs(pv.requestedQty - pv.qty) > 1e-9) {
+      rows += ftRow('You asked for', '<span style="color:#c31d1d;">' + num(pv.requestedQty) + ' ' + C +
+        ' · ' + num(pv.requestedQty - pv.qty) + ' will NOT fill</span>');
+    }
+
+    // 1b. THE ORDER LADDER — the heart of it. Every row here becomes its OWN
+    //     limit order at its OWN price. This is the list he approves: ₹1.483 ×
+    //     5,000 and ₹1.51 × 3,500 go out as two separate orders. If the ₹1.483
+    //     level has gone by the time it lands, that order simply rests, finds
+    //     nobody, and is cancelled — while ₹1.51 fills and the whole thing
+    //     settles as a partial. Nothing here can ever sweep past its own price.
+    var lad = pv.levels || [];
+    if (lad.length) {
+      rows += '<div style="font-size:11.5px;font-weight:800;color:#3a4653;margin:12px 0 5px;">' +
+        (lad.length === 1 ? 'The order that will go out' : 'The ' + lad.length + ' orders that will go out') + '</div>';
+      rows += '<div style="border:1.5px solid #cfd8e3;border-radius:10px;overflow:hidden;">';
+      rows += '<div style="display:flex;gap:8px;padding:7px 10px;background:#eef2f7;font-size:10.5px;font-weight:800;color:#5b6472;">' +
+        '<span style="flex:1.2;">PRICE</span><span style="flex:1.1;text-align:right;">SIZE</span>' +
+        '<span style="flex:1.1;text-align:right;">' + (isBuy ? 'COST' : 'GET') + '</span>' +
+        '<span style="flex:0.8;text-align:right;">ARB</span></div>';
+      for (var li = 0; li < lad.length; li++) {
+        var L = lad[li];
+        var la = L.arbPct;
+        rows += '<div style="display:flex;gap:8px;align-items:center;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
+          (li ? 'border-top:1px solid #e6ebf1;' : '') + '">' +
+          '<span style="flex:1.2;">' + cur + num(L.price, 8) + '</span>' +
+          '<span style="flex:1.1;text-align:right;">' + num(L.qty) + '</span>' +
+          '<span style="flex:1.1;text-align:right;color:#5b6472;">' + cur + num(L.costQuote != null ? L.costQuote : L.price * L.qty, 2) + '</span>' +
+          '<span style="flex:0.8;text-align:right;color:' + (la == null ? '#5b6472' : la > 0 ? '#177a4c' : '#c31d1d') + ';">' +
+            (la == null ? '—' : (la > 0 ? '+' : '') + Number(la).toFixed(2) + '%') + '</span></div>';
+      }
+      rows += '</div>';
+      rows += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:6px 0 10px;line-height:1.5;">' +
+        (lad.length === 1
+          ? 'One limit order at exactly this price. If the book has moved away from it by the time it lands, it rests, finds no counterparty and is cancelled — it is never chased to a worse price.'
+          : 'Each row is placed as its own limit order at its own price — never one blended limit that sweeps everything in between. A row whose level has gone by the time it lands simply does not fill and is cancelled; the rest fill, and the total comes back as a partial.') +
+        '</div>';
+      // Levels the server refused to include because the running arbitrage had
+      // already turned negative. COTI's ₹1.999 tail would have lived here.
+      if (pv.droppedLevels && pv.droppedLevels.length) {
+        var dq = 0;
+        for (var di = 0; di < pv.droppedLevels.length; di++) dq += Number(pv.droppedLevels[di].qty) || 0;
+        rows += '<div style="font-size:11px;font-weight:700;color:#8a5a00;background:#fff7e6;border:1px solid #f0dcae;border-radius:9px;padding:9px 10px;margin:0 0 10px;line-height:1.55;">' +
+          'Stopped after ' + lad.length + ' level(s). The next ' + pv.droppedLevels.length +
+          ' would take the arbitrage negative, so ' + num(dq) + ' ' + C +
+          ' of the size is left on the table rather than traded at a loss.</div>';
+      }
+    }
+
+    // 2. THE PRICE LADDER — the three numbers COTI only ever showed one of.
+    rows += ftRow('Top of book', px8(pv.topPrice));
+    rows += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin:10px 0 0;border-radius:10px;background:' +
+      (pv.slipHigh ? '#fdecec' : '#eef7f1') + ';border:1.5px solid ' + (pv.slipHigh ? '#e08a8a' : '#bfe0cd') + ';">' +
+      '<span style="font-size:12.5px;font-weight:700;color:#3a4653;">Average you ' + (isBuy ? 'PAY' : 'GET') + '</span>' +
+      '<span style="font-size:17px;font-weight:900;color:' + (pv.slipHigh ? '#c31d1d' : '#177a4c') + ';">' +
+        px8(pv.avgPrice) + (pv.slipHigh ? ' ⚠' : '') + '</span></div>';
+    rows += '<div style="font-size:11px;font-weight:600;color:' + (pv.slipHigh ? '#c31d1d' : '#5b6472') + ';margin:6px 0 10px;line-height:1.5;">' +
+      (pv.slipPct != null
+        ? (pv.slipHigh
+          ? 'This size sweeps ' + (pv.levelsUsed || '?') + ' levels — ' + Number(pv.slipPct).toFixed(2) + '% worse than the top of the book, reaching ' + px8(pv.worstPrice) + '. Above your ' + (pv.slipWarnPct || 1) + '% mark.'
+          : Number(pv.slipPct).toFixed(2) + '% off the top of the book across ' + (pv.levelsUsed || 1) + ' level(s) — under your ' + (pv.slipWarnPct || 1) + '% mark.')
+        : 'the walked average across the book') + '</div>';
+    rows += ftRow('Worst price reached', px8(pv.worstPrice));
+    rows += ftRow('Nothing goes out ' + (isBuy ? 'above' : 'below'), px8(pv.limitPrice) +
+      '<div style="font-weight:600;color:#5b6472;font-size:11px;">the deepest price on the ladder — every order goes out at exactly its own row price, and anything the market will not meet is cancelled rather than chased</div>');
+
+    // 3. THE BINANCE SANITY CHECK. COTI bought 23% above the global market and
+    //    the hedge locked that in. This row is the whole point of the arb.
+    var vb = pv.vsBinancePct;
+    if (pv.binSpotQuote != null) {
+      rows += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin:10px 0 0;border-radius:10px;background:' +
+        (pv.vsBinanceHigh ? '#fdecec' : '#eef7f1') + ';border:1.5px solid ' + (pv.vsBinanceHigh ? '#e08a8a' : '#bfe0cd') + ';">' +
+        '<span style="font-size:12.5px;font-weight:700;color:#3a4653;">vs Binance spot</span>' +
+        '<span style="font-size:17px;font-weight:900;color:' + (pv.vsBinanceHigh ? '#c31d1d' : '#177a4c') + ';">' +
+          (vb == null ? '—' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%') + (pv.vsBinanceHigh ? ' ⚠' : '') + '</span></div>';
+      rows += '<div style="font-size:11px;font-weight:600;color:' + (pv.vsBinanceHigh ? '#c31d1d' : '#5b6472') + ';margin:6px 0 10px;line-height:1.5;">' +
+        'Binance spot is ' + px8(pv.binSpotQuote) +
+        (pv.usdtInrRate ? ' (' + num(pv.binSpot, 8) + ' USDT × ₹' + num(pv.usdtInrRate, 2) + ')' : '') + '. ' +
+        (pv.vsBinanceHigh
+          ? 'You are ' + (isBuy ? 'BUYING above' : 'SELLING below') + ' the global market — a hedge opened against this starts ' + Math.abs(Number(vb)).toFixed(2) + '% under water.'
+          : 'In line with the global market.') + '</div>';
+    }
+
+    // 4. TRIM — how much fits inside the 1% mark, one tap away.
+    if (pv.slipHigh && pv.capQty > 0 && pv.capQty < pv.qty * 0.999) {
+      rows += '<div style="font-size:11.5px;font-weight:700;color:#8a5a00;background:#fff7e6;border:1px solid #f0dcae;border-radius:9px;padding:10px;margin-top:8px;line-height:1.55;">' +
+        'Only <b>' + num(pv.capQty) + ' ' + C + '</b> fits inside ' + (pv.slipWarnPct || 1) + '% of the top of the book' +
+        (pv.capCost != null ? ' (' + cur + num(pv.capCost, 2) + ')' : '') + '.' +
+        '<button onclick="__ftWzxTrim()" style="width:100%;font:inherit;font-weight:800;font-size:12px;padding:9px;border-radius:8px;border:1px solid #d9c48a;background:#fff;color:#8a5a00;cursor:pointer;margin-top:8px;">✂ Trim to ' + num(pv.capQty) + ' ' + C + ' and re-check</button></div>';
+    }
+
+    // 5. THE MONEY.
+    if (pv.costQuote != null) rows += ftRow(isBuy ? 'Total cost' : 'Total received', cur + num(pv.costQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
+    if (pv.costInr != null && mkt === 'USDT') rows += ftRow('…in rupees', '≈ ₹' + num(pv.costInr, 2));
+    if (pv.freeQuote != null) rows += ftRow('You have', cur + num(pv.freeQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
+    if (pv.heldQty != null) rows += ftRow('WazirX shows', num(pv.heldQty) + ' ' + C +
+      (pv.balanceSettled === false ? ' <span style="color:#b7791f;">· still settling</span>' : ''));
+    if (pv.keysReady === false) rows += ftRow('Keys', '<span style="color:#c31d1d;">WazirX keys not set on the server</span>');
+
+    // THE TOTAL ARBITRAGE — the one number that decides whether a BUY is even
+    // offered. Positive and green, or the PROCEED button is not there at all.
+    if (pv.arbPct != null) {
+      var apos = Number(pv.arbPct) > 0;
+      rows += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin:10px 0 0;border-radius:10px;background:' +
+        (apos ? '#eef7f1' : '#fdecec') + ';border:1.5px solid ' + (apos ? '#bfe0cd' : '#e08a8a') + ';">' +
+        '<span style="font-size:12.5px;font-weight:700;color:#3a4653;">Total arbitrage</span>' +
+        '<span style="font-size:17px;font-weight:900;color:' + (apos ? '#177a4c' : '#c31d1d') + ';">' +
+          (apos ? '+' : '') + Number(pv.arbPct).toFixed(2) + '%</span></div>' +
+        '<div style="font-size:11px;font-weight:600;color:' + (apos ? '#5b6472' : '#c31d1d') + ';margin:6px 0 10px;line-height:1.5;">' +
+        'across the whole ladder, against Binance spot, after ' + (pv.feePct != null ? Number(pv.feePct).toFixed(2) + '% ' : '') + 'fees.' +
+        (apos ? '' : ' There is no arbitrage here to open.') + '</div>';
+    }
+    if (pv.canExecute === false && !pv.blocker) {
+      rows += '<div style="font-size:12.5px;font-weight:800;color:#c31d1d;background:#fdecec;border:1px solid #f0c0c0;border-radius:9px;padding:11px;margin-top:8px;line-height:1.55;">' +
+        (isBuy ? 'Buying' : 'Selling') + ' is switched off — there is no total positive arbitrage on ' + C +
+        ' right now. It re-arms by itself the moment the book offers one.' +
+        (isBuy ? '' : ' Nothing is sold into whatever the book has left; if you want out regardless, transfer the coins to Binance and sell there.') +
+        '</div>';
+    }
+
+    var danger = pv.slipHigh || pv.vsBinanceHigh;
+    var btns = canGo
+      ? '<button onclick="__ftWzxGo()" style="width:100%;font:inherit;font-weight:900;font-size:14px;padding:14px;border-radius:10px;border:none;background:' +
+          (danger ? '#c31d1d' : '#177a4c') + ';color:#fff;cursor:pointer;margin-top:14px;">PROCEED · ' +
+          (isBuy ? 'BUY' : 'SELL') + ' ' + num(pv.qty) + ' ' + C +
+          (lad.length > 1 ? ' · ' + lad.length + ' orders' : ' @ ' + px8(pv.limitPrice)) + '</button>' +
+        '<button onclick="__ftCloseResult()" style="width:100%;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;margin-top:8px;">Cancel — place nothing</button>'
+      : '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
+
+    return head + rows + ftWarns(pv.warnings) + btns;
+  }
+
+  // o = { coin, side, market, qty, pct, lvl }
+  async function ftWzxConfirm(o) {
+    ftOverlay().innerHTML = ftCard(
+      '<div style="font-size:34px;text-align:center;">◌</div>' +
+      '<div style="font-size:15px;font-weight:800;text-align:center;margin:6px 0 3px;">Walking the live book…</div>' +
+      '<div style="font-size:12px;font-weight:600;color:#5b6472;text-align:center;">the price you will actually ' +
+        (o.side === 'sell' ? 'get' : 'pay') + ' for ' + String(o.coin).toUpperCase() + '</div>');
+    var body = { coin: o.coin, action: o.side === 'sell' ? 'sell_wazirx' : 'buy_wazirx', mode: ft.mode, pct: o.pct || 25 };
+    if (o.qty) body.qty = o.qty;
+    if (o.lvl != null) body.lvl = o.lvl;
+    if (o.market) body.market = o.market;
+    var pv;
+    try { pv = await ftPost('/api/trader/manual/preview', body); }
+    catch (e) { pv = { blocker: e.message, warnings: [], qty: null }; }
+    ftPend = { o: o, pv: pv, wzx: true };
+    ftOverlay().innerHTML = ftCard(ftWzxCard(pv, o));
+  }
+
+  // "Trim to what fits inside 1%" — re-opens the page on the smaller size, so
+  // he approves the trimmed numbers rather than assuming them.
+  window.__ftWzxTrim = function () {
+    if (!ftPend || !ftPend.wzx || !(ftPend.pv.capQty > 0)) return;
+    var o = ftPend.o;
+    return ftWzxConfirm({ coin: o.coin, side: o.side, market: o.market, qty: ftPend.pv.capQty, pct: o.pct, lvl: null });
+  };
+
+  // The only path from the WazirX confirmation page to a real order. It sends
+  // the approved qty AND the approved limit as maxPrice — the server will not
+  // pay past it, so a book that moved gives a partial fill, not a COTI sweep.
+  window.__ftWzxGo = async function () {
+    if (!ftPend || !ftPend.wzx) return;
+    var o = ftPend.o, pv = ftPend.pv;
+    var C = String(o.coin).toUpperCase();
+    var isBuy = (pv.side || o.side) !== 'sell';
+    var label = (isBuy ? 'BUY ' : 'SELL ') + C + ' @WazirX' + (pv.market === 'usdt' ? '·USDT mkt' : '');
+    var lad = (pv.levels || []).map(function (r) { return { price: Number(r.price), qty: Number(r.qty) }; })
+      .filter(function (r) { return r.price > 0 && r.qty > 0; });
+    var sz = lad.length > 1
+      ? num(pv.qty) + ' ' + C + ' across ' + lad.length + ' price levels'
+      : num(pv.qty) + ' ' + C + ' @ ' + (pv.cur != null ? pv.cur : '₹') + num(pv.limitPrice, 8) + ' max';
+    ftShowPlacing(label, sz, '');
+    // THE FROZEN LADDER. These are the exact prices and sizes he just read, and
+    // they are what go to WazirX — not a fresh walk of a book that may have
+    // moved while he was reading. A level that has since gone will not fill;
+    // it is cancelled, and the rest settle as a partial.
+    var body = { coin: o.coin, action: isBuy ? 'buy_wazirx' : 'sell_wazirx',
+      qty: pv.qty, pct: 100, mode: ft.mode, maxPrice: pv.limitPrice };
+    if (lad.length) body.levels = lad;
+    if (o.market) body.market = o.market;
+    try {
+      var r = await ftPost('/api/trader/manual', body);
+      if (r && r.id) ftShowDone(r.id, label, sz);
+      else ftShowFail(label, sz, (r && r.error) || 'no result from the trader');
+    } catch (e) { ftShowFail(label, sz, e.message); }
   };
 
   // Hedge straight from the fill confirmation — sized to the EXACT WazirX
@@ -5501,6 +5809,22 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         pct: ft.pct, lvl: ft.lvl,
         orderId: hedgeFill ? hedgeFill.orderId : null,
         canFire: !!hedgeFill,
+      });
+    }
+    // A WazirX buy or sell never fires straight from this tap either. The
+    // Execute panel only ever showed the TOP of book; the sweep that follows
+    // can average far worse (COTI: shown ₹1.483, averaged ₹1.852, touched
+    // ₹1.999). So the same confirmation page opens first, showing the average
+    // it will actually pay, the worst level it reaches, and how far that sits
+    // above Binance spot — and PROCEED sends a hard price ceiling with it.
+    if (a.action === 'buy_wazirx' || a.action === 'sell_wazirx') {
+      var wc = a.coin || p.coin;
+      return ftWzxConfirm({
+        coin: wc,
+        side: a.action === 'sell_wazirx' ? 'sell' : 'buy',
+        market: a.market,
+        qty: ft.lvl == null && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null,
+        pct: ft.pct, lvl: ft.lvl,
       });
     }
     var aDir = fillDir(hedgeFill);
