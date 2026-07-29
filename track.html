@@ -5361,6 +5361,74 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid #eef1f6;">' +
       '<span style="color:#5b6472;font-weight:600;white-space:nowrap;">' + k + '</span><span style="font-weight:800;text-align:right;word-break:break-word;">' + v + '</span></div>';
   }
+  // ---------- COLLAPSIBLE SECTIONS ----------
+  // Nikhil, 29 Jul: "confirmation page is long and not comfortable make us
+  // toggle or dropdowns to look better". The page was one continuous scroll of
+  // eleven sections, and the numbers that decide the trade — the arbitrage, the
+  // average price, the gap to Binance — were buried between paragraphs of
+  // explanation he had already read a hundred times.
+  //
+  // So the detail now lives in folds. A fold is a native <details>: it needs no
+  // JavaScript, it cannot get out of sync, and it opens with one tap. Two rules
+  // are absolute and are enforced by the caller, not by this helper:
+  //   1. nothing red or amber is ever placed inside a fold, and
+  //   2. a fold whose contents carry a warning opens by itself (`open`).
+  // A fold is only ever allowed to hide detail he might want — never a reason
+  // not to trade.
+  // The fold chevron flips on open; the browser's own disclosure triangle is
+  // hidden so the summary row reads as one clean tap target on a phone.
+  //
+  // This lives in a <style> tag in the document head, injected once, and NOT
+  // inside the card's own HTML — which is where it started. A <style> element
+  // nested in the card is invisible on screen but its CSS is still text inside
+  // that element, so anything reading the card's words gets the stylesheet
+  // first: `#ftResult summary{list-style:none}...🔴CONFIRM SELL`. That broke
+  // two checks that read the confirmation page's text, and it would equally
+  // break a screen reader, a copy-paste, or a find-on-page.
+  var ftFoldStylesDone = false;
+  function ftEnsureFoldStyles() {
+    if (ftFoldStylesDone || typeof document === 'undefined') return;
+    ftFoldStylesDone = true;
+    var st = document.createElement('style');
+    st.id = 'ftFoldStyles';
+    st.textContent =
+      '#ftResult summary{list-style:none}' +
+      '#ftResult summary::-webkit-details-marker{display:none}' +
+      '#ftResult details[open] .ftChev{transform:rotate(180deg)}' +
+      '#ftResult .ftChev{display:inline-block;transition:transform .12s}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function ftFold(title, hint, inner, open) {
+    ftEnsureFoldStyles();
+    return '<details' + (open ? ' open' : '') +' style="border:1px solid #e2e8f0;border-radius:10px;margin:8px 0;background:#fafbfd;overflow:hidden;">' +
+      '<summary style="cursor:pointer;padding:11px 12px;font-size:12.5px;font-weight:800;color:#3a4653;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+        '<span>' + title + '</span>' +
+        '<span style="font-weight:700;color:#8792a2;font-size:11px;white-space:nowrap;">' + (hint ? hint + ' ' : '') + '<span class="ftChev">▾</span></span>' +
+      '</summary>' +
+      '<div style="padding:2px 12px 12px;">' + inner + '</div></details>';
+  }
+  // Two numbers side by side — how the headline figures fit on a phone without
+  // becoming a scroll of their own.
+  function ftTwoUp(a, b) {
+    return '<div style="display:flex;gap:8px;margin:8px 0 0;">' + a + b + '</div>';
+  }
+  function ftStat(label, value, bad, flex) {
+    return '<div style="flex:' + (flex || 1) + ';min-width:0;padding:10px 11px;border-radius:10px;background:' +
+      (bad ? '#fdecec' : '#eef7f1') + ';border:1.5px solid ' + (bad ? '#e08a8a' : '#bfe0cd') + ';">' +
+      '<div style="font-size:10.5px;font-weight:700;color:#5b6472;margin-bottom:3px;">' + label + '</div>' +
+      '<div style="font-size:15px;font-weight:900;line-height:1.25;word-break:break-word;color:' + (bad ? '#c31d1d' : '#177a4c') + ';">' + value + '</div></div>';
+  }
+  // The same shape in grey, for facts that are neither good nor bad.
+  function ftStatPlain(label, value, flex) {
+    return '<div style="flex:' + (flex || 1) + ';min-width:0;padding:10px 11px;border-radius:10px;background:#f4f6fa;border:1.5px solid #dde4ec;">' +
+      '<div style="font-size:10.5px;font-weight:700;color:#5b6472;margin-bottom:3px;">' + label + '</div>' +
+      '<div style="font-size:15px;font-weight:900;line-height:1.25;word-break:break-word;color:#1c2733;">' + value + '</div></div>';
+  }
+  function ftNote(text, tone) {
+    var c = tone === 'bad' ? ['#fdecec', '#f0c0c0', '#a51f1f'] : tone === 'warn' ? ['#fff7e6', '#f0dcae', '#8a5a00'] : ['#f4f6fa', '#dde4ec', '#5b6472'];
+    return '<div style="font-size:11.5px;font-weight:' + (tone ? '700' : '600') + ';line-height:1.55;margin-top:8px;padding:9px 11px;border-radius:9px;background:' +
+      c[0] + ';border:1px solid ' + c[1] + ';color:' + c[2] + ';">' + text + '</div>';
+  }
   function ftBtns(retry) {
     return '<div style="display:flex;gap:8px;margin-top:14px;">' +
       (retry ? '<button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:none;background:#2b6ea3;color:#fff;cursor:pointer;">Try again</button>' : '') +
@@ -5681,7 +5749,9 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // greys Execute on the panel, enforced again here in case the panel was
     // read minutes ago.
     var canGo = !pv.blocker && Number(pv.qty) > 0 && pv.canExecute !== false;
-    var head = '<div style="font-size:36px;text-align:center;">' + (isBuy ? '🟢' : '🔴') + '</div>' +
+    ftEnsureFoldStyles();
+    var head =
+      '<div style="font-size:36px;text-align:center;">' + (isBuy ? '🟢' : '🔴') + '</div>' +
       '<div style="font-size:17px;font-weight:800;text-align:center;margin:4px 0 2px;">CONFIRM ' + (isBuy ? 'BUY' : 'SELL') + '</div>' +
       '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin-bottom:11px;line-height:1.5;">' +
         C + ' / ' + mkt + ' · WazirX<br>Nothing is placed until you tap PROCEED.</div>';
@@ -5695,33 +5765,99 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     }
 
     var px8 = function (v) { return v == null ? '—' : cur + num(v, 8); };
-    var rows = '';
-    // 1. SIZE.
-    rows += ftRow('Tokens to ' + (isBuy ? 'buy' : 'sell'), '<span style="font-size:14.5px;">' + num(pv.qty) + ' ' + C + '</span>');
-    if (pv.requestedQty != null && pv.qty != null && Math.abs(pv.requestedQty - pv.qty) > 1e-9) {
-      rows += ftRow('You asked for', '<span style="color:#c31d1d;">' + num(pv.requestedQty) + ' ' + C +
-        ' · ' + num(pv.requestedQty - pv.qty) + ' will NOT fill</span>');
-    }
-
-    // 1b. THE ORDER LADDER — the heart of it. Every row here becomes its OWN
-    //     limit order at its OWN price. This is the list he approves: ₹1.483 ×
-    //     5,000 and ₹1.51 × 3,500 go out as two separate orders. If the ₹1.483
-    //     level has gone by the time it lands, that order simply rests, finds
-    //     nobody, and is cancelled — while ₹1.51 fills and the whole thing
-    //     settles as a partial. Nothing here can ever sweep past its own price.
     var lad = pv.levels || [];
+    var vb = pv.vsBinancePct;
+    var apos = pv.arbPct != null && Number(pv.arbPct) > 0;
+    var money = pv.costQuote != null ? cur + num(pv.costQuote, 2) + (mkt === 'USDT' ? ' USDT' : '') : '—';
+    var qtyShort = pv.requestedQty != null && pv.qty != null && Math.abs(pv.requestedQty - pv.qty) > 1e-9;
+
+    // ================= 1. THE DECISION STRIP =================
+    // Five numbers, no paragraphs, never folded: is there an arbitrage, what
+    // will I actually pay, how far is that from the global market, how many
+    // tokens and how much money. Everything else is detail and lives in a fold.
+    var strip = '';
+    // THE TOTAL ARBITRAGE — the one number that decides whether a BUY is even
+    // offered. Positive and green, or the PROCEED button is not there at all.
+    if (pv.arbPct != null) {
+      strip += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px;border-radius:11px;background:' +
+        (apos ? '#eef7f1' : '#fdecec') + ';border:2px solid ' + (apos ? '#bfe0cd' : '#e08a8a') + ';">' +
+        '<span style="font-size:13px;font-weight:800;color:#3a4653;">Total arbitrage</span>' +
+        '<span style="font-size:20px;font-weight:900;color:' + (apos ? '#177a4c' : '#c31d1d') + ';">' +
+          (apos ? '+' : '') + Number(pv.arbPct).toFixed(2) + '%</span></div>';
+    }
+    // The average is THE COTI number: the card said ₹1.483, the sweep averaged
+    // ₹1.852. It is on screen before anything else can be tapped.
+    strip += ftTwoUp(
+      ftStat('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(pv.avgPrice) + (pv.slipHigh ? ' ⚠' : ''), !!pv.slipHigh),
+      pv.binSpotQuote != null
+        ? ftStat('vs Binance spot', (vb == null ? '—' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%') + (pv.vsBinanceHigh ? ' ⚠' : ''), !!pv.vsBinanceHigh)
+        : ftStatPlain('Top of book', px8(pv.topPrice)));
+    strip += ftTwoUp(
+      ftStatPlain('Tokens to ' + (isBuy ? 'buy' : 'sell'), num(pv.qty) + ' ' + C),
+      ftStatPlain(isBuy ? 'Total cost' : 'Total received', money));
+
+    // ================= 2. ANYTHING WRONG — also never folded =================
+    // Every one of these is a reason to stop. None of them is ever allowed
+    // inside a <details>, because a fold he does not open is a fold he does not
+    // read, and these are exactly the lines the COTI sweep needed him to read.
+    var alerts = '';
+    if (qtyShort) {
+      alerts += ftNote('You asked for <b>' + num(pv.requestedQty) + ' ' + C + '</b>, but only <b>' + num(pv.qty) +
+        '</b> can fill at a price worth taking — ' + num(pv.requestedQty - pv.qty) + ' ' + C + ' will NOT go out.', 'bad');
+    }
+    if (pv.slipHigh) {
+      alerts += ftNote('This size sweeps ' + (pv.levelsUsed || '?') + ' levels — ' +
+        (pv.slipPct != null ? Number(pv.slipPct).toFixed(2) + '% ' : '') + 'worse than the top of the book, reaching ' +
+        px8(pv.worstPrice) + '. That is above your ' + (pv.slipWarnPct || 1) + '% mark.', 'bad');
+    }
+    if (pv.vsBinanceHigh && vb != null) {
+      alerts += ftNote('You are ' + (isBuy ? 'BUYING above' : 'SELLING below') + ' the global market by ' +
+        Math.abs(Number(vb)).toFixed(2) + '% — a hedge opened against this starts that far under water.', 'bad');
+    }
+    // Levels the server refused to include because the running arbitrage had
+    // already turned negative. COTI's ₹1.999 tail would have lived here.
+    if (pv.droppedLevels && pv.droppedLevels.length) {
+      var dq = 0;
+      for (var di = 0; di < pv.droppedLevels.length; di++) dq += Number(pv.droppedLevels[di].qty) || 0;
+      alerts += ftNote('Stopped after ' + lad.length + ' level(s). The next ' + pv.droppedLevels.length +
+        ' would take the arbitrage negative, so ' + num(dq) + ' ' + C +
+        ' of the size is left on the table rather than traded at a loss.', 'warn');
+    }
+    // TRIM — how much fits inside the 1% mark, one tap away.
+    if (pv.slipHigh && pv.capQty > 0 && pv.capQty < pv.qty * 0.999) {
+      alerts += ftNote('Only <b>' + num(pv.capQty) + ' ' + C + '</b> fits inside ' + (pv.slipWarnPct || 1) + '% of the top of the book' +
+        (pv.capCost != null ? ' (' + cur + num(pv.capCost, 2) + ')' : '') + '.' +
+        '<button onclick="__ftWzxTrim()" style="width:100%;font:inherit;font-weight:800;font-size:12px;padding:9px;border-radius:8px;border:1px solid #d9c48a;background:#fff;color:#8a5a00;cursor:pointer;margin-top:8px;">✂ Trim to ' +
+        num(pv.capQty) + ' ' + C + ' and re-check</button>', 'warn');
+    }
+    if (pv.keysReady === false) alerts += ftNote('WazirX keys are not set on the server — nothing can be placed until they are.', 'bad');
+    if (pv.canExecute === false && !pv.blocker) {
+      alerts += ftNote((isBuy ? 'Buying' : 'Selling') + ' is switched off — there is no total positive arbitrage on ' + C +
+        ' right now. It re-arms by itself the moment the book offers one.' +
+        (isBuy ? '' : ' Nothing is sold into whatever the book has left; if you want out regardless, transfer the coins to Binance and sell there.'), 'bad');
+    }
+    alerts += ftWarns(pv.warnings);
+
+    // ================= 3. THE FOLDS — detail, on tap =================
+    var folds = '';
+
+    // 3a. THE ORDER LADDER. Every row here becomes its OWN limit order at its
+    //     OWN price: ₹1.483 × 5,000 and ₹1.51 × 3,500 go out as two separate
+    //     orders. If the ₹1.483 level has gone by the time it lands, that order
+    //     simply rests, finds nobody, and is cancelled — while ₹1.51 fills and
+    //     the whole thing settles as a partial. Nothing can ever sweep past its
+    //     own price. Folded open when levels were dropped, so the short size is
+    //     explained on sight.
     if (lad.length) {
-      rows += '<div style="font-size:11.5px;font-weight:800;color:#3a4653;margin:12px 0 5px;">' +
-        (lad.length === 1 ? 'The order that will go out' : 'The ' + lad.length + ' orders that will go out') + '</div>';
-      rows += '<div style="border:1.5px solid #cfd8e3;border-radius:10px;overflow:hidden;">';
-      rows += '<div style="display:flex;gap:8px;padding:7px 10px;background:#eef2f7;font-size:10.5px;font-weight:800;color:#5b6472;">' +
+      var tbl = '<div style="border:1.5px solid #cfd8e3;border-radius:10px;overflow:hidden;background:#fff;">' +
+        '<div style="display:flex;gap:8px;padding:7px 10px;background:#eef2f7;font-size:10.5px;font-weight:800;color:#5b6472;">' +
         '<span style="flex:1.2;">PRICE</span><span style="flex:1.1;text-align:right;">SIZE</span>' +
         '<span style="flex:1.1;text-align:right;">' + (isBuy ? 'COST' : 'GET') + '</span>' +
         '<span style="flex:0.8;text-align:right;">ARB</span></div>';
       for (var li = 0; li < lad.length; li++) {
         var L = lad[li];
         var la = L.arbPct;
-        rows += '<div style="display:flex;gap:8px;align-items:center;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
+        tbl += '<div style="display:flex;gap:8px;align-items:center;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
           (li ? 'border-top:1px solid #e6ebf1;' : '') + '">' +
           '<span style="flex:1.2;">' + cur + num(L.price, 8) + '</span>' +
           '<span style="flex:1.1;text-align:right;">' + num(L.qty) + '</span>' +
@@ -5729,94 +5865,56 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           '<span style="flex:0.8;text-align:right;color:' + (la == null ? '#5b6472' : la > 0 ? '#177a4c' : '#c31d1d') + ';">' +
             (la == null ? '—' : (la > 0 ? '+' : '') + Number(la).toFixed(2) + '%') + '</span></div>';
       }
-      rows += '</div>';
-      rows += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:6px 0 10px;line-height:1.5;">' +
+      tbl += '</div>' +
+        '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:8px 0 0;line-height:1.5;">' +
         (lad.length === 1
           ? 'One limit order at exactly this price. If the book has moved away from it by the time it lands, it rests, finds no counterparty and is cancelled — it is never chased to a worse price.'
           : 'Each row is placed as its own limit order at its own price — never one blended limit that sweeps everything in between. A row whose level has gone by the time it lands simply does not fill and is cancelled; the rest fill, and the total comes back as a partial.') +
         '</div>';
-      // Levels the server refused to include because the running arbitrage had
-      // already turned negative. COTI's ₹1.999 tail would have lived here.
-      if (pv.droppedLevels && pv.droppedLevels.length) {
-        var dq = 0;
-        for (var di = 0; di < pv.droppedLevels.length; di++) dq += Number(pv.droppedLevels[di].qty) || 0;
-        rows += '<div style="font-size:11px;font-weight:700;color:#8a5a00;background:#fff7e6;border:1px solid #f0dcae;border-radius:9px;padding:9px 10px;margin:0 0 10px;line-height:1.55;">' +
-          'Stopped after ' + lad.length + ' level(s). The next ' + pv.droppedLevels.length +
-          ' would take the arbitrage negative, so ' + num(dq) + ' ' + C +
-          ' of the size is left on the table rather than traded at a loss.</div>';
-      }
+      folds += ftFold(
+        lad.length === 1 ? 'The order that will go out' : 'The ' + lad.length + ' orders that will go out',
+        lad.length + (lad.length === 1 ? ' price' : ' prices'),
+        tbl,
+        !!(pv.droppedLevels && pv.droppedLevels.length));
     }
 
-    // 2. THE PRICE LADDER — the three numbers COTI only ever showed one of.
-    rows += ftRow('Top of book', px8(pv.topPrice));
-    rows += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin:10px 0 0;border-radius:10px;background:' +
-      (pv.slipHigh ? '#fdecec' : '#eef7f1') + ';border:1.5px solid ' + (pv.slipHigh ? '#e08a8a' : '#bfe0cd') + ';">' +
-      '<span style="font-size:12.5px;font-weight:700;color:#3a4653;">Average you ' + (isBuy ? 'PAY' : 'GET') + '</span>' +
-      '<span style="font-size:17px;font-weight:900;color:' + (pv.slipHigh ? '#c31d1d' : '#177a4c') + ';">' +
-        px8(pv.avgPrice) + (pv.slipHigh ? ' ⚠' : '') + '</span></div>';
-    rows += '<div style="font-size:11px;font-weight:600;color:' + (pv.slipHigh ? '#c31d1d' : '#5b6472') + ';margin:6px 0 10px;line-height:1.5;">' +
+    // 3b. THE PRICES. Top, worst, and the ceiling that goes to WazirX — the
+    //     three numbers COTI only ever showed one of. Opens by itself whenever
+    //     the sweep is wide enough to matter.
+    var prices = ftRow('Top of book', px8(pv.topPrice));
+    prices += ftRow('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(pv.avgPrice));
+    prices += ftRow('Worst price reached', px8(pv.worstPrice));
+    prices += ftRow('Nothing goes out ' + (isBuy ? 'above' : 'below'), px8(pv.limitPrice));
+    prices += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:8px 0 0;line-height:1.5;">' +
+      'The ceiling is the deepest price on the ladder — every order goes out at exactly its own row price, and anything the market will not meet is cancelled rather than chased. ' +
       (pv.slipPct != null
-        ? (pv.slipHigh
-          ? 'This size sweeps ' + (pv.levelsUsed || '?') + ' levels — ' + Number(pv.slipPct).toFixed(2) + '% worse than the top of the book, reaching ' + px8(pv.worstPrice) + '. Above your ' + (pv.slipWarnPct || 1) + '% mark.'
-          : Number(pv.slipPct).toFixed(2) + '% off the top of the book across ' + (pv.levelsUsed || 1) + ' level(s) — under your ' + (pv.slipWarnPct || 1) + '% mark.')
-        : 'the walked average across the book') + '</div>';
-    rows += ftRow('Worst price reached', px8(pv.worstPrice));
-    rows += ftRow('Nothing goes out ' + (isBuy ? 'above' : 'below'), px8(pv.limitPrice) +
-      '<div style="font-weight:600;color:#5b6472;font-size:11px;">the deepest price on the ladder — every order goes out at exactly its own row price, and anything the market will not meet is cancelled rather than chased</div>');
+        ? Number(pv.slipPct).toFixed(2) + '% off the top of the book across ' + (pv.levelsUsed || 1) + ' level(s), against your ' + (pv.slipWarnPct || 1) + '% mark.'
+        : 'The average is walked level by level, not taken from the top.') + '</div>';
+    folds += ftFold('Prices in detail', px8(pv.topPrice) + ' → ' + px8(pv.worstPrice), prices, !!pv.slipHigh);
 
-    // 3. THE BINANCE SANITY CHECK. COTI bought 23% above the global market and
-    //    the hedge locked that in. This row is the whole point of the arb.
-    var vb = pv.vsBinancePct;
+    // 3c. THE BINANCE SANITY CHECK. COTI bought 23% above the global market and
+    //     the hedge locked that in. The headline % is already in the strip; this
+    //     fold carries where the number came from.
     if (pv.binSpotQuote != null) {
-      rows += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin:10px 0 0;border-radius:10px;background:' +
-        (pv.vsBinanceHigh ? '#fdecec' : '#eef7f1') + ';border:1.5px solid ' + (pv.vsBinanceHigh ? '#e08a8a' : '#bfe0cd') + ';">' +
-        '<span style="font-size:12.5px;font-weight:700;color:#3a4653;">vs Binance spot</span>' +
-        '<span style="font-size:17px;font-weight:900;color:' + (pv.vsBinanceHigh ? '#c31d1d' : '#177a4c') + ';">' +
-          (vb == null ? '—' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%') + (pv.vsBinanceHigh ? ' ⚠' : '') + '</span></div>';
-      rows += '<div style="font-size:11px;font-weight:600;color:' + (pv.vsBinanceHigh ? '#c31d1d' : '#5b6472') + ';margin:6px 0 10px;line-height:1.5;">' +
-        'Binance spot is ' + px8(pv.binSpotQuote) +
-        (pv.usdtInrRate ? ' (' + num(pv.binSpot, 8) + ' USDT × ₹' + num(pv.usdtInrRate, 2) + ')' : '') + '. ' +
-        (pv.vsBinanceHigh
-          ? 'You are ' + (isBuy ? 'BUYING above' : 'SELLING below') + ' the global market — a hedge opened against this starts ' + Math.abs(Number(vb)).toFixed(2) + '% under water.'
-          : 'In line with the global market.') + '</div>';
+      var bin = ftRow('Binance spot', px8(pv.binSpotQuote));
+      if (pv.usdtInrRate) bin += ftRow('…converted from', num(pv.binSpot, 8) + ' USDT × ₹' + num(pv.usdtInrRate, 2));
+      bin += ftRow('Your average is', (vb == null ? '—' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%') + ' vs that');
+      if (pv.feePct != null) bin += ftRow('Fees counted in', Number(pv.feePct).toFixed(2) + '%');
+      bin += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:8px 0 0;line-height:1.5;">' +
+        'The total arbitrage at the top of this page is measured across the whole ladder against this price, after fees. ' +
+        (pv.vsBinanceHigh ? '' : 'This order is in line with the global market.') + '</div>';
+      folds += ftFold('vs Binance spot', (vb == null ? '' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%'), bin, !!pv.vsBinanceHigh);
     }
 
-    // 4. TRIM — how much fits inside the 1% mark, one tap away.
-    if (pv.slipHigh && pv.capQty > 0 && pv.capQty < pv.qty * 0.999) {
-      rows += '<div style="font-size:11.5px;font-weight:700;color:#8a5a00;background:#fff7e6;border:1px solid #f0dcae;border-radius:9px;padding:10px;margin-top:8px;line-height:1.55;">' +
-        'Only <b>' + num(pv.capQty) + ' ' + C + '</b> fits inside ' + (pv.slipWarnPct || 1) + '% of the top of the book' +
-        (pv.capCost != null ? ' (' + cur + num(pv.capCost, 2) + ')' : '') + '.' +
-        '<button onclick="__ftWzxTrim()" style="width:100%;font:inherit;font-weight:800;font-size:12px;padding:9px;border-radius:8px;border:1px solid #d9c48a;background:#fff;color:#8a5a00;cursor:pointer;margin-top:8px;">✂ Trim to ' + num(pv.capQty) + ' ' + C + ' and re-check</button></div>';
-    }
-
-    // 5. THE MONEY.
-    if (pv.costQuote != null) rows += ftRow(isBuy ? 'Total cost' : 'Total received', cur + num(pv.costQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
-    if (pv.costInr != null && mkt === 'USDT') rows += ftRow('…in rupees', '≈ ₹' + num(pv.costInr, 2));
-    if (pv.freeQuote != null) rows += ftRow('You have', cur + num(pv.freeQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
-    if (pv.heldQty != null) rows += ftRow('WazirX shows', num(pv.heldQty) + ' ' + C +
+    // 3d. THE MONEY and what the account actually holds.
+    var acct = '';
+    if (pv.costQuote != null) acct += ftRow(isBuy ? 'Total cost' : 'Total received', cur + num(pv.costQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
+    if (pv.costInr != null && mkt === 'USDT') acct += ftRow('…in rupees', '≈ ₹' + num(pv.costInr, 2));
+    if (pv.freeQuote != null) acct += ftRow('You have', cur + num(pv.freeQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
+    if (pv.heldQty != null) acct += ftRow('WazirX shows', num(pv.heldQty) + ' ' + C +
       (pv.balanceSettled === false ? ' <span style="color:#b7791f;">· still settling</span>' : ''));
-    if (pv.keysReady === false) rows += ftRow('Keys', '<span style="color:#c31d1d;">WazirX keys not set on the server</span>');
-
-    // THE TOTAL ARBITRAGE — the one number that decides whether a BUY is even
-    // offered. Positive and green, or the PROCEED button is not there at all.
-    if (pv.arbPct != null) {
-      var apos = Number(pv.arbPct) > 0;
-      rows += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin:10px 0 0;border-radius:10px;background:' +
-        (apos ? '#eef7f1' : '#fdecec') + ';border:1.5px solid ' + (apos ? '#bfe0cd' : '#e08a8a') + ';">' +
-        '<span style="font-size:12.5px;font-weight:700;color:#3a4653;">Total arbitrage</span>' +
-        '<span style="font-size:17px;font-weight:900;color:' + (apos ? '#177a4c' : '#c31d1d') + ';">' +
-          (apos ? '+' : '') + Number(pv.arbPct).toFixed(2) + '%</span></div>' +
-        '<div style="font-size:11px;font-weight:600;color:' + (apos ? '#5b6472' : '#c31d1d') + ';margin:6px 0 10px;line-height:1.5;">' +
-        'across the whole ladder, against Binance spot, after ' + (pv.feePct != null ? Number(pv.feePct).toFixed(2) + '% ' : '') + 'fees.' +
-        (apos ? '' : ' There is no arbitrage here to open.') + '</div>';
-    }
-    if (pv.canExecute === false && !pv.blocker) {
-      rows += '<div style="font-size:12.5px;font-weight:800;color:#c31d1d;background:#fdecec;border:1px solid #f0c0c0;border-radius:9px;padding:11px;margin-top:8px;line-height:1.55;">' +
-        (isBuy ? 'Buying' : 'Selling') + ' is switched off — there is no total positive arbitrage on ' + C +
-        ' right now. It re-arms by itself the moment the book offers one.' +
-        (isBuy ? '' : ' Nothing is sold into whatever the book has left; if you want out regardless, transfer the coins to Binance and sell there.') +
-        '</div>';
-    }
+    if (pv.requestedQty != null) acct += ftRow('Size you asked for', num(pv.requestedQty) + ' ' + C);
+    if (acct) folds += ftFold('Money and balances', money, acct, false);
 
     var danger = pv.slipHigh || pv.vsBinanceHigh;
     var btns = canGo
@@ -5827,7 +5925,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         '<button onclick="__ftCloseResult()" style="width:100%;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;margin-top:8px;">Cancel — place nothing</button>'
       : '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
 
-    return head + rows + ftWarns(pv.warnings) + btns;
+    return head + strip + alerts + folds + btns;
   }
 
   // o = { coin, side, market, qty, pct, lvl }
@@ -6160,8 +6258,15 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       }
     } catch (e) {}
     var oc0 = getOpenCard();
-    var buyMkt = (entry.buyExchange === 'wazirx' ? (entry.buyMarket || oc0.buyMarket || wzLegMkt) : null);
-    var sellMkt = (entry.sellExchange === 'wazirx' ? (entry.sellMarket || wzLegMkt) : null);
+    // ORDER MATTERS, and it was the wrong way round until 29 Jul. The comment
+    // above always said the popup's own order-book leg is the authority, but the
+    // code read the LIST's buyMarket/sellMarket first and only fell back to the
+    // leg. On a coin that trades on both books those two can disagree — the list
+    // says `inr`, the popup draws the `usdt` book — and the order would then go
+    // to a book he never looked at. The book on screen is the book that trades;
+    // the list fields are the fallback for the moment before it lands.
+    var buyMkt = (entry.buyExchange === 'wazirx' ? (wzLegMkt || entry.buyMarket || oc0.buyMarket) : null);
+    var sellMkt = (entry.sellExchange === 'wazirx' ? (wzLegMkt || entry.sellMarket) : null);
     if (entry.buyExchange === 'wazirx') acts.push(mk('buy', 'wazirx', buyBase, buyMkt));
     if (entry.sellExchange === 'wazirx') acts.push(mk('sell', 'wazirx', sellBase, sellMkt));
     if (acts.length) acts.push(hedgeAct(entry.coin, buyBase || sellBase));
@@ -6229,6 +6334,38 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     return v;
   }
   var mktHas = function (leg, coin) { return String(leg.market || '').toLowerCase().indexOf(String(coin).toLowerCase()) === 0; };
+
+  // WHICH WazirX market a leg trades — 'usdt' or 'inr'.
+  //
+  // THE CFX BLOCKER, 29 Jul. "BUY CFX @WazirX" inside a loop came back
+  // "no positive arbitrage on CFX right now — even the top of the book is
+  // 218.00% the wrong side of Binance spot", while the exact same leg priced
+  // fine as CFX/USDT. The rotation trades the CFX/USDT book at 0.0414 USDT.
+  // The Execute panel sent no market at all for a loop leg, so the backend
+  // fell back to its default — INR — and priced the thin, badly-quoted
+  // CFX/INR ask book instead, then correctly refused to buy it. The gate was
+  // working; it was aimed at the wrong book. Direct legs already resolved the
+  // market (mktOf + the liveBooks fallback); loop legs never did.
+  //
+  // The loop's own legs carry the answer twice over — `currency` is 'USDT' or
+  // 'INR' straight from entryVenue/exitVenue, and `market` is the exact symbol
+  // ('cfxusdt' / 'cfxinr'). Currency is preferred because it is the field the
+  // backend derives the same way. Returns null only if a leg was never matched
+  // at all, and the caller treats null as "do not guess".
+  var mktOfSlice = function (s) {
+    if (!s) return null;
+    if (s.ccy) return String(s.ccy).toUpperCase() === 'USDT' ? 'usdt' : 'inr';
+    if (s.market) return /usdt\s*$/i.test(String(s.market)) ? 'usdt' : 'inr';
+    return null;
+  };
+  // Last resort when the bars have not landed yet: the card that opened this
+  // popup names the venue of each end of the rotation ('inr' | 'usdt' | 'both').
+  // 'both' means the walk merged the two books and no single market can be
+  // named, so it stays null rather than picking one.
+  var mktOfVenue = function (v) {
+    var s = String(v || '').toLowerCase();
+    return s === 'usdt' ? 'usdt' : s === 'inr' ? 'inr' : null;
+  };
   wrap('renderIntraLoopModal', function () {
     var oc = getOpenCard();
     if (!oc.coin) return null;
@@ -6302,11 +6439,19 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var v2 = mkView(s2, q2, oc.coin2);
     var vChain = v1 ? { qty: v1.qty, rows: v1.rows, unit: v1.unit, ccy: v1.ccy, chain: true } : null;
     if (vChain && !vChain.rows && Number(lw.finalCostInr) > 0) { vChain.amount = Number(lw.finalCostInr); vChain.ccy = 'INR'; }
+    // WHICH WazirX book each leg trades. Read from the leg the bars were built
+    // from, so it is the same book the popup is drawing; the card's own venue
+    // fields cover the moment before the first live books land. Without this
+    // the backend defaulted to INR and priced a completely different book —
+    // see mktOfSlice above for what that did to CFX.
+    var m1 = mktOfSlice(s1) || mktOfVenue(oc.entryVenue);
+    var m2 = mktOfSlice(s2) || mktOfVenue(oc.exitVenue);
+    var mTag = function (m) { return m === 'usdt' ? '·USDT mkt' : m === 'inr' ? '·INR mkt' : ''; };
     // WazirX legs + the futures HEDGE for each coin ("same applicable to loop").
     var acts = [];
     if (wz) acts.push({ action: 'loop', side: 'chain', ex: 'wazirx', view: vChain, label: 'FULL LOOP ' + C1 + ' → ' + C2, legLabel: '<span>FULL LOOP</span>' + exChip('wazirx') });
-    acts.push({ action: 'buy_wazirx', side: 'buy', ex: 'wazirx', coin: oc.coin1, base: q1, view: v1, label: 'BUY ' + C1 + ' @WazirX', legLabel: '<span>🟢 BUY ' + C1 + '</span>' + exChip('wazirx') });
-    acts.push({ action: 'sell_wazirx', side: 'sell', ex: 'wazirx', coin: oc.coin2, base: q2, view: v2, label: 'SELL ' + C2 + ' @WazirX', legLabel: '<span>🔴 SELL ' + C2 + '</span>' + exChip('wazirx') });
+    acts.push({ action: 'buy_wazirx', side: 'buy', ex: 'wazirx', coin: oc.coin1, base: q1, view: v1, market: m1, label: 'BUY ' + C1 + ' @WazirX' + mTag(m1), legLabel: '<span>🟢 BUY ' + C1 + '</span>' + exChip('wazirx') + (m1 ? '<span style="font-weight:700;color:#5b6472;">' + m1.toUpperCase() + '</span>' : '') });
+    acts.push({ action: 'sell_wazirx', side: 'sell', ex: 'wazirx', coin: oc.coin2, base: q2, view: v2, market: m2, label: 'SELL ' + C2 + ' @WazirX' + mTag(m2), legLabel: '<span>🔴 SELL ' + C2 + '</span>' + exChip('wazirx') + (m2 ? '<span style="font-weight:700;color:#5b6472;">' + m2.toUpperCase() + '</span>' : '') });
     acts.push({ action: 'hedge_binance', side: 'hedge', ex: 'binance', coin: oc.coin1, base: q1, label: 'HEDGE ' + C1 + ' @Binance Futures (short)', legLabel: '<span>🛡 HEDGE ' + C1 + '</span><span style="font-weight:700;color:#4653d0;">FUT</span>' });
     acts.push({ action: 'hedge_binance', side: 'hedge', ex: 'binance', coin: oc.coin2, base: q2, label: 'HEDGE ' + C2 + ' @Binance Futures (short)', legLabel: '<span>🛡 HEDGE ' + C2 + '</span><span style="font-weight:700;color:#4653d0;">FUT</span>' });
     return {
