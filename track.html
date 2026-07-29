@@ -5004,7 +5004,11 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       var hi = (p.hedgeInfo || {})[sel.coin || p.coin];
       var selQty = selFill ? selFill.qty : null;
       if (!selFill) {
-        hedgeBox = '<div style="border:1px solid #e6d3a3;background:#fdf6e3;border-radius:9px;padding:9px 11px;font-size:11.5px;font-weight:700;color:#b7791f;margin-bottom:8px;">🔒 Hedge locked — execute the WazirX leg first, BUY <i>or</i> SELL. The hedge then sizes itself to that exact fill and points the right way (a buy is hedged with a SHORT, a sell with a LONG). It is offered on the confirmation page the moment the leg fills.</div>';
+        // Locked, but never opaque. He can still open the numbers — futures
+        // price, funding, the spot-vs-futures gap — read-only, no PROCEED.
+        hedgeBox = '<div style="border:1px solid #e6d3a3;background:#fdf6e3;border-radius:9px;padding:9px 11px;font-size:11.5px;font-weight:700;color:#b7791f;margin-bottom:8px;">🔒 Hedge locked — execute the WazirX leg first, BUY <i>or</i> SELL. The hedge then sizes itself to that exact fill and points the right way (a buy is hedged with a SHORT, a sell with a LONG). It is offered on the confirmation page the moment the leg fills.' +
+          '<button onclick="__ftHedgeLook(\'' + (sel.coin || p.coin) + '\', \'' + selDir + '\')" style="width:100%;font:inherit;font-weight:800;font-size:11.5px;padding:9px;border-radius:8px;border:1px solid #d9c48a;background:#fff;color:#8a5a00;cursor:pointer;margin-top:8px;">👀 See the numbers first — futures price, funding, spot-vs-futures gap</button>' +
+        '</div>';
         hedgeBlocked = true;
       } else if (!hi) {
         hedgeBox = '<div style="font-size:11px;font-weight:700;color:var(--gray-500);margin-bottom:8px;">checking Binance futures (perp · leverage · funding)…</div>';
@@ -5209,21 +5213,161 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     ftOverlay().innerHTML = ftCard(hero + rows + hedgeBtn + ftBtns(!ok));
   }
 
-  // Hedge straight from the confirmation page — sized to the EXACT WazirX
-  // fill, no percentages.
-  window.__ftHedgeNow = async function (coin) {
-    var fill = ft.fills[coin];
-    if (!fill) return;
-    var hDir = fillDir(fill);
-    var label = hedgeLabel(coin, hDir);
-    var sz = fill.qty + ' ' + String(coin).toUpperCase() + ' (your WazirX fill, order #' + fill.orderId + ')';
-    if (!confirm('LIVE: ' + label + ' — ' + sz + '?\nThis opens a REAL futures ' + hDir + '.')) return;
+  // ---------- HEDGE CONFIRMATION PAGE ----------
+  // Nothing is placed until he taps PROCEED. The page asks the trader for the
+  // exact plan the execute route would run — same hedgePlan() on the server —
+  // so the size on screen IS the size sent to Binance. The COTI hedge shrank
+  // from 33,060 to 813 in silence; here, asked-for and going-out are printed
+  // side by side and any gap is red.
+  var ftPend = null;
+
+  function ftWarns(ws) {
+    if (!ws || !ws.length) return '';
+    return ws.map(function (w) {
+      var hi = w.level === 'high';
+      return '<div style="font-size:11.5px;font-weight:700;line-height:1.5;margin-top:7px;padding:8px 10px;border-radius:8px;background:' +
+        (hi ? '#fdecec' : '#fff7e6') + ';color:' + (hi ? '#a51f1f' : '#8a5a00') +
+        ';border:1px solid ' + (hi ? '#f0c0c0' : '#f0dcae') + ';">' + (hi ? '⚠ ' : 'ℹ ') + w.text + '</div>';
+    }).join('');
+  }
+
+  function ftHedgeCard(pv, o) {
+    var C = String(o.coin).toUpperCase();
+    var dirTxt = pv.side || String(o.dir || 'short').toUpperCase();
+    var canGo = o.canFire && !pv.blocker && Number(pv.qty) > 0;
+    var head = '<div style="font-size:36px;text-align:center;">' + (o.canFire ? '🛡' : '👀') + '</div>' +
+      '<div style="font-size:17px;font-weight:800;text-align:center;margin:4px 0 2px;">' +
+        (o.canFire ? 'CONFIRM HEDGE' : 'HEDGE DETAILS') + '</div>' +
+      '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin-bottom:11px;line-height:1.5;">' +
+        dirTxt + ' ' + C + ' · Binance Futures<br>' +
+        (o.canFire
+          ? 'Nothing is placed until you tap PROCEED.'
+          : 'No WazirX order has been executed — this is a look at the numbers, not an order.') +
+      '</div>';
+
+    if (pv.blocker) {
+      return head +
+        '<div style="font-size:12.5px;font-weight:800;color:#c31d1d;background:#fdecec;border:1px solid #f0c0c0;border-radius:9px;padding:11px;line-height:1.5;">' +
+          'This hedge cannot be placed: ' + pv.blocker + '</div>' +
+        ftWarns(pv.warnings) +
+        '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
+    }
+
+    var rows = '';
+    // 1. THE SIZE — asked-for and going-out, always both.
+    rows += ftRow('Tokens to fill', '<span style="font-size:14.5px;">' + num(pv.qty) + ' ' + C + '</span>');
+    if (pv.requestedQty != null && pv.qty != null && Math.abs(pv.requestedQty - pv.qty) > 1e-9) {
+      rows += ftRow('You asked to hedge',
+        '<span style="color:#c31d1d;">' + num(pv.requestedQty) + ' ' + C +
+        ' · ' + num(pv.requestedQty - pv.qty) + ' NOT hedged</span>');
+    }
+    if (o.orderId) rows += ftRow('Your WazirX fill', 'order #' + o.orderId);
+    if (pv.heldQty != null) {
+      rows += ftRow('WazirX shows', num(pv.heldQty) + ' ' + C +
+        (pv.balanceSettled === false ? ' <span style="color:#b7791f;">· still settling</span>' : ''));
+    }
+
+    // 2. THE PRICE the order actually hits.
+    rows += ftRow('Futures price', pv.futPrice != null
+      ? num(pv.futPrice, 8) + ' USDT' + (pv.futBid && pv.futAsk
+        ? '<div style="font-weight:600;color:#5b6472;font-size:11px;">bid ' + num(pv.futBid, 8) + ' · ask ' + num(pv.futAsk, 8) + '</div>' : '')
+      : '—');
+    rows += ftRow('Binance spot', pv.spotPrice != null ? num(pv.spotPrice, 8) + ' USDT' : '—');
+
+    // 3. THE 1% GATE — the number he asked to have highlighted.
+    var bp = pv.basisPct;
+    var bpTxt = bp == null ? '—' : (bp > 0 ? '+' : '') + Number(bp).toFixed(3) + '%';
+    rows += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;margin:10px 0 0;border-radius:10px;background:' +
+      (pv.basisHigh ? '#fdecec' : '#eef7f1') + ';border:1.5px solid ' + (pv.basisHigh ? '#e08a8a' : '#bfe0cd') + ';">' +
+      '<span style="font-size:12.5px;font-weight:700;color:#3a4653;">Spot vs futures gap</span>' +
+      '<span style="font-size:17px;font-weight:900;color:' + (pv.basisHigh ? '#c31d1d' : '#177a4c') + ';">' +
+        bpTxt + (pv.basisHigh ? ' ⚠' : '') + '</span></div>';
+    rows += '<div style="font-size:11px;font-weight:600;color:' + (pv.basisHigh ? '#c31d1d' : '#5b6472') + ';margin:6px 0 10px;line-height:1.5;">' +
+      (pv.basisHigh
+        ? 'Above your ' + (pv.basisWarnPct || 1) + '% mark. The hedge does NOT start flat — that gap is what it costs you the moment it opens.'
+        : 'Under your ' + (pv.basisWarnPct || 1) + '% mark — the hedge starts near flat.') + '</div>';
+
+    // 4. FUNDING, in words as well as numbers.
+    rows += ftRow('Funding', pv.fundingNote ||
+      (pv.fundingPct8h != null ? Number(pv.fundingPct8h).toFixed(4) + '% per 8h' : '—'));
+    if (pv.fundingUsdt8h != null) {
+      rows += ftRow('…on this size', '<span style="color:' + (pv.fundingPays ? '#177a4c' : '#b7791f') + ';">' +
+        (pv.fundingPays ? '+' : '−') + num(Math.abs(pv.fundingUsdt8h), 4) + ' USDT / 8h</span>');
+    }
+
+    // 5. THE MONEY.
+    if (pv.notionalUsdt != null) rows += ftRow('Position size', num(pv.notionalUsdt, 2) + ' USDT');
+    if (pv.marginUsdt != null) rows += ftRow('Margin at ' + (pv.leverage || 5) + '×', num(pv.marginUsdt, 2) + ' USDT');
+    if (pv.takerFeeUsdt != null) rows += ftRow('Taker fee', '≈ ' + num(pv.takerFeeUsdt, 4) + ' USDT');
+    if (pv.futSpreadPct != null) rows += ftRow('Futures spread', Number(pv.futSpreadPct).toFixed(3) + '%');
+    if (pv.keysReady === false) rows += ftRow('Keys', '<span style="color:#c31d1d;">Binance Futures keys not set on the server</span>');
+
+    var btns = canGo
+      ? '<button onclick="__ftHedgeGo()" style="width:100%;font:inherit;font-weight:900;font-size:14px;padding:14px;border-radius:10px;border:none;background:' +
+          (pv.basisHigh ? '#c31d1d' : '#177a4c') + ';color:#fff;cursor:pointer;margin-top:14px;">PROCEED · ' +
+          dirTxt + ' ' + num(pv.qty) + ' ' + C + '</button>' +
+        '<button onclick="__ftCloseResult()" style="width:100%;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;margin-top:8px;">Cancel — place nothing</button>'
+      : '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>' +
+        (o.canFire ? '' : '<div style="font-size:11px;font-weight:600;color:#5b6472;margin-top:9px;text-align:center;line-height:1.5;">Execute the WazirX leg first — then the hedge opens here with PROCEED.</div>');
+
+    return head + rows + ftWarns(pv.warnings) + btns;
+  }
+
+  // o = { coin, dir, qty, pct, lvl, orderId, canFire }
+  async function ftHedgeConfirm(o) {
+    ftOverlay().innerHTML = ftCard(
+      '<div style="font-size:34px;text-align:center;">◌</div>' +
+      '<div style="font-size:15px;font-weight:800;text-align:center;margin:6px 0 3px;">Reading Binance…</div>' +
+      '<div style="font-size:12px;font-weight:600;color:#5b6472;text-align:center;">futures price, funding and the spot gap for ' +
+        String(o.coin).toUpperCase() + '</div>');
+    var body = { coin: o.coin, dir: o.dir || 'short', mode: 'live', pct: o.pct || 100 };
+    if (o.qty) body.qty = o.qty;
+    if (o.lvl != null) body.lvl = o.lvl;
+    var pv;
+    try { pv = await ftPost('/api/trader/manual/preview', body); }
+    catch (e) { pv = { blocker: e.message, warnings: [], qty: null }; }
+    ftPend = { o: o, pv: pv };
+    ftOverlay().innerHTML = ftCard(ftHedgeCard(pv, o));
+  }
+
+  // The only path from the confirmation page to a real order.
+  window.__ftHedgeGo = async function () {
+    if (!ftPend || !ftPend.o.canFire) return;
+    var o = ftPend.o, pv = ftPend.pv;
+    var label = hedgeLabel(o.coin, o.dir || 'short');
+    var sz = num(pv.qty) + ' ' + String(o.coin).toUpperCase() +
+      (o.orderId ? ' (your WazirX fill, order #' + o.orderId + ')' : '');
     ftShowPlacing(label, sz, '');
+    // Send the qty HE APPROVED, not a percentage — the server re-plans, and a
+    // second-thoughts price move shows up as a warning on the result card.
+    var body = { coin: o.coin, action: 'hedge_binance', qty: o.qty || pv.qty, pct: 100, dir: o.dir || 'short', mode: 'live' };
     try {
-      var r = await ftPost('/api/trader/manual', { coin: coin, action: 'hedge_binance', qty: fill.qty, pct: 100, dir: hDir, mode: 'live' });
+      var r = await ftPost('/api/trader/manual', body);
       if (r && r.id) ftShowDone(r.id, label, sz);
       else ftShowFail(label, sz, (r && r.error) || 'no result from the trader');
     } catch (e) { ftShowFail(label, sz, e.message); }
+  };
+
+  // A look, with no WazirX order behind it: same page, no PROCEED button.
+  window.__ftHedgeLook = function (coin, dir) {
+    var p = ft.plan;
+    var a = p && p.acts ? p.acts[ft.sel] : null;
+    return ftHedgeConfirm({
+      coin: coin, dir: dir || 'short',
+      qty: ft.lvl == null && a && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null,
+      pct: ft.pct, lvl: ft.lvl, orderId: null, canFire: false,
+    });
+  };
+
+  // Hedge straight from the fill confirmation — sized to the EXACT WazirX
+  // fill, no percentages. Goes through the confirmation page now.
+  window.__ftHedgeNow = function (coin) {
+    var fill = ft.fills[coin];
+    if (!fill) return;
+    return ftHedgeConfirm({
+      coin: coin, dir: fillDir(fill), qty: fill.qty,
+      orderId: fill.orderId, canFire: true,
+    });
   };
 
   // ---------- trader poll (while a modal is open) ----------
@@ -5343,9 +5487,22 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var p = ft.plan;
     if (!p || !p.acts[i]) return;
     var a = p.acts[i];
-    // Hedge fires the EXACT WazirX fill — never a percentage.
+    // Hedge fires the EXACT WazirX fill — never a percentage. And it never
+    // fires straight from this tap: every hedge goes through the confirmation
+    // page first. With no WazirX fill behind it there is nothing to hedge, so
+    // that page opens read-only — the numbers, no PROCEED button.
     var hedgeFill = a.side === 'hedge' ? ft.fills[a.coin || p.coin] : null;
-    if (a.side === 'hedge' && !hedgeFill) { ftShowFail(a.label, '—', 'hedge is locked until a WazirX leg fills — buy or sell'); return; }
+    if (a.side === 'hedge') {
+      var hc = a.coin || p.coin;
+      return ftHedgeConfirm({
+        coin: hc,
+        dir: fillDir(hedgeFill),
+        qty: hedgeFill ? hedgeFill.qty : (ft.lvl == null && a.base ? +(a.base * ft.pct / 100).toPrecision(8) : null),
+        pct: ft.pct, lvl: ft.lvl,
+        orderId: hedgeFill ? hedgeFill.orderId : null,
+        canFire: !!hedgeFill,
+      });
+    }
     var aDir = fillDir(hedgeFill);
     var aLabel = a.side === 'hedge' ? hedgeLabel(a.coin || p.coin, aDir) : a.label;
     var qty = a.side === 'hedge' ? hedgeFill.qty
