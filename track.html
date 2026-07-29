@@ -5693,14 +5693,35 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           st === 'rejected' ? 'REJECTED' : 'CANCELLED';
         rows += '<div style="display:flex;gap:8px;align-items:center;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
           (ri ? 'border-top:1px solid #e6ebf1;' : '') + '">' +
-          '<span style="flex:1.2;">' + rcur + num(R.price, 8) + '</span>' +
+          '<span style="flex:1.2;">' + rcur + num(R.price, 8) +
+            (R.placedPrice != null && Number(R.placedPrice) !== Number(R.price)
+              ? '<div style="font-size:10px;font-weight:800;color:#d33131;margin-top:2px;">sent as ' + rcur + num(R.placedPrice, 8) + '</div>' : '') +
+          '</span>' +
           '<span style="flex:1;text-align:right;color:#5b6472;">' + num(R.qty) + '</span>' +
           '<span style="flex:1;text-align:right;">' + num(R.filledQty) + '</span>' +
           '<span style="flex:1.1;text-align:right;font-size:10.5px;font-weight:800;color:' + stCol + ';">' + stTxt + '</span></div>';
       }
       rows += '</div>';
-      rows += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:6px 0 4px;line-height:1.5;">' +
-        'Every level went out at exactly the price on your confirmation page. Anything marked CANCELLED found no counterparty there and was pulled — it was never chased to a worse price.</div>';
+      // THE FOOTNOTE MUST NOT LIE. On 30 Jul this line said every level went out
+      // at the approved price while two of the four had been moved to ₹4.11 by
+      // tick rounding — which is exactly why they found nobody. It is now a
+      // claim only when the backend confirms the prices held.
+      var moved = [];
+      for (var mi = 0; mi < r.rungs.length; mi++) {
+        var MR = r.rungs[mi];
+        if (MR.placedPrice != null && Number(MR.placedPrice) !== Number(MR.price)) {
+          moved.push(rcur + num(MR.price, 8) + ' → ' + rcur + num(MR.placedPrice, 8));
+        }
+      }
+      var held = r.pricesHeld !== false && !moved.length;
+      rows += held
+        ? '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:6px 0 4px;line-height:1.5;">' +
+          'Every level went out at exactly the price on your confirmation page. Anything marked CANCELLED found no counterparty there and was pulled — it was never chased to a worse price.</div>'
+        : '<div style="font-size:11px;font-weight:700;color:#d33131;background:#fff2f2;border:1.5px solid #f3c2c2;border-radius:9px;padding:8px 10px;margin:6px 0 4px;line-height:1.5;">' +
+          (moved.length
+            ? moved.length + ' of your ' + r.rungs.length + ' level(s) did NOT go out at the price on your confirmation page — tick rounding moved ' + moved.join(', ') + '. That can be why they found no counterparty.'
+            : 'At least one level did not go out at the price on your confirmation page.') +
+          ' Nothing was chased to a worse price.</div>';
     }
     if (r.costInr != null) rows += ftRow('Put in', '₹' + num(r.costInr, 2));
     if (r.proceedsInr != null) rows += ftRow('Received', '₹' + num(r.proceedsInr, 2));
