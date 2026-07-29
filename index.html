@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ============================================================
-     SWENIK — design system v2 (build 88)
+     SWENIK — design system v2 (build 90)
      A premium light fintech dashboard with a dark navy command rail.
      NOTE: every class name and CSS custom-property NAME is preserved from
      the previous build — only their styling is elevated — so all app logic,
@@ -190,6 +190,16 @@
      tablet; the phone breakpoint below drops to a single full-width column. */
   #cardList { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 16px; align-items: start; }
   #cardList .card { margin-bottom: 0; }
+  /* A card that is scrolled off screen still cost full style + layout work on
+     every refresh, which on a phone is most of the cost of a repaint — only
+     three or four cards are ever actually visible. content-visibility lets the
+     browser skip laying out and painting the rest until they scroll into view.
+     contain-intrinsic-size gives it a height to reserve in the meantime so the
+     scrollbar and scroll position stay honest instead of jumping. This is a
+     rendering hint only: every number on every card is unchanged, and a card
+     is fully laid out the moment it is on screen. Direct children only, so
+     cards inside modals and popups are untouched. */
+  #cardList > .card { content-visibility: auto; contain-intrinsic-size: auto 320px; }
   #cardList .empty-state, #cardList .banner-error, #cardList .coming-soon { grid-column: 1 / -1; }
   @media (max-width: 760px) { #cardList { grid-template-columns: 1fr; gap: 10px; } }
 
@@ -676,7 +686,7 @@
 <div class="topbar">
   <div>
     <h1>Swenik Arbitrage Scanner</h1>
-    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 88</span></div>
+    <div class="subtitle">Live cross-exchange arbitrage · <span style="opacity:.9; font-weight:700;">build 90</span></div>
   </div>
   <div class="topbar-status">
     <span id="lastRefreshed">Last refreshed: —</span>
@@ -704,6 +714,16 @@
     </div>
     <div class="sidebar-group-label" style="padding-top:14px;">Tools</div>
     <div class="sidebar-item" id="nav-orderbook" onclick="selectPage('orderbook')">Orderbook</div>
+    <!-- Auto Trader lives on its own page (trade.html) — real-money controls
+         deliberately kept out of the scanner SPA. Plain navigation, no SPA state.
+         The Sandbox (trade-test.html) is the same UI on a FAKE market — practice
+         arena, zero keys, zero backend, zero money. -->
+    <div class="sidebar-item" id="nav-trade" onclick="window.location.href='./trade.html'">
+      Auto Trader <span class="new-badge" style="background:var(--danger);">New</span>
+    </div>
+    <div class="sidebar-item" id="nav-tradetest" onclick="window.location.href='./trade-test.html'">
+      Trader Sandbox <span class="new-badge" style="background:#7a5df0;">Test</span>
+    </div>
     <div class="sidebar-item" id="nav-alerts" onclick="selectPage('alerts')">Alerts</div>
     <div class="sidebar-item" id="nav-notifications" onclick="selectPage('notifications')">Notifications</div>
   </div>
@@ -923,7 +943,6 @@ const liveCache = {};       // per-coin memory of the last good books, so a
                             // full 13-level book — never the sparse fallback
                             // once real depth has been seen this session
 let modalTimer = null;
-let countdown = 10;
 
 // ================================================================
 // FORMATTING
@@ -1047,11 +1066,30 @@ function fetchWithTimeout(url, timeoutMs = 11000) {
     });
 }
 
+// The tag the server gave us for the snapshot we are currently showing, per
+// volume mode. Sending it back lets the server answer "nothing new" in a few
+// bytes instead of resending the whole list.
+const snapTag = {};
+
 async function fetchOpportunities(volume = withVolume) {
-  const url = `${API_BASE}/api/opportunities?volume=${volume}&wallets=all&profit=all`;
+  const have = snapTag[String(volume)];
+  const url = `${API_BASE}/api/opportunities?volume=${volume}&wallets=all&profit=all`
+            + (have ? `&since=${encodeURIComponent(have)}` : '');
   const res = await fetchWithTimeout(url);
+  // 204 = the snapshot behind our tag is still the current one. Nothing has
+  // changed, so hand back what we already have and let the caller repaint
+  // nothing. This is the common case once polling is fast.
+  if (res.status === 204) {
+    const cached = volSnapCache[String(volume)];
+    if (cached) return { opportunities: cached.opportunities, ts: cached.ts, unchanged: true };
+    // No cache to fall back on (shouldn't happen — we only send a tag once we
+    // have data). Drop the tag and take the full answer next time.
+    delete snapTag[String(volume)];
+    throw new Error('no cached snapshot for 204');
+  }
   if (!res.ok) throw new Error(`API returned ${res.status}`);
   const data = await res.json();
+  if (data.tag) snapTag[String(volume)] = data.tag;
   volSnapCache[String(volume)] = { opportunities: data.opportunities, ts: data.ts };
   return data;
 }
@@ -2452,6 +2490,80 @@ function paintCards(el, list, renderFn, chunk = 24) {
 // the TRUE total, and a footer tells the user how many were trimmed so nothing
 // feels silently hidden.
 const CARD_CAP = 30;
+
+// A stable identity for one opportunity, so the same card can keep the same DOM
+// element from one refresh to the next instead of being demolished and rebuilt.
+// Returns null for anything unrecognised — the painter then falls back to the
+// old whole-list write, so an unfamiliar card can only ever be slower, never
+// wrong.
+function cardKey(o) {
+  if (!o || typeof o !== 'object') return null;
+  if (o.type === 'direct') {
+    return `d|${o.coin}|${o.buyExchange}|${o.buyMarket}|${o.sellExchange}|${o.sellMarket}`;
+  }
+  if (o.type === 'loop') {
+    return `l|${o.coin1}|${o.coin2}|${o.entryVenue}|${o.exitVenue}|${o.entryMarket || ''}|${o.exitMarket || ''}`;
+  }
+  if (o.type === 'intraloop') {
+    // pathLabel is what separates the two rotations of the same coin
+    // (INR → COIN → USDT → INR versus INR → USDT → COIN → INR).
+    return `i|${o.coin}|${o.exchange || 'wazirx'}|${o.pathLabel || ''}`;
+  }
+  return null;
+}
+
+// Turn one card's HTML string into the exact list of nodes that string would
+// have produced inside the container. Every node is kept, including the leading
+// whitespace the render functions emit, so what ends up in the DOM is character
+// for character what the old whole-list write produced. <template> is used
+// rather than a scratch <div> because it parses any markup without dropping it.
+function cardNodes(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  return Array.prototype.slice.call(t.content.childNodes);
+}
+
+// ---------------------------------------------------------------------------
+// KEYED PAINT — why this is not `el.innerHTML = ...` any more.
+//
+// The old painter wrote the whole list in one go, which threw away roughly
+// 2,500 DOM elements and rebuilt them from a ~106 KB string on EVERY 10-second
+// refresh. Measured on a phone-class CPU that cost 190-460ms per refresh, with
+// one 2.1-second freeze recorded. For that whole window the page cannot scroll,
+// cannot register a tap, and cannot animate — which is exactly the lag that a
+// native app like Myntra never shows, because it recycles its rows instead of
+// rebuilding them.
+//
+// Now every opportunity keeps its own element. A card whose HTML has not
+// changed is not touched at all. A card whose numbers moved is refilled on its
+// own. Cards that leave the list are removed; cards that change rank are MOVED,
+// which the browser does without re-parsing them.
+//
+// The critical part for safety: renderFn is untouched, and the HTML written
+// here is byte-for-byte what the old painter wrote. The arbitrage numbers
+// cannot drift from this change — the only difference is how the same bytes
+// reach the screen.
+// ---------------------------------------------------------------------------
+// Everything a card's HTML can be built from besides the opportunity object
+// itself. Measured by reading the card renderers: directCard and loopCard both
+// branch on `withVolume`, and loopCard prints the venue name, which comes from
+// `currentPage`. `sortBy` decides the wording of the cap note. If any of these
+// move, every memo is invalidated at once.
+function paintEpoch() {
+  return `${currentPage}|${withVolume}|${sortBy}|${CARD_CAP}`;
+}
+
+// The memo below is checked against reality on a rolling basis rather than
+// trusted. Every PAINT_AUDIT_EVERY-th paint renders every card the slow way and
+// compares it against what the memo would have reused. A single disagreement
+// means some page state feeds the cards that this file does not know about, so
+// the memo is switched off permanently for the session and the page carries on
+// at the old speed. Being slow is survivable; showing a stale price is not.
+const PAINT_AUDIT_EVERY = 20;
+let __paintCount = 0;
+let __paintMemoOff = false;
+const CAP_NOTE_KEY = 'cap-note';
+
 function paintCappedCards(el, fullList, renderFn) {
   const shown = fullList.slice(0, CARD_CAP);
   const hidden = fullList.length - shown.length;
@@ -2460,7 +2572,91 @@ function paintCappedCards(el, fullList, renderFn) {
   const note = hidden > 0
     ? `<div class="cap-note">Showing the top ${CARD_CAP} by ${sortBy === 'profit' ? 'rupee profit' : 'percentage'} · ${hidden} more not shown — add a coin filter to narrow.</div>`
     : '';
-  el.innerHTML = shown.map(renderFn).join('') + note;
+
+  // Same arguments the old `shown.map(renderFn)` passed, so a renderFn that
+  // looks at its index still behaves identically.
+  const render = (i) => renderFn(shown[i], i, shown);
+  const slowPaint = () => {
+    el.__cards = null;
+    el.innerHTML = shown.map((o, i, a) => renderFn(o, i, a)).join('') + note;
+  };
+
+  const keys = shown.map(cardKey);
+  // Unrecognised or duplicate keys => do it the old way. Correctness first.
+  if (keys.some(k => !k) || new Set(keys).size !== keys.length) { slowPaint(); return; }
+  if (note) keys.push(CAP_NOTE_KEY);
+
+  const audit = (++__paintCount % PAINT_AUDIT_EVERY) === 0;
+  const epoch = paintEpoch();
+  const prev = el.__cards instanceof Map ? el.__cards : new Map();
+  const next = new Map();
+  const order = [];
+  let rebuilt = 0;
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const isNote = k === CAP_NOTE_KEY;
+    // The fingerprint is the complete set of inputs the card's HTML is built
+    // from: the opportunity object itself, plus the page state captured in the
+    // epoch, plus its index. Same fingerprint => the renderer would produce the
+    // same string, so it is not called at all. That skip is where the speed
+    // comes from: building the 30 HTML strings measured at 57ms of a 113ms
+    // refresh, the fingerprint compare at 0.2ms.
+    const sig = isNote ? 'note ' + note
+      : epoch + ' ' + i + ' ' + JSON.stringify(shown[i]);
+    let rec = prev.get(k);
+    const fresh = !__paintMemoOff && rec && rec.sig === sig && rec.nodes.length &&
+                  rec.nodes[0].parentNode === el;
+
+    if (!fresh || audit) {
+      const h = isNote ? note : render(i);
+      if (fresh && rec.html !== h) {
+        // The memo said "unchanged" and the renderer disagreed. Never trust it
+        // again this session, and take the renderer's HTML from here on.
+        __paintMemoOff = true;
+        try { console.warn('[paint] memo disabled - a card rendered differently than its fingerprint predicted'); } catch (e) {}
+      }
+      if (!fresh || rec.html !== h) {
+        const nodes = cardNodes(h);
+        if (!nodes.length) { slowPaint(); return; }
+        rec = { nodes, sig, html: h };
+        rebuilt++;
+      } else {
+        // Different inputs, identical output — a field moved that this card does
+        // not print. Keep the nodes untouched and record the new fingerprint, so
+        // an identical refresh after this one skips the render as well.
+        rec.sig = sig;
+      }
+    }
+    next.set(k, rec);
+    for (const n of rec.nodes) order.push(n);
+  }
+
+  if (rebuilt * 2 > shown.length) {
+    // Most of the visible cards actually changed. Splicing ~2,500 nodes into the
+    // live tree one at a time is worse than the old single innerHTML write, so
+    // the new order is assembled in a detached fragment — where inserts cost
+    // almost nothing because nothing is laid out — and swapped in at the end.
+    // Two live mutations instead of thousands, and the per-card records survive,
+    // so the very next refresh still gets the cheap path.
+    const frag = document.createDocumentFragment();
+    for (const node of order) frag.appendChild(node);
+    while (el.firstChild) el.removeChild(el.firstChild);
+    el.appendChild(frag);
+  } else {
+    // Only a few cards moved. Walk the desired order against what is actually in
+    // the container: a node already in the right place is skipped, anything else
+    // is inserted, which for an existing node is a cheap MOVE rather than a
+    // rebuild. Whatever is left over at the end is stale and gets dropped — that
+    // also cleans up after any other page that wrote into this container.
+    let ref = el.firstChild;
+    for (const node of order) {
+      if (ref === node) { ref = node.nextSibling; continue; }
+      el.insertBefore(node, ref);
+    }
+    while (ref) { const n = ref.nextSibling; el.removeChild(ref); ref = n; }
+  }
+
+  el.__cards = next;
 }
 
 function renderCards() {
@@ -3674,13 +3870,25 @@ function setBanner(msg) {
 
 let refreshInFlight = false;
 let bootRetryT = null; // one-shot quick retry while still on the seed snapshot
-// Shows "Refreshing…" while a fetch is in flight, otherwise the countdown —
-// so on a slow connection the header reflects what's actually happening
-// instead of sitting frozen at "in 0s".
+let lastVerifiedAt = 0; // last time the server confirmed our list is current
+
+// A countdown made sense when the list refreshed every 10 seconds. It no
+// longer polls on a schedule you would want to watch — it checks continuously
+// and only redraws when the server actually has something new. So the header
+// reports the thing that still matters: how old the numbers on screen are.
 function updateRefreshStatus() {
   const el = document.getElementById('nextRefresh');
   if (!el) return;
-  el.textContent = refreshInFlight ? 'Refreshing…' : `Next auto-refresh in ${countdown}s`;
+  if (refreshInFlight && !hasLoadedOnce) { el.textContent = 'Refreshing…'; return; }
+  // Age is measured from the last time the server CONFIRMED this list is
+  // current — not from the last time a number moved. In a quiet market the
+  // prices can be seconds old and still be the newest that exist, and calling
+  // them stale would be wrong. If the connection drops this starts climbing,
+  // which is exactly when you want to notice.
+  const age = lastVerifiedAt ? Math.max(0, Math.round((Date.now() - lastVerifiedAt) / 1000)) : null;
+  el.textContent = age === null ? 'Live'
+    : age <= 1 ? 'Live · just now'
+    : `Live · ${age}s old`;
 }
 
 async function fullRefresh() {
@@ -3695,6 +3903,15 @@ async function fullRefresh() {
   try {
     const data = await fetchOpportunities(fetchedVol);
     usingSeedData = false;
+    lastVerifiedAt = Date.now();
+    // A 204 means the server checked and our list is still the current one.
+    // Nothing to merge and nothing to repaint — leave the DOM completely
+    // alone. (refreshInFlight is cleared by the finally block below.)
+    if (data.unchanged) {
+      setBanner(null); // a reachable server clears any earlier "couldn't reach" notice
+      updateRefreshStatus();
+      return;
+    }
     // If the user flipped volume WHILE this was in flight, don't clobber the
     // (already instant-repainted) new view with the old volume's data — show
     // the current volume's cached snapshot instead.
@@ -3742,7 +3959,6 @@ async function fullRefresh() {
   if (venueCfg() && venueCfg().native) renderToolbar();
   document.getElementById('lastRefreshed').innerHTML = lastFetchTs
     ? `Last refreshed: <strong>${fmtTime(new Date(lastFetchTs))}</strong>` : 'Last refreshed: —';
-  countdown = 10;
   updateRefreshStatus();
   if (openCard && openCard.type === 'loop') {
     // Keep the open Track Live modal in place — don't full-redraw it here (the
@@ -4649,11 +4865,24 @@ function renderGiottusPage() {
 buildVenueNav(); // inject the Zebpay/CoinDCX exchange tabs before restoring the page
 selectPage(loadUiState() || 'wazirx');
 fullRefresh().finally(prefetchOtherVolume); // warm the other volume so the first toggle is instant
-setInterval(fullRefresh, 10000);
+// Poll fast. This is only affordable because of the two changes that came with
+// it: the server answers 204 with no body when the snapshot behind our tag is
+// still current, and the painter does nothing for a card whose numbers have not
+// moved. So a tick where nothing changed costs one small request and no work at
+// all, while a tick where something DID change reaches the screen within about
+// two seconds instead of up to ten.
+//
+// Nothing runs while the tab is in the background — there is no point spending
+// the phone's battery and mobile data drawing a page nobody is looking at. The
+// visibilitychange handler below refreshes immediately on the way back, so what
+// you see when you return is current, not whatever was there when you left.
+const REFRESH_MS = 2000;
 setInterval(() => {
-  countdown = Math.max(0, countdown - 1);
-  updateRefreshStatus();
-}, 1000);
+  if (document.visibilityState === 'hidden') return;
+  fullRefresh();
+}, REFRESH_MS);
+// Keep the "how old is this" readout ticking even between refreshes.
+setInterval(updateRefreshStatus, 1000);
 
 // ---- Split-screen / foldable touch-offset fix ----
 // Some Android browsers (notably foldables in multi-window / split-screen) don't
