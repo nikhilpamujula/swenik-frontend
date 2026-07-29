@@ -943,6 +943,36 @@ let usingSeedData = true;
 let lastManualRefreshAt = 0;
 let hasLoadedOnce = true;
 
+// ── WARM START ──────────────────────────────────────────────────────────
+// 29 Jul: "whenever I freshly open the page it's taking nearly 12 seconds to
+// show data". A fresh open used to paint the BAKED-IN seed snapshot (weeks
+// old, "updated 1243724s ago") and then sit on it until the first live fetch
+// answered — which, against a struggling backend, can be the full 11-second
+// timeout plus a retry. Now every live snapshot is also kept in the
+// browser's own storage, so the NEXT open paints the last real data
+// instantly — real coins, honest timestamp — while the live fetch runs
+// behind it. The seed remains only for a truly first-ever visit.
+const WARM_KEY = 'swenik-live-snap-v1';
+try {
+  const w = JSON.parse(localStorage.getItem(WARM_KEY) || 'null');
+  if (w && Array.isArray(w.opportunities) && w.ts > SEED_DATA.ts) {
+    allOpportunities = w.opportunities;
+    lastFetchTs = w.ts;
+    usingSeedData = false; // it is real data — just possibly a little old
+  }
+} catch (e) { /* storage unavailable or corrupt — the seed still works */ }
+let __warmSavedAt = 0;
+function saveWarmSnapshot() {
+  // Throttled: the list can change every few seconds, but writing ~300 KB to
+  // storage that often is wasted work. Once per 15s keeps a reopen fresh.
+  const now = Date.now();
+  if (now - __warmSavedAt < 15_000) return;
+  __warmSavedAt = now;
+  try {
+    localStorage.setItem(WARM_KEY, JSON.stringify({ ts: lastFetchTs, opportunities: allOpportunities }));
+  } catch (e) { /* quota — a reopen just falls back to the live fetch */ }
+}
+
 let openCard = null; // { type, coin, coin1, coin2, buyExchange }
 let liveBookError = null; // last error from the per-coin live endpoint, shown in the modal
 let directLiveEntry = null; // last SUCCESSFUL live response — kept so one failed refresh doesn't blank the books
@@ -4012,6 +4042,7 @@ async function fullRefresh() {
     if (String(fetchedVol) === String(withVolume)) {
       allOpportunities = data.opportunities;
       lastFetchTs = data.ts;
+      saveWarmSnapshot(); // the next fresh open paints THIS, not the seed
     } else if (volSnapCache[String(withVolume)]) {
       allOpportunities = volSnapCache[String(withVolume)].opportunities;
       lastFetchTs = volSnapCache[String(withVolume)].ts;
@@ -4085,6 +4116,13 @@ __loadOverlay.innerHTML = '<div class="ring"></div>';
 document.body.appendChild(__loadOverlay);
 let __spinShownAt = 0, __spinHideT = null;
 function showSpinner() {
+  // Never over live data: if a Track Live modal or an Execute page is open,
+  // the user is READING — a loader sheet on top of it reads as "loading",
+  // which is exactly what he asked to have removed. The refresh still runs;
+  // only the curtain stays down.
+  const m = document.getElementById('modalOverlay');
+  const ft = document.getElementById('ftResult');
+  if ((m && !m.classList.contains('hidden')) || (ft && ft.style.display !== 'none')) return;
   __spinShownAt = Date.now();
   if (__spinHideT) { clearTimeout(__spinHideT); __spinHideT = null; }
   __loadOverlay.classList.add('on');
@@ -4114,9 +4152,29 @@ document.getElementById('noteBox').innerHTML = '';
 // Pull-to-refresh: on touch devices, dragging down >70px from the very top
 // of the page triggers the same refresh as the ↻ button (rate-limited the
 // same way).
+//
+// 29 Jul: "it looks like loading in live page which is not good please
+// remove it". His recording showed the pale sheet + rotating circle flashing
+// over an open Track Live modal. The modal scrolls its OWN container, so
+// window.scrollY stays 0 the whole time — and every upward scroll inside the
+// modal read as a "pull from the top of the page" and fired a full refresh
+// with the loader on top of live data. Pull-to-refresh (and therefore the
+// circle) now arms ONLY when no modal or Execute page is open and the touch
+// is on the page itself. The ↻ button behaves exactly as before.
 let ptrStartY = null;
+function ptrEligible(e) {
+  if (window.scrollY !== 0) return false;
+  const m = document.getElementById('modalOverlay');
+  if (m && !m.classList.contains('hidden')) return false;       // Track Live etc.
+  const ft = document.getElementById('ftResult');
+  if (ft && ft.style.display !== 'none') return false;          // Execute / confirm pages
+  // A touch inside ANY inner-scrolling surface is that surface scrolling,
+  // not the page being pulled.
+  if (e.target && e.target.closest && e.target.closest('.modal-overlay, #ftResult')) return false;
+  return true;
+}
 document.addEventListener('touchstart', e => {
-  ptrStartY = (window.scrollY === 0) ? e.touches[0].clientY : null;
+  ptrStartY = ptrEligible(e) ? e.touches[0].clientY : null;
 }, { passive: true });
 document.addEventListener('touchmove', e => {
   if (ptrStartY === null) return;
