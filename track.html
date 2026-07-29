@@ -144,6 +144,15 @@
   #refreshBtn:hover { background: rgba(255,255,255,0.2); }
   #refreshBtn:active { transform: scale(.96); }
   #refreshBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Myntra-style loader: a pale sheet over the content with a rotating circle,
+     shown while a MANUAL refresh is in flight (never for background polls). */
+  #loadOverlay { position: fixed; inset: 0; background: rgba(255,255,255,.55); z-index: 940;
+    display: none; align-items: center; justify-content: center; }
+  #loadOverlay.on { display: flex; }
+  #loadOverlay .ring { width: 46px; height: 46px; border-radius: 50%;
+    border: 4px solid rgba(27,77,140,.16); border-top-color: #1b64d8;
+    animation: ringSpin .7s linear infinite; }
+  @keyframes ringSpin { to { transform: rotate(360deg); } }
 
   .banner-error {
     background: var(--danger-soft); border: 1px solid #f4c2cb; color: #b02a3d; font-size: 12px;
@@ -1416,6 +1425,35 @@ function volumeToggleHtml(locked) {
     </label>`;
 }
 
+// Update ONLY the numbers inside the venue tab buttons (and the status line),
+// leaving every DOM node in place. Rebuilding the whole toolbar on every data
+// tick destroyed the exact button a finger was mid-tap on — the finger lifted
+// onto a brand-new node, the click never fired, and navigating Direct/Loop
+// felt dead or out of step with the list below. Counts and the "updated Xs
+// ago" line are the only things that change with data, so they are the only
+// things touched here.
+function updateVenueTabCounts() {
+  const _v = venueCfg(); if (!_v) return;
+  const el = document.getElementById('toolbar');
+  const seg = el && el.querySelector('.g-seg');
+  if (!seg) { renderToolbar(); return; } // toolbar not built for this venue yet
+  const opps = _v.native ? allOpportunities : (venueState[_v.id] || {}).opps;
+  const st = _v.native ? { ts: lastFetchTs } : (venueState[_v.id] || {});
+  const f = vFiltered(opps);
+  const staleCount = !!(_v.native && usingSeedData);
+  const labels = { direct: 'Direct', loop: 'Loop', intraloop: 'Intra Loop' };
+  const keys = ['direct', 'loop', 'intraloop'];
+  seg.querySelectorAll('button').forEach((b, i) => {
+    const k = keys[i]; if (!k) return;
+    b.textContent = `${labels[k]} (${staleCount ? '…' : (f[k] || []).length})`;
+    b.classList.toggle('on', vTab === k);
+  });
+  const gs = el.querySelector('.g-status');
+  if (gs) gs.textContent = st.err ? `error: ${st.err}`
+    : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner}${_v.native ? '' : ` · ${st.tracked || 0} coins`}${vTab === 'loop' ? ' · depth-walked (volume always on)' : ''} · updated ${Math.max(0, Math.round((Date.now() - st.ts) / 1000))}s ago`
+    : 'connecting…';
+}
+
 function renderToolbar() {
   const el = document.getElementById('toolbar');
 
@@ -1605,8 +1643,12 @@ function applyVolumeInstant() {
   if (cached) {
     allOpportunities = cached.opportunities;
     lastFetchTs = cached.ts;
-    renderCards(); // instant client-side repaint, no toolbar rebuild
   }
+  // Repaint NOW from the best data we have — cached snapshot if present, the
+  // current list otherwise. Repainting only-when-cached left the previous
+  // view's cards on screen until a fetch landed, which is how direct cards
+  // ended up parked under the Loop tab.
+  renderCards(); // instant client-side repaint, no toolbar rebuild
   // Freshen this volume in the background, then warm the other for next time.
   fullRefresh().finally(prefetchOtherVolume);
 }
@@ -1833,6 +1875,32 @@ function sortList(list) {
   return sortDir === 'desc' ? sorted.reverse() : sorted;
 }
 
+// ── CARD STABILITY (hysteresis on the ₹100 noise floor) ─────────────────
+// 29 Jul: "data is on and off sometimes … sometimes showing arbitrages 3 some
+// times 2 sometimes 1 … i have checked data it's nothing changed". He was
+// right — the data hadn't changed. The ₹100 minimum-profit floor was applied
+// as a knife-edge on every refresh, so a loop whose walked profit breathed
+// between ₹96 and ₹120 was shown and hidden every few seconds (CFX→USDT and
+// CFX→BTC in his recording sat at ₹104–₹125 while CFX→XLM at ₹155+ never
+// blinked). Not one number was wrong; the appearing-and-disappearing was.
+// Hysteresis fixes it: a card must still EARN its place at ≥ ₹100 walked
+// profit, but once on screen it KEEPS it while the loop stays genuinely
+// worthwhile (≥ ₹70). Only when it slides under ₹70 — or stops being
+// profitable at all — does it leave. No arbitrage value is altered by this;
+// only the moment a card enters or leaves the page.
+const stickyFloor = new Set(); // keys of cards currently holding their place
+function floorKey(o) {
+  return o.type + ':' + (o.exchange || o.loopExchange || 'wazirx') + ':' +
+    (o.coin1 || o.coin || '') + ':' + (o.coin2 || '') + ':' + (o.dir || o.direction || '');
+}
+function minProfitGate(o) {
+  const k = floorKey(o);
+  const p = o.walked ? o.walked.profit : null;
+  if (p >= 100 || (p >= 70 && stickyFloor.has(k))) { stickyFloor.add(k); return true; }
+  stickyFloor.delete(k);
+  return false;
+}
+
 function filteredOpportunities() {
   if (currentPage === 'intraloop') return [];
   if (currentPage === 'loop') {
@@ -1848,8 +1916,9 @@ function filteredOpportunities() {
     list = showDisabledWallets ? list.filter(o => o.walletEnabled === false)
                                : list.filter(o => o.walletEnabled !== false);
     // Volume ON = only valid (non-negative) loops; Volume OFF shows negatives too.
-    // Loops under ₹100 walked profit are noise — hidden on the page (and in alerts).
-    if (withVolume) list = list.filter(o => pctOf(o) >= 0 && (!o.walked || o.walked.profit >= 100));
+    // Loops under ₹100 walked profit are noise — hidden on the page (and in
+    // alerts), with hysteresis so a borderline loop doesn't flicker.
+    if (withVolume) list = list.filter(o => pctOf(o) >= 0 && (!o.walked || minProfitGate(o)));
     return sortList(list); // Sort by Percentage / Profit, honoring the toolbar control
   }
   const direct = allOpportunities.filter(o => o.type === 'direct' && matchesCoinFilter(o) && matchesBuyExchange(o));
@@ -2191,11 +2260,11 @@ function vFiltered(opps) {
       // Loop is ALWAYS transferable-only and ALWAYS depth-walked (volume locked
       // ON), positive, and ≥ ₹100 — no disabled-wallet toggle for loops.
       if (o.walletEnabled === false) continue;
-      if (!o.walked || o.walked.profitPct < 0 || o.walked.profit < 100) continue;
+      if (!o.walked || o.walked.profitPct < 0 || !minProfitGate(o)) continue;
       if (vf.loop.buyCoin && !o.coin1.includes(vf.loop.buyCoin)) continue;
       if (vf.loop.sellCoin && !o.coin2.includes(vf.loop.sellCoin)) continue;
     } else if (o.type === 'intraloop') {
-      if (o.walked && o.walked.profit < 100) continue; // noise floor
+      if (o.walked && !minProfitGate(o)) continue; // noise floor, with hysteresis
       if (vf.intraloop.coin && !o.coin.includes(vf.intraloop.coin)) continue;
     }
     f[o.type].push(o);
@@ -2208,12 +2277,19 @@ function vSetTab(t) {
   if (t === 'loop') withVolume = true; // loop is always depth-walked
   saveUiState();
   renderToolbar();
-  const v = venueCfg();
+  // ALWAYS repaint the list for the tab we are on NOW, before any fetch.
+  // 29 Jul: "while navigating direct and loop it reflects direct data in loop
+  // page". The forced-volume branch used to skip this repaint when there was
+  // no cached volume-ON snapshot, so the OLD tab's cards stayed painted under
+  // the NEW tab's highlight — and because a 204 "unchanged" poll deliberately
+  // repaints nothing, they could sit there for good. Painting synchronously
+  // from the data we already hold (corrected a moment later by the fetch)
+  // means the page can never show one tab's cards under another tab's name.
+  renderVenuePage();
   if (forcedVol) {
     // Volume just flipped ON for the loop tab — load the volume-ON data.
+    const v = venueCfg();
     if (v && !v.native) vRefresh(); else applyVolumeInstant();
-  } else {
-    renderVenuePage();
   }
 }
 
@@ -2246,11 +2322,14 @@ async function vRefresh() {
     const data = await res.json();
     st.opps = data.opportunities || []; st.ts = data.ts; st.tracked = data.trackedPairs || 0; st.err = null;
   } catch (e) { st.err = e.message; }
-  if (venueCfg() === v) { renderToolbar(); renderVenuePage(); }
+  // Same rule as the native venue: data ticks update toolbar text in place,
+  // they never rebuild the toolbar (which would swallow an in-flight tap).
+  if (venueCfg() === v) { updateVenueTabCounts(); renderVenuePage(); }
 }
 
 function renderVenuePage() {
   const v = venueCfg(); if (!v) return;
+  __lastPaintSig = viewSig(); // this paint is for the CURRENT page/tab/volume
   const el = document.getElementById('cardList');
   let opps;
   if (v.native) {
@@ -2659,8 +2738,17 @@ function paintCappedCards(el, fullList, renderFn) {
   el.__cards = next;
 }
 
+// What view the card list was last painted FOR. A 204 "unchanged" poll skips
+// repainting on the assumption the screen already shows the current data on
+// the current tab — this signature is how that assumption is checked instead
+// of trusted. If the user navigated and a repaint slipped through (any bug,
+// present or future), the next poll notices the mismatch and repaints.
+let __lastPaintSig = '';
+function viewSig() { return `${currentPage}|${typeof vTab !== 'undefined' ? vTab : ''}|${withVolume}`; }
+
 function renderCards() {
   const list0 = document.getElementById('cardList');
+  __lastPaintSig = viewSig();
 
   if (venueCfg()) { renderVenuePage(); return; }
   if (currentPage === 'futures') { renderFuturesPage(); return; }
@@ -2679,8 +2767,9 @@ function renderCards() {
     }
     if (f.exchange) list = list.filter(o => (o.exchange || 'wazirx') === f.exchange);
     if (f.coin) list = list.filter(o => o.coin.includes(f.coin));
-    // Intra-loops under ₹100 walked profit are noise — hidden on the page (and in alerts).
-    list = list.filter(o => !o.walked || o.walked.profit >= 100);
+    // Intra-loops under ₹100 walked profit are noise — hidden on the page (and
+    // in alerts), with hysteresis so a borderline triangle doesn't flicker.
+    list = list.filter(o => !o.walked || minProfitGate(o));
     list = sortList(list);
     if (!list.length) {
       list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No intra-loop opportunities match the current filters.</div>`;
@@ -3909,6 +3998,11 @@ async function fullRefresh() {
     // alone. (refreshInFlight is cleared by the finally block below.)
     if (data.unchanged) {
       setBanner(null); // a reachable server clears any earlier "couldn't reach" notice
+      // The DATA hasn't changed — but the VIEW may have (a tab switch whose
+      // repaint slipped). If the screen was last painted for a different
+      // page/tab/volume than the one we're on, repaint from the data we
+      // already hold rather than leaving the wrong tab's cards up.
+      if (__lastPaintSig !== viewSig()) renderCards();
       updateRefreshStatus();
       return;
     }
@@ -3927,6 +4021,7 @@ async function fullRefresh() {
     errMsg = err.message;
   } finally {
     refreshInFlight = false;
+    hideSpinner(); // if a manual refresh showed the rotating circle, retire it
   }
   hasLoadedOnce = true;
 
@@ -3954,9 +4049,10 @@ async function fullRefresh() {
   // never needs rebuilding on a data refresh — pages with live counts
   // (Giottus/CoinSwitch) refresh their own toolbars.
   renderCards();
-  // WazirX (native venue) shows live sub-tab counts in its toolbar, so refresh
-  // it here — the same cadence the external venues use for their toolbars.
-  if (venueCfg() && venueCfg().native) renderToolbar();
+  // WazirX (native venue) shows live sub-tab counts in its toolbar. Update the
+  // count TEXT in place — never rebuild the toolbar on a data tick, or a tap
+  // landing at that instant dies on a destroyed button.
+  if (venueCfg() && venueCfg().native) updateVenueTabCounts();
   document.getElementById('lastRefreshed').innerHTML = lastFetchTs
     ? `Last refreshed: <strong>${fmtTime(new Date(lastFetchTs))}</strong>` : 'Last refreshed: —';
   updateRefreshStatus();
@@ -3975,12 +4071,37 @@ async function fullRefresh() {
   if (openCard && openCard.type === 'direct') renderDirectModal(directLiveEntry || findOpportunity(openCard));
 }
 
+// ── Myntra-style refresh loader ─────────────────────────────────────────
+// "still refresh page still pale, add rotating circle like myntra". The page
+// used to just sit there looking washed out while a manual refresh ran, with
+// nothing moving. Now a tap on ↻ (or pull-to-refresh) puts a pale sheet over
+// the content with a rotating circle on top — the universally understood
+// "working on it". It shows ONLY for refreshes the user asked for; the 2-second
+// background polls stay invisible, exactly as before. A minimum display time
+// stops it from being a subliminal flash on a fast network.
+const __loadOverlay = document.createElement('div');
+__loadOverlay.id = 'loadOverlay';
+__loadOverlay.innerHTML = '<div class="ring"></div>';
+document.body.appendChild(__loadOverlay);
+let __spinShownAt = 0, __spinHideT = null;
+function showSpinner() {
+  __spinShownAt = Date.now();
+  if (__spinHideT) { clearTimeout(__spinHideT); __spinHideT = null; }
+  __loadOverlay.classList.add('on');
+}
+function hideSpinner() {
+  if (!__loadOverlay.classList.contains('on')) return;
+  const wait = Math.max(0, 450 - (Date.now() - __spinShownAt));
+  __spinHideT = setTimeout(() => { __spinHideT = null; __loadOverlay.classList.remove('on'); }, wait);
+}
+
 function manualRefresh() {
   const now = Date.now();
   if (now - lastManualRefreshAt < 2000) return; // rate-limited to once per 2s
   lastManualRefreshAt = now;
   const btn = document.getElementById('refreshBtn');
   btn.disabled = true;
+  showSpinner(); // the rotating circle — hidden when this refresh completes
   fullRefresh();
   setTimeout(() => { btn.disabled = false; }, 2000);
 }
@@ -5767,9 +5888,46 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var px8 = function (v) { return v == null ? '—' : cur + num(v, 8); };
     var lad = pv.levels || [];
     var vb = pv.vsBinancePct;
-    var apos = pv.arbPct != null && Number(pv.arbPct) > 0;
-    var money = pv.costQuote != null ? cur + num(pv.costQuote, 2) + (mkt === 'USDT' ? ' USDT' : '') : '—';
     var qtyShort = pv.requestedQty != null && pv.qty != null && Math.abs(pv.requestedQty - pv.qty) > 1e-9;
+
+    // ── ORDER-COUNT TOGGLES ────────────────────────────────────────────────
+    // 29 Jul: "keep toggles to number of orders to place". The ladder runs
+    // from the best price to the worst, so the choice that makes sense is how
+    // DEEP to go: switching a row off also switches off every row below it
+    // (nobody skips a better price to take a worse one), and switching a row
+    // on brings back everything above it. The selection is always "the first
+    // N orders". Every number on this page is then restated from the SERVER'S
+    // own cumulative columns for row N (cumQty / cumAvgPrice / cumCostQuote /
+    // cumArbPct) — the client derives nothing except by exact algebra on those
+    // same figures. At least one order always stays on; Cancel is the way to
+    // place nothing.
+    var keepN = (ftPend && ftPend.wzx && ftPend.keepN != null)
+      ? Math.max(1, Math.min(lad.length, ftPend.keepN)) : lad.length;
+    var trimmedSel = lad.length > 0 && keepN < lad.length;
+    var selRow = lad.length ? lad[keepN - 1] : null;
+    var selQty = trimmedSel && selRow.cumQty != null ? selRow.cumQty : pv.qty;
+    var selAvg = trimmedSel && selRow.cumAvgPrice != null ? selRow.cumAvgPrice : pv.avgPrice;
+    var selCost = trimmedSel && selRow.cumCostQuote != null ? selRow.cumCostQuote : pv.costQuote;
+    var selArb = trimmedSel && selRow.cumArbPct != null ? selRow.cumArbPct : pv.arbPct;
+    var selLimit = trimmedSel ? selRow.price : pv.limitPrice;
+    var selWorst = trimmedSel ? selRow.price : pv.worstPrice;
+    // vs-Binance for the selection. cumArbPct is (gap vs walked Binance) minus
+    // fees, and vsBinancePct is the same gap with the sign flipped and no
+    // fees, so for a trimmed selection: vb = −(arb + fees). Exact, not a fit.
+    var selVb = vb, selVbHigh = !!pv.vsBinanceHigh;
+    if (trimmedSel) {
+      selVb = (selArb != null && pv.feePct != null)
+        ? +(-(Number(selArb) + Number(pv.feePct))).toFixed(3) : null;
+      selVbHigh = selVb != null && selVb >= (pv.slipWarnPct || 1);
+    }
+    // Slippage for the selection: the cumulative average vs the top of book.
+    var selSlipPct = pv.slipPct, selSlipHigh = !!pv.slipHigh;
+    if (trimmedSel && pv.topPrice > 0 && selAvg != null) {
+      selSlipPct = +(((isBuy ? selAvg - pv.topPrice : pv.topPrice - selAvg) / pv.topPrice) * 100).toFixed(3);
+      selSlipHigh = selSlipPct >= (pv.slipWarnPct || 1);
+    }
+    var apos = selArb != null && Number(selArb) > 0;
+    var money = selCost != null ? cur + num(selCost, 2) + (mkt === 'USDT' ? ' USDT' : '') : '—';
 
     // ================= 1. THE DECISION STRIP =================
     // Five numbers, no paragraphs, never folded: is there an arbitrage, what
@@ -5778,23 +5936,28 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var strip = '';
     // THE TOTAL ARBITRAGE — the one number that decides whether a BUY is even
     // offered. Positive and green, or the PROCEED button is not there at all.
-    if (pv.arbPct != null) {
+    if (selArb != null) {
       strip += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px;border-radius:11px;background:' +
         (apos ? '#eef7f1' : '#fdecec') + ';border:2px solid ' + (apos ? '#bfe0cd' : '#e08a8a') + ';">' +
         '<span style="font-size:13px;font-weight:800;color:#3a4653;">Total arbitrage</span>' +
         '<span style="font-size:20px;font-weight:900;color:' + (apos ? '#177a4c' : '#c31d1d') + ';">' +
-          (apos ? '+' : '') + Number(pv.arbPct).toFixed(2) + '%</span></div>';
+          (apos ? '+' : '') + Number(selArb).toFixed(2) + '%</span></div>';
     }
     // The average is THE COTI number: the card said ₹1.483, the sweep averaged
     // ₹1.852. It is on screen before anything else can be tapped.
     strip += ftTwoUp(
-      ftStat('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(pv.avgPrice) + (pv.slipHigh ? ' ⚠' : ''), !!pv.slipHigh),
+      ftStat('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(selAvg) + (selSlipHigh ? ' ⚠' : ''), !!selSlipHigh),
       pv.binSpotQuote != null
-        ? ftStat('vs Binance spot', (vb == null ? '—' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%') + (pv.vsBinanceHigh ? ' ⚠' : ''), !!pv.vsBinanceHigh)
+        ? ftStat('vs Binance, your size', (selVb == null ? '—' : (selVb > 0 ? '+' : '') + Number(selVb).toFixed(2) + '%') + (selVbHigh ? ' ⚠' : ''), !!selVbHigh)
         : ftStatPlain('Top of book', px8(pv.topPrice)));
     strip += ftTwoUp(
-      ftStatPlain('Tokens to ' + (isBuy ? 'buy' : 'sell'), num(pv.qty) + ' ' + C),
+      ftStatPlain('Tokens to ' + (isBuy ? 'buy' : 'sell'), num(selQty) + ' ' + C),
       ftStatPlain(isBuy ? 'Total cost' : 'Total received', money));
+    if (trimmedSel) {
+      strip += '<div style="font-size:11px;font-weight:700;color:#5b6472;margin-top:6px;line-height:1.5;">' +
+        'Restated for the <b>' + keepN + ' of ' + lad.length + '</b> orders you left switched on — ' +
+        num(pv.qty - selQty) + ' ' + C + ' will not be ordered.</div>';
+    }
 
     // ================= 2. ANYTHING WRONG — also never folded =================
     // Every one of these is a reason to stop. None of them is ever allowed
@@ -5805,14 +5968,14 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       alerts += ftNote('You asked for <b>' + num(pv.requestedQty) + ' ' + C + '</b>, but only <b>' + num(pv.qty) +
         '</b> can fill at a price worth taking — ' + num(pv.requestedQty - pv.qty) + ' ' + C + ' will NOT go out.', 'bad');
     }
-    if (pv.slipHigh) {
-      alerts += ftNote('This size sweeps ' + (pv.levelsUsed || '?') + ' levels — ' +
-        (pv.slipPct != null ? Number(pv.slipPct).toFixed(2) + '% ' : '') + 'worse than the top of the book, reaching ' +
-        px8(pv.worstPrice) + '. That is above your ' + (pv.slipWarnPct || 1) + '% mark.', 'bad');
+    if (selSlipHigh) {
+      alerts += ftNote('This size sweeps ' + (trimmedSel ? keepN : (pv.levelsUsed || '?')) + ' levels — ' +
+        (selSlipPct != null ? Number(selSlipPct).toFixed(2) + '% ' : '') + 'worse than the top of the book, reaching ' +
+        px8(selWorst) + '. That is above your ' + (pv.slipWarnPct || 1) + '% mark.', 'bad');
     }
-    if (pv.vsBinanceHigh && vb != null) {
+    if (selVbHigh && selVb != null) {
       alerts += ftNote('You are ' + (isBuy ? 'BUYING above' : 'SELLING below') + ' the global market by ' +
-        Math.abs(Number(vb)).toFixed(2) + '% — a hedge opened against this starts that far under water.', 'bad');
+        Math.abs(Number(selVb)).toFixed(2) + '% — a hedge opened against this starts that far under water.', 'bad');
     }
     // Levels the server refused to include because the running arbitrage had
     // already turned negative. COTI's ₹1.999 tail would have lived here.
@@ -5824,7 +5987,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         ' of the size is left on the table rather than traded at a loss.', 'warn');
     }
     // TRIM — how much fits inside the 1% mark, one tap away.
-    if (pv.slipHigh && pv.capQty > 0 && pv.capQty < pv.qty * 0.999) {
+    if (selSlipHigh && pv.capQty > 0 && pv.capQty < selQty * 0.999) {
       alerts += ftNote('Only <b>' + num(pv.capQty) + ' ' + C + '</b> fits inside ' + (pv.slipWarnPct || 1) + '% of the top of the book' +
         (pv.capCost != null ? ' (' + cur + num(pv.capCost, 2) + ')' : '') + '.' +
         '<button onclick="__ftWzxTrim()" style="width:100%;font:inherit;font-weight:800;font-size:12px;padding:9px;border-radius:8px;border:1px solid #d9c48a;background:#fff;color:#8a5a00;cursor:pointer;margin-top:8px;">✂ Trim to ' +
@@ -5851,15 +6014,26 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     if (lad.length) {
       var tbl = '<div style="border:1.5px solid #cfd8e3;border-radius:10px;overflow:hidden;background:#fff;">' +
         '<div style="display:flex;gap:8px;padding:7px 10px;background:#eef2f7;font-size:10.5px;font-weight:800;color:#5b6472;">' +
+        (lad.length > 1 ? '<span style="flex:0.6;">ON</span>' : '') +
         '<span style="flex:1.2;">PRICE</span><span style="flex:1.1;text-align:right;">SIZE</span>' +
         '<span style="flex:1.1;text-align:right;">' + (isBuy ? 'COST' : 'GET') + '</span>' +
         '<span style="flex:0.8;text-align:right;">ARB</span></div>';
       for (var li = 0; li < lad.length; li++) {
         var L = lad[li];
         var la = L.arbPct;
+        var on = li < keepN;
+        // The toggle: a tap on an ON row switches it and everything deeper
+        // off; a tap on an OFF row switches everything up through it back on.
+        var tog = lad.length > 1
+          ? '<span onclick="__ftWzxKeep(' + li + ')" role="switch" aria-checked="' + on + '" style="flex:0.6;cursor:pointer;">' +
+              '<span style="display:inline-block;width:30px;height:17px;border-radius:9px;position:relative;vertical-align:middle;background:' +
+              (on ? '#177a4c' : '#c6cfda') + ';transition:background .12s;">' +
+              '<span style="position:absolute;top:2px;' + (on ? 'right:2px;' : 'left:2px;') +
+              'width:13px;height:13px;border-radius:50%;background:#fff;"></span></span></span>'
+          : '';
         tbl += '<div style="display:flex;gap:8px;align-items:center;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
-          (li ? 'border-top:1px solid #e6ebf1;' : '') + '">' +
-          '<span style="flex:1.2;">' + cur + num(L.price, 8) + '</span>' +
+          (li ? 'border-top:1px solid #e6ebf1;' : '') + (on ? '' : 'opacity:.45;') + '">' + tog +
+          '<span style="flex:1.2;' + (on ? '' : 'text-decoration:line-through;') + '">' + cur + num(L.price, 8) + '</span>' +
           '<span style="flex:1.1;text-align:right;">' + num(L.qty) + '</span>' +
           '<span style="flex:1.1;text-align:right;color:#5b6472;">' + cur + num(L.costQuote != null ? L.costQuote : L.price * L.qty, 2) + '</span>' +
           '<span style="flex:0.8;text-align:right;color:' + (la == null ? '#5b6472' : la > 0 ? '#177a4c' : '#c31d1d') + ';">' +
@@ -5869,59 +6043,97 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:8px 0 0;line-height:1.5;">' +
         (lad.length === 1
           ? 'One limit order at exactly this price. If the book has moved away from it by the time it lands, it rests, finds no counterparty and is cancelled — it is never chased to a worse price.'
-          : 'Each row is placed as its own limit order at its own price — never one blended limit that sweeps everything in between. A row whose level has gone by the time it lands simply does not fill and is cancelled; the rest fill, and the total comes back as a partial.') +
+          : 'Each row is placed as its own limit order at its own price — never one blended limit that sweeps everything in between. A row whose level has gone by the time it lands simply does not fill and is cancelled; the rest fill, and the total comes back as a partial.' +
+            ' Use the toggles to place fewer orders: switching a row off drops it and every deeper (worse-priced) row, and the whole page restates for what stays on.') +
         '</div>';
+      if (trimmedSel) {
+        tbl += '<div style="font-size:11px;font-weight:700;color:#8a5a00;margin:6px 0 0;line-height:1.5;">' +
+          'You switched off ' + (lad.length - keepN) + ' deeper level(s) — ' +
+          num(pv.qty - selQty) + ' ' + C + ' stays unordered.</div>';
+      }
       folds += ftFold(
-        lad.length === 1 ? 'The order that will go out' : 'The ' + lad.length + ' orders that will go out',
-        lad.length + (lad.length === 1 ? ' price' : ' prices'),
+        lad.length === 1 ? 'The order that will go out'
+          : trimmedSel ? 'Placing ' + keepN + ' of ' + lad.length + ' orders'
+          : 'The ' + lad.length + ' orders that will go out',
+        (trimmedSel ? keepN + ' of ' : '') + lad.length + (lad.length === 1 ? ' price' : ' prices'),
         tbl,
-        !!(pv.droppedLevels && pv.droppedLevels.length));
+        !!(pv.droppedLevels && pv.droppedLevels.length) || trimmedSel || !!(ftPend && ftPend.ladTouched));
     }
 
     // 3b. THE PRICES. Top, worst, and the ceiling that goes to WazirX — the
     //     three numbers COTI only ever showed one of. Opens by itself whenever
     //     the sweep is wide enough to matter.
     var prices = ftRow('Top of book', px8(pv.topPrice));
-    prices += ftRow('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(pv.avgPrice));
-    prices += ftRow('Worst price reached', px8(pv.worstPrice));
-    prices += ftRow('Nothing goes out ' + (isBuy ? 'above' : 'below'), px8(pv.limitPrice));
+    prices += ftRow('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(selAvg));
+    prices += ftRow('Worst price reached', px8(selWorst));
+    prices += ftRow('Nothing goes out ' + (isBuy ? 'above' : 'below'), px8(selLimit));
     prices += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:8px 0 0;line-height:1.5;">' +
       'The ceiling is the deepest price on the ladder — every order goes out at exactly its own row price, and anything the market will not meet is cancelled rather than chased. ' +
-      (pv.slipPct != null
-        ? Number(pv.slipPct).toFixed(2) + '% off the top of the book across ' + (pv.levelsUsed || 1) + ' level(s), against your ' + (pv.slipWarnPct || 1) + '% mark.'
+      (selSlipPct != null
+        ? Number(selSlipPct).toFixed(2) + '% off the top of the book across ' + (trimmedSel ? keepN : (pv.levelsUsed || 1)) + ' level(s), against your ' + (pv.slipWarnPct || 1) + '% mark.'
         : 'The average is walked level by level, not taken from the top.') + '</div>';
-    folds += ftFold('Prices in detail', px8(pv.topPrice) + ' → ' + px8(pv.worstPrice), prices, !!pv.slipHigh);
+    folds += ftFold('Prices in detail', px8(pv.topPrice) + ' → ' + px8(selWorst), prices, !!selSlipHigh);
 
     // 3c. THE BINANCE SANITY CHECK. COTI bought 23% above the global market and
     //     the hedge locked that in. The headline % is already in the strip; this
     //     fold carries where the number came from.
     if (pv.binSpotQuote != null) {
-      var bin = ftRow('Binance spot', px8(pv.binSpotQuote));
-      if (pv.usdtInrRate) bin += ftRow('…converted from', num(pv.binSpot, 8) + ' USDT × ₹' + num(pv.usdtInrRate, 2));
-      bin += ftRow('Your average is', (vb == null ? '—' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%') + ' vs that');
+      // BOTH Binance numbers, always, and the gap between them named.
+      //
+      // Nikhil, 29 Jul: "why total arbitrage showing different values". The
+      // scanner card said 1.10% on the CFX first level and this page said
+      // 1.83% for the same 7,596 CFX. Neither was wrong; they compared against
+      // different prices. The card walked Binance's book for the whole size,
+      // this page used Binance's single best price — which exists for a few
+      // tokens and then is gone. That was 0.43% of the 0.73% gap. (The rest was
+      // the loop card valuing the mid-loop USDT at the WazirX USDT/INR mid
+      // instead of the ask that was paid — bookkeeping inside the loop split,
+      // and it does not change the loop total at all.)
+      //
+      // The page now uses the walked price, like the scanner, and prints the
+      // best price next to it so the difference is never a mystery again.
+      var exitWord = pv.binExitSide === 'asks' ? 'buy it back at' : 'pay for it';
+      // For a trimmed selection, back out the walked Binance price for the
+      // smaller size from the server's own cumArbPct — exact algebra on the
+      // same formula the server used, not an estimate.
+      var binForSize = pv.binSpotQuote;
+      if (trimmedSel && selVb != null && selAvg != null) {
+        binForSize = +(selAvg / (isBuy ? 1 + selVb / 100 : 1 - selVb / 100)).toFixed(8);
+      }
+      var bin = ftRow('Binance best price', px8(pv.binTopQuote != null ? pv.binTopQuote : pv.binSpotQuote));
+      bin += ftRow('For YOUR size, Binance would ' + exitWord, px8(binForSize));
+      if (!trimmedSel && pv.binDepthCostPct != null && Number(pv.binDepthCostPct) > 0.001) {
+        bin += ftRow('Difference — Binance depth', Number(pv.binDepthCostPct).toFixed(2) + '%');
+      }
+      if (pv.usdtInrRate) bin += ftRow('…converted at', '₹' + num(pv.usdtInrRate, 2) + ' per USDT');
+      bin += ftRow('Your average is', (selVb == null ? '—' : (selVb > 0 ? '+' : '') + Number(selVb).toFixed(2) + '%') + ' vs that');
       if (pv.feePct != null) bin += ftRow('Fees counted in', Number(pv.feePct).toFixed(2) + '%');
       bin += '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:8px 0 0;line-height:1.5;">' +
-        'The total arbitrage at the top of this page is measured across the whole ladder against this price, after fees. ' +
-        (pv.vsBinanceHigh ? '' : 'This order is in line with the global market.') + '</div>';
-      folds += ftFold('vs Binance spot', (vb == null ? '' : (vb > 0 ? '+' : '') + Number(vb).toFixed(2) + '%'), bin, !!pv.vsBinanceHigh);
+        'The total arbitrage at the top of this page is measured across the whole ladder against the second price — what Binance would really ' +
+        exitWord + ' this many tokens, not its best price for a handful. That is the same basis the scanner card uses, so the two agree. ' +
+        (selVbHigh ? '' : 'This order is in line with the global market.') + '</div>';
+      folds += ftFold('vs Binance', (selVb == null ? '' : (selVb > 0 ? '+' : '') + Number(selVb).toFixed(2) + '%'), bin, !!selVbHigh);
     }
 
     // 3d. THE MONEY and what the account actually holds.
     var acct = '';
-    if (pv.costQuote != null) acct += ftRow(isBuy ? 'Total cost' : 'Total received', cur + num(pv.costQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
-    if (pv.costInr != null && mkt === 'USDT') acct += ftRow('…in rupees', '≈ ₹' + num(pv.costInr, 2));
+    if (selCost != null) acct += ftRow(isBuy ? 'Total cost' : 'Total received', cur + num(selCost, 2) + (mkt === 'USDT' ? ' USDT' : ''));
+    if (pv.costInr != null && mkt === 'USDT' && pv.costQuote > 0) {
+      // Rupee restatement scales with the selection (same USDT/INR rate).
+      acct += ftRow('…in rupees', '≈ ₹' + num(pv.costInr * (selCost != null ? selCost / pv.costQuote : 1), 2));
+    }
     if (pv.freeQuote != null) acct += ftRow('You have', cur + num(pv.freeQuote, 2) + (mkt === 'USDT' ? ' USDT' : ''));
     if (pv.heldQty != null) acct += ftRow('WazirX shows', num(pv.heldQty) + ' ' + C +
       (pv.balanceSettled === false ? ' <span style="color:#b7791f;">· still settling</span>' : ''));
     if (pv.requestedQty != null) acct += ftRow('Size you asked for', num(pv.requestedQty) + ' ' + C);
     if (acct) folds += ftFold('Money and balances', money, acct, false);
 
-    var danger = pv.slipHigh || pv.vsBinanceHigh;
+    var danger = selSlipHigh || selVbHigh;
     var btns = canGo
       ? '<button onclick="__ftWzxGo()" style="width:100%;font:inherit;font-weight:900;font-size:14px;padding:14px;border-radius:10px;border:none;background:' +
           (danger ? '#c31d1d' : '#177a4c') + ';color:#fff;cursor:pointer;margin-top:14px;">PROCEED · ' +
-          (isBuy ? 'BUY' : 'SELL') + ' ' + num(pv.qty) + ' ' + C +
-          (lad.length > 1 ? ' · ' + lad.length + ' orders' : ' @ ' + px8(pv.limitPrice)) + '</button>' +
+          (isBuy ? 'BUY' : 'SELL') + ' ' + num(selQty) + ' ' + C +
+          (keepN > 1 ? ' · ' + keepN + ' orders' : ' @ ' + px8(selLimit)) + '</button>' +
         '<button onclick="__ftCloseResult()" style="width:100%;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;margin-top:8px;">Cancel — place nothing</button>'
       : '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
 
@@ -5954,6 +6166,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     return ftWzxConfirm({ coin: o.coin, side: o.side, market: o.market, qty: ftPend.pv.capQty, pct: o.pct, lvl: null });
   };
 
+  // The order-count toggle. Tapping row i when it is ON keeps only the rows
+  // above it (never fewer than one order); tapping it when OFF switches
+  // everything up through row i back on. The card re-renders from the SAME
+  // frozen preview — no refetch, so the prices he read cannot shift under the
+  // toggle — with every number restated for the new selection.
+  window.__ftWzxKeep = function (i) {
+    if (!ftPend || !ftPend.wzx) return;
+    var lad = ftPend.pv.levels || [];
+    var cur = ftPend.keepN != null ? Math.max(1, Math.min(lad.length, ftPend.keepN)) : lad.length;
+    ftPend.keepN = (i < cur) ? Math.max(1, i) : Math.min(lad.length, i + 1);
+    ftPend.ladTouched = true; // keep the ladder fold open across re-renders
+    ftOverlay().innerHTML = ftCard(ftWzxCard(ftPend.pv, ftPend.o));
+  };
+
   // The only path from the WazirX confirmation page to a real order. It sends
   // the approved qty AND the approved limit as maxPrice — the server will not
   // pay past it, so a book that moved gives a partial fill, not a COTI sweep.
@@ -5963,18 +6189,27 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var C = String(o.coin).toUpperCase();
     var isBuy = (pv.side || o.side) !== 'sell';
     var label = (isBuy ? 'BUY ' : 'SELL ') + C + ' @WazirX' + (pv.market === 'usdt' ? '·USDT mkt' : '');
-    var lad = (pv.levels || []).map(function (r) { return { price: Number(r.price), qty: Number(r.qty) }; })
+    // Honor the order-count toggles: only the first keepN rows go out, and the
+    // totals/ceiling sent are the SERVER'S cumulative figures for that row.
+    var allRows = pv.levels || [];
+    var keepN = ftPend.keepN != null ? Math.max(1, Math.min(allRows.length, ftPend.keepN)) : allRows.length;
+    var selRows = allRows.slice(0, keepN);
+    var selLast = selRows[selRows.length - 1] || null;
+    var trimmedSel = allRows.length > 0 && keepN < allRows.length;
+    var goQty = trimmedSel && selLast && selLast.cumQty != null ? selLast.cumQty : pv.qty;
+    var goLimit = trimmedSel && selLast ? selLast.price : pv.limitPrice;
+    var lad = selRows.map(function (r) { return { price: Number(r.price), qty: Number(r.qty) }; })
       .filter(function (r) { return r.price > 0 && r.qty > 0; });
     var sz = lad.length > 1
-      ? num(pv.qty) + ' ' + C + ' across ' + lad.length + ' price levels'
-      : num(pv.qty) + ' ' + C + ' @ ' + (pv.cur != null ? pv.cur : '₹') + num(pv.limitPrice, 8) + ' max';
+      ? num(goQty) + ' ' + C + ' across ' + lad.length + ' price levels'
+      : num(goQty) + ' ' + C + ' @ ' + (pv.cur != null ? pv.cur : '₹') + num(goLimit, 8) + ' max';
     ftShowPlacing(label, sz, '');
     // THE FROZEN LADDER. These are the exact prices and sizes he just read, and
     // they are what go to WazirX — not a fresh walk of a book that may have
     // moved while he was reading. A level that has since gone will not fill;
     // it is cancelled, and the rest settle as a partial.
     var body = { coin: o.coin, action: isBuy ? 'buy_wazirx' : 'sell_wazirx',
-      qty: pv.qty, pct: 100, mode: ft.mode, maxPrice: pv.limitPrice };
+      qty: goQty, pct: 100, mode: ft.mode, maxPrice: goLimit };
     if (lad.length) body.levels = lad;
     if (o.market) body.market = o.market;
     try {
