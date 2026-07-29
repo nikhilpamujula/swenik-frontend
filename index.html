@@ -5055,7 +5055,11 @@ fullRefresh().finally(prefetchOtherVolume); // warm the other volume so the firs
 // the phone's battery and mobile data drawing a page nobody is looking at. The
 // visibilitychange handler below refreshes immediately on the way back, so what
 // you see when you return is current, not whatever was there when you left.
-const REFRESH_MS = 2000;
+// 29 Jul, his call: "increase the time to 4 or 5 seconds instead of 2
+// seconds". The server recomputes every 3s, so a 2s poll was also asking
+// more often than there could ever be an answer. 4s halves the request rate
+// per open tab and still catches every server tick within one poll.
+const REFRESH_MS = 4000;
 setInterval(() => {
   if (document.visibilityState === 'hidden') return;
   fullRefresh();
