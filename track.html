@@ -6810,15 +6810,31 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   //   2. If it DID change → hold the container's height through the swap and
   //      restore every inner scroll position, so the page never jumps.
   try {
-    var ftCalm = function (el) {
+    var ftCalm = function (el, watchForeign) {
       if (!el || el.__ftCalm) return;
       el.__ftCalm = true;
       var d = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
       if (!d || !d.set || !d.get) return;
+      // 30 Jul, his recording: tap Loop and Direct's cards stay on screen for
+      // seconds under the Loop tab. Cause: the card list is ALSO painted by
+      // the keyed painter, which moves nodes directly and never touches
+      // innerHTML — so __ftLastHtml went stale, and the Loop empty-state
+      // write was skipped as a "duplicate" of a screen that no longer
+      // existed. For containers with other writers (watchForeign), any
+      // mutation that did not come through this setter clears the memo, so
+      // the next write always lands. Our own writes are drained from the
+      // observer queue inside the setter, so the dedup still works for the
+      // repeated identical writes it was built to calm.
+      var mo = null;
+      if (watchForeign && typeof MutationObserver === 'function') {
+        mo = new MutationObserver(function () { el.__ftLastHtml = null; });
+        mo.observe(el, { childList: true, subtree: false });
+      }
       Object.defineProperty(el, 'innerHTML', {
         configurable: true,
         get: function () { return d.get.call(this); },
         set: function (v) {
+          if (mo) mo.takeRecords().length && (this.__ftLastHtml = null); // flush pending foreign records first
           if (this.__ftLastHtml === v) return; // identical repaint → nothing to do
           this.__ftLastHtml = v;
           // Remember where the popup was parked BEFORE the teardown; ftRender
@@ -6834,6 +6850,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           var selfTop = this.scrollTop, h = this.offsetHeight;
           if (h) this.style.minHeight = h + 'px'; // hold height while swapping
           d.set.call(this, v);
+          if (mo) mo.takeRecords(); // our own write — not a reason to distrust the memo
           this.scrollTop = selfTop;
           try {
             var all2 = this.querySelectorAll('*');
@@ -6847,7 +6864,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         },
       });
     };
-    ftCalm(document.getElementById('cardList'));
+    // cardList: the keyed painter also writes here → watch for foreign
+    // mutations. modalBody: only innerHTML writes it (the Execute panel
+    // append RELIES on identical repaints being skipped), so plain dedup.
+    ftCalm(document.getElementById('cardList'), true);
     ftCalm(document.getElementById('modalBody'));
   } catch (e) {}
 })();
