@@ -5700,7 +5700,15 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   }
   // Server warnings, converted into panel rows rather than boxes of their own.
   function ftWarnItems(ws) {
-    return (ws || []).map(function (w) { return { tone: w.level === 'high' ? 'bad' : 'warn', html: w.text }; });
+    // The backend grades these 'high' or 'info' and the difference is real: one
+    // is "this order may lose you money", the other is "here is how it was
+    // built". Painting both amber made every page look equally alarming, which
+    // is the fastest way to teach someone to ignore the amber. Only 'high' is
+    // red now; anything the backend called informational reads as such, and the
+    // panel titles itself WORTH KNOWING when that is all there is.
+    return (ws || []).map(function (w) {
+      return { tone: w.level === 'high' ? 'bad' : w.level === 'info' ? 'info' : 'warn', html: w.text };
+    });
   }
   // The card header, as one band that bleeds to the card's edges instead of an
   // emoji floating over three centred lines. The card is overflow:auto, so the
@@ -5767,16 +5775,40 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // cancelled, not chased" when WazirX had in fact refused it outright — the
     // headline contradicted the level table three inches below it. If every dead
     // level was refused, the headline has to say so.
-    var refusedRows = [], deadRows = 0;
+    //
+    // AND THE THIRD DEATH THAT IS NOT A DEATH AT ALL: STILL OPEN.
+    //
+    // Order #339 printed "PARTIALLY FILLED — REST CANCELLED / … cancelled, not
+    // chased. Nothing is resting." while its own level table two inches below
+    // said rung 1 was STILL OPEN — and 4,327 AMP was genuinely live on WazirX.
+    // The bug was here: `deadRows` counted an open rung as dead, and the
+    // headline's only question was "were all the dead ones refused?", so an open
+    // rung fell straight through into "cancelled, not chased".
+    //
+    // An open rung is not dead. It is the one outcome that is still moving, and
+    // it is the only one that costs money if he walks away, because whatever
+    // fills up there afterwards is unhedged. So it is counted separately, it is
+    // excluded from `allDeadRefused`, and it VETOES the phrase "Nothing is
+    // resting" everywhere it appears.
+    var refusedRows = [], deadRows = 0, openRows = [], restingQty = 0;
     if (Array.isArray(r.rungs)) {
       for (var qi = 0; qi < r.rungs.length; qi++) {
         var Q = r.rungs[qi], qst = String(Q.status || '').toLowerCase();
+        if (qst === 'open') {
+          openRows.push(Q);
+          restingQty += Number(Q.restingQty != null ? Q.restingQty
+            : Math.max(0, Number(Q.qty || 0) - Number(Q.filledQty || 0))) || 0;
+          continue;
+        }
         if (qst === 'filled') continue;
         deadRows++;
         if (qst === 'rejected') refusedRows.push(Q);
       }
     }
-    var allDeadRefused = refusedRows.length > 0 && refusedRows.length === deadRows;
+    if (r.restingQty != null && Number(r.restingQty) > 0) restingQty = Number(r.restingQty);
+    // The backend's own flag is believed too, in case a rung status is missing.
+    var resting = openRows.length > 0 || r.leftOpen === true;
+    var allDeadRefused = refusedRows.length > 0 && refusedRows.length === deadRows && !resting;
     var hero = openOrder
       ? '<div style="font-size:40px;text-align:center;">🕒</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">ORDER IS IN OPEN ORDERS</div>' +
         '<div style="font-size:12px;font-weight:700;color:#b7791f;text-align:center;margin:-4px 0 10px;">It did not fill in time and the cancel didn’t confirm — open the WazirX app → Open Orders and cancel or watch it there.</div>'
@@ -5784,6 +5816,16 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         ? '<div style="font-size:40px;text-align:center;">🚫</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">NOT FILLED — ORDER CANCELLED</div>' +
           '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin:-4px 0 10px;">Nothing filled at' + (lim ? ' your limit of ' + lim : ' your price') +
           ', so the order was cancelled. Nothing was traded, no money moved, and nothing is left open on WazirX.</div>'
+      // SOMETHING FILLED, AND SOMETHING IS STILL LIVE. This case had no headline
+      // of its own before — it borrowed the partial-fill one and inherited its
+      // "Nothing is resting", which is how #339 came to contradict itself.
+      : ok && resting
+        ? '<div style="font-size:40px;text-align:center;">🕒</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">' +
+          (Number(r.qty) > 0 ? 'PART FILLED — REST STILL OPEN' : 'STILL OPEN ON WAZIRX') + '</div>' +
+          '<div style="font-size:12px;font-weight:800;color:#b7791f;text-align:center;margin:-4px 0 10px;line-height:1.5;">' +
+          (Number(r.qty) > 0 && r.askedQty != null ? num(r.qty) + ' of ' + num(r.askedQty) + ' filled, but ' : '') +
+          (restingQty > 0 ? num(restingQty) : 'part of your size') + ' is <b>RESTING OPEN</b> on WazirX — the cancel did not confirm, ' +
+          'so it can still fill. Open the WazirX app → Open Orders and cancel it there. Anything that fills afterwards is not hedged.</div>'
       : ok && partial
         ? '<div style="font-size:40px;text-align:center;">◑</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">PARTIALLY FILLED — REST ' +
           (allDeadRefused ? 'REFUSED' : 'CANCELLED') + '</div>' +
@@ -5801,11 +5843,33 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         : '<div style="font-size:40px;text-align:center;">❌</div><div style="font-size:17px;font-weight:800;text-align:center;color:#d33131;margin:4px 0 10px;">ORDER FAILED</div>';
     var rows = ftRow('What', (o && o.path_label) || label) + ftRow('Mode', String((o && o.mode) || ft.mode).toUpperCase()) +
       ftRow('Status', status.toUpperCase()) + ftRow('Order #', orderId);
+    // THE ACTION BLOCK. Everything else on this page is a record of what
+    // happened; this is the only part that asks him to do something, so it sits
+    // above the numbers rather than under them.
+    if (resting) {
+      rows += '<div style="font-size:11.5px;font-weight:700;color:#7a4e00;background:#fff6e0;border:1.5px solid #e6c47a;border-radius:9px;padding:10px 11px;margin:8px 0 2px;line-height:1.6;">' +
+        '<b>' + (restingQty > 0 ? num(restingQty) : 'Part of your size') + ' is still OPEN on WazirX' +
+        (openRows.length > 1 ? ' across ' + openRows.length + ' levels' : '') + '.</b> ' +
+        (openRows.length
+          ? openRows.map(function (X) {
+              return (r.cur != null ? r.cur : '₹') + num(X.placedPrice != null ? X.placedPrice : X.price, 8) +
+                (X.restingQty != null ? ' × ' + num(X.restingQty) : '') +
+                (X.orderId != null ? ' (id ' + X.orderId + ')' : '');
+            }).join(' · ') + '. '
+          : '') +
+        'Two cancel attempts did not confirm, so this quantity was NOT cancelled — it is live on the exchange and can still fill at any moment. ' +
+        '<b>Cancel it in WazirX → Open Orders</b>, and do not treat this order as finished until you have. Whatever fills there is not covered by the hedge.</div>';
+    }
     if (r.qty != null) rows += ftRow('Filled', num(r.qty) + (r.avgPrice != null ? ' @ ' + num(r.avgPrice, 8) : ''));
+    if (resting && restingQty > 0) rows += ftRow('Still resting', '<span style="color:#b7791f;font-weight:800;">' + num(restingQty) + ' — OPEN on WazirX, cancel it there</span>');
     if ((cancelled || partial) && r.askedQty != null) rows += ftRow('You asked for', num(r.askedQty));
     if ((cancelled || partial) && r.cancelledQty != null) {
+      // With a rung still open, "Cancelled 19,382" is the exact false statement
+      // #339 made. Split it: what the exchange gave back, and what it still holds.
       rows += allDeadRefused
         ? ftRow('Refused', '<span style="color:#c31d1d;">' + num(r.cancelledQty) + ' — WazirX rejected it at placement</span>')
+        : resting
+        ? ftRow('Not filled', '<span style="color:#b7791f;">' + num(r.cancelledQty) + ' — of which ' + num(restingQty) + ' is STILL OPEN, not cancelled</span>')
         : ftRow('Cancelled', '<span style="color:#b7791f;">' + num(r.cancelledQty) + ' — never placed at a worse price</span>');
     }
     if ((cancelled || partial) && lim != null) rows += ftRow('Your limit held at', lim);
@@ -5849,6 +5913,12 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
               ? '<div style="font-size:10px;font-weight:800;color:#8a5a00;margin-top:2px;">sent ' + num(R.placedQty) + ' of ' + num(R.qty) + ' — only that much was free</div>' : '') +
             (R.notPlaced ? '<div style="font-size:10px;font-weight:800;color:#8a5a00;margin-top:2px;">never sent — no balance left for this level</div>' : '') +
             (R.retried ? '<div style="font-size:10px;font-weight:800;color:#177a4c;margin-top:2px;">re-placed at this price after WazirX refused it for balance</div>' : '') +
+            // The row already said STILL OPEN on #339. What it could not say was
+            // how much, and under which id — the two things needed to go and
+            // cancel it by hand.
+            (st === 'open' ? '<div style="font-size:10px;font-weight:800;color:#b7791f;margin-top:2px;">' +
+              (R.restingQty != null ? num(R.restingQty) + ' still RESTING on WazirX' : 'still RESTING on WazirX') +
+              (R.orderId != null ? ' — order id ' + R.orderId : '') + ' · cancel it in the app</div>' : '') +
             (why ? '<div style="font-size:10px;font-weight:700;color:#c31d1d;margin-top:3px;line-height:1.4;">WazirX: ' + why + '</div>' : '') +
           '</span>' +
           '<span style="flex:1;text-align:right;color:#5b6472;">' + num(R.qty) + '</span>' +
@@ -6375,6 +6445,16 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     //     three numbers COTI only ever showed one of. Opens by itself whenever
     //     the sweep is wide enough to matter.
     var prices = ftRow('Top of book', px8(pv.topPrice));
+    // WHERE THIS BOOK CAME FROM. Normally the 100ms websocket; but a coin tapped
+    // straight off the scanner is not in the trader's stream set yet, and the
+    // first frame can take seconds on a market as thin as BAND/USDT — which is
+    // how "no live WazirX BAND/USDT ask book" appeared while the scanner card
+    // behind it was showing that very book. The backend now reads WazirX's depth
+    // endpoint directly in that case, and says so here rather than passing a
+    // snapshot off as a live feed.
+    if (pv.bookSource === 'rest') {
+      prices += ftRow('Book source', '<span style="color:#8a5a00;font-weight:800;">WazirX depth snapshot (not the live stream)</span>');
+    }
     prices += ftRow('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(selAvg));
     prices += ftRow('Worst price reached', px8(selWorst));
     prices += ftRow('Nothing goes out ' + (isBuy ? 'above' : 'below'), px8(selLimit));
