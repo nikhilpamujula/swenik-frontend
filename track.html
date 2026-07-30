@@ -2158,6 +2158,22 @@ function levelArbHtml(o) {
   return `<div class="level-arb">${cell('1st Level Arb', o.levels.first)}${cell('2nd Level Arb', o.levels.second)}</div>`;
 }
 
+// A withdrawal fee is charged in COIN, so print the coin AND its rupee value.
+//
+// The rupee value comes from `trbTransferChargeInr` / `galaTransferChargeInr`.
+// `l.trbTransferCharge` is the USDT twin the engine needs for its own leg-2
+// arithmetic — c1 is sold on Binance for USDT — and printing THAT behind a
+// rupee sign is exactly why COTI -> BAT reported a Rs 1.18 transfer fee while
+// the Direct COTI card reported Rs 118.53 for the same withdrawal at the same
+// instant. It is never read here. If an older backend is still serving and the
+// INR field is absent, show the coin quantity alone rather than a number that
+// is out by the whole USDT rate.
+function loopXferFee(qty, inr, coin) {
+  const q = (qty != null && Number(qty) > 0) ? fmtAdaptive(qty) + ' ' + coin : null;
+  if (inr == null || !isFinite(Number(inr))) return q || '\u2014';
+  return (q ? q + ' \u00b7 ' : '') + fmtInr(inr, 2);
+}
+
 function loopCard(o) {
   const pct = pctOf(o);
   const c1 = o.coin1.toUpperCase(), c2 = o.coin2.toUpperCase();
@@ -2182,7 +2198,7 @@ function loopCard(o) {
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Final cost (incl. trading):</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
-        <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">${c1} transfer fee:</span><span class="v">${loopXferFee(l.trbFeeQty, l.trbTransferChargeInr, c1)}</span></div>
       </div>
     </details>
     <details class="kk-row">
@@ -2196,10 +2212,10 @@ function loopCard(o) {
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">${c1} arrived (after transfer fee):</span><span class="v">${fmtAdaptive(l.trbArrived)} ${c1}</span></div>
-        <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">${c1} transfer fee:</span><span class="v">${loopXferFee(l.trbFeeQty, l.trbTransferChargeInr, c1)}</span></div>
         <div class="leg-line"><span class="k">Sell ${c1} → USDT:</span><span class="v">${fmtAdaptive(l.usdtFromTRB)} USDT</span></div>
         <div class="leg-line"><span class="k">Buy ${c2} with USDT:</span><span class="v">${fmtAdaptive(l.galaQty)} ${c2}</span></div>
-        <div class="leg-line"><span class="k">${c2} transfer fee (INR-valued):</span><span class="v">${fmtInr(l.galaTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">${c2} transfer fee:</span><span class="v">${loopXferFee(l.galaFeeQty, l.galaTransferChargeInr != null ? l.galaTransferChargeInr : l.galaTransferCharge, c2)}</span></div>
       </div>
     </details>
     <details class="kk-row">
@@ -3235,7 +3251,7 @@ function loopLegBodies(entry, l) {
     (usdtInBuy != null ? line('Paid (USDT)', `${fmtAdaptive(usdtInBuy)} USDT · ${fmtInr(l.finalCostInr, 2)}`)
                        : line('Cost (incl. fees)', fmtInr(l.finalCostInr, 2))) +
     (entryRate ? line('USDT/INR rate used', `₹${fmtNum(entryRate, 2)}`) : '') +
-    line(`${c1} transfer fee (INR-valued)`, fmtInr(l.trbTransferCharge, 2));
+    line(`${c1} transfer fee`, loopXferFee(l.trbFeeQty, l.trbTransferChargeInr, c1));
 
   const sellUsdtBody =
     loopTouchedRows(`Sell ${c2}`, l.sellGALATouched, c2) +
@@ -3285,10 +3301,10 @@ function loopFeeBodyHtml(l, c1, c2, entry) {
   return `
         <div class="leg-line"><span class="k">${c1} bought (${cardVenueName()})</span><span class="v">${fmtCoin(l.trbQty,2)} ${c1}</span></div>
         <div class="leg-line"><span class="k">Final cost</span><span class="v">${fmtInr(l.finalCostInr,2)}</span></div>
-        <div class="leg-line"><span class="k">${c1} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.trbTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">${c1} transfer fee</span><span class="v">${loopXferFee(l.trbFeeQty, l.trbTransferChargeInr, c1)}</span></div>
         <div class="leg-line"><span class="k">${c1} → USDT (Binance)</span><span class="v">${fmtNum(l.usdtFromTRB,3)} USDT</span></div>
         <div class="leg-line"><span class="k">${c2} bought (Binance)</span><span class="v">${fmtCoin(l.galaQty,0)} ${c2}</span></div>
-        <div class="leg-line"><span class="k">${c2} transfer fee (INR-valued)</span><span class="v">${fmtInr(l.galaTransferCharge,2)}</span></div>
+        <div class="leg-line"><span class="k">${c2} transfer fee</span><span class="v">${loopXferFee(l.galaFeeQty, l.galaTransferChargeInr != null ? l.galaTransferChargeInr : l.galaTransferCharge, c2)}</span></div>
         <div class="leg-line"><span class="k">${c2} → INR (${cardVenueName()})</span><span class="v">${fmtInr(l.inrReceived,2)}</span></div>
         <div class="leg-line"><span class="k">Total transfer + confirm time</span><span class="v">${entry.executionMin.toFixed(2)} min</span></div>`;
 }
@@ -5814,6 +5830,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         // the book — and the page called it cancelled for want of a buyer.
         var stTxt = st === 'filled' ? 'FILLED' : st === 'partial' ? 'PART FILL' : st === 'open' ? 'STILL OPEN' :
           st === 'rejected' ? (R.placeFailed ? 'REFUSED' : 'REJECTED') : 'CANCELLED';
+        // NOT PLACED is its own death and reads nothing like the other two: the
+        // level never went to WazirX because the coin was not there for it. It
+        // is the honest label for order #334's second rung.
+        if (R.notPlaced) { stTxt = 'NOT PLACED'; stCol = '#8a5a00'; }
         // …and WHY. The backend now carries WazirX's own words on the rung; a
         // bare REJECTED with nothing beside it is what made #332 unanswerable.
         var why = R.exchangeError || (st === 'rejected' ? R.error : '') || '';
@@ -5822,6 +5842,13 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           '<span style="flex:1.2;">' + rcur + num(R.price, 8) +
             (R.placedPrice != null && Number(R.placedPrice) !== Number(R.price)
               ? '<div style="font-size:10px;font-weight:800;color:#d33131;margin-top:2px;">sent as ' + rcur + num(R.placedPrice, 8) + '</div>' : '') +
+            // BALANCE, ON THE ROW. A level that went out smaller than approved,
+            // or did not go out at all, must say which — a red REFUSED with no
+            // number beside it is what made #334 unanswerable.
+            (R.placedQty != null && Number(R.placedQty) > 0 && Number(R.placedQty) < Number(R.qty)
+              ? '<div style="font-size:10px;font-weight:800;color:#8a5a00;margin-top:2px;">sent ' + num(R.placedQty) + ' of ' + num(R.qty) + ' — only that much was free</div>' : '') +
+            (R.notPlaced ? '<div style="font-size:10px;font-weight:800;color:#8a5a00;margin-top:2px;">never sent — no balance left for this level</div>' : '') +
+            (R.retried ? '<div style="font-size:10px;font-weight:800;color:#177a4c;margin-top:2px;">re-placed at this price after WazirX refused it for balance</div>' : '') +
             (why ? '<div style="font-size:10px;font-weight:700;color:#c31d1d;margin-top:3px;line-height:1.4;">WazirX: ' + why + '</div>' : '') +
           '</span>' +
           '<span style="flex:1;text-align:right;color:#5b6472;">' + num(R.qty) + '</span>' +
