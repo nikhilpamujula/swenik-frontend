@@ -567,6 +567,11 @@
   .leg-line { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 3px 0; }
   .leg-line .k { color: var(--gray-700); flex: 1; min-width: 0; }
   .leg-line .v { font-weight: 700; color: #1c2637; font-variant-numeric: tabular-nums; flex: 0 0 auto; white-space: nowrap; text-align: right; }
+  /* A caveat is a sentence, not a figure, so it gets its own full width. The
+     first attempt put it in the .v column, where white-space:nowrap drove it
+     straight off the right edge and across the label. */
+  .leg-note { margin: 4px 0 2px; padding: 6px 8px; border-radius: 6px; background: #fffbeb;
+              border: 1px solid #fde68a; color: #8a6114; font-size: 11px; line-height: 1.45; font-weight: 600; }
 
   .arb-box { background: linear-gradient(135deg, #34b184, #23a06f); color: #fff; border-radius: var(--radius-xs); padding: 10px 14px; margin-bottom: 6px; }
   .arb-box .arb-pct { font-size: 15.5px; font-weight: 700; }
@@ -1993,6 +1998,35 @@ function arbFold(cls, main, sub, detail, onclickJs) {
     </details>`;
 }
 function ln(k, v) { return `<div class="leg-line"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+// UNKNOWN on the rail line, and the ₹0.0000 beside it, are not facts about the
+// coin — they are what is left when Binance's signed wallet call did not answer.
+// Printing them bare stated a free transfer on a chain we never identified, and
+// the arbitrage % above was computed on that free transfer. These two say so.
+function railText(o) {
+  if (!o.network || o.network === 'UNKNOWN') return '<span style="color:#b7791f;">NOT CONFIRMED</span>';
+  if (o.network === 'NO_COMMON_RAIL') return '<span style="color:#c31d1d;">NO SHARED CHAIN</span>';
+  if (o.network === 'TRANSFER_DISABLED') return '<span style="color:#c31d1d;">TRANSFERS OFF</span>';
+  return o.network;
+}
+function transferChargeText(o, charge) {
+  if (o.feeUnknown) return '<span style="color:#b7791f;">not deducted</span>';
+  return fmtInr(charge, 4);
+}
+// One sentence, once, at full width — printed only when the numbers above it are
+// placeholders. The % on the green bar was walked with a zero transfer fee, so
+// saying nothing here would let a flattering figure pass as a checked one.
+function railNote(o) {
+  if (o.feeUnknown) {
+    return '<div class="leg-note">Binance\'s wallet check did not answer, so the chain and its ' +
+      'withdrawal fee are unknown. The arbitrage above is priced as if this transfer were free — ' +
+      'treat it as a ceiling, not a quote.</div>';
+  }
+  if (o.network === 'NO_COMMON_RAIL') {
+    return '<div class="leg-note">There is no chain both exchanges accept for this coin' +
+      (o.wantedRail ? ' (WazirX wants ' + o.wantedRail + ')' : '') + ', so the coin cannot be moved between them.</div>';
+  }
+  return '';
+}
 
 function directCard(o) {
   const pct = pctOf(o);
@@ -2030,8 +2064,9 @@ function directCard(o) {
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Sell price:</span><span class="v">${fmtInr(d.sellPrice,4)}</span></div>
-        <div class="leg-line"><span class="k">Crypto transfer charges:</span><span class="v">${fmtInr(d.transferCharge,4)}</span></div>
-        <div class="leg-line"><span class="k">Crypto transfer network:</span><span class="v">${o.network}</span></div>
+        <div class="leg-line"><span class="k">Crypto transfer charges:</span><span class="v">${transferChargeText(o, d.transferCharge)}</span></div>
+        <div class="leg-line"><span class="k">Crypto transfer network:</span><span class="v">${railText(o)}</span></div>
+        ${railNote(o)}
         <div class="leg-line"><span class="k">Trading charges:</span><span class="v">${fmtInr(d.tradingChargeSell,4)}</span></div>
         <div class="leg-line"><span class="k">Final sell price:</span><span class="v">${fmtInr(d.finalSell,4)}</span></div>
       </div>
@@ -2042,7 +2077,7 @@ function directCard(o) {
       ln('Buy on', `${exLabel(o.buyExchange)} · ${marketLabel(o.buyMarket)}`) +
       ln('Sell on', `${exLabel(o.sellExchange)} · ${marketLabel(o.sellMarket)}`) +
       ln('Execution time', `${o.executionMin.toFixed(2)} mins`) +
-      (o.network ? ln('Transfer network', o.network) : ''),
+      (o.network ? ln('Transfer network', railText(o)) : ''),
       `openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')`)}`
   : (o.fixed ? `
     <details class="kk-row">
@@ -2081,7 +2116,7 @@ function directCard(o) {
       ln('Buy on', `${exLabel(o.buyExchange)} · ${marketLabel(o.buyMarket)}`) +
       ln('Sell on', `${exLabel(o.sellExchange)} · ${marketLabel(o.sellMarket)}`) +
       ln('Execution time', `${o.executionMin.toFixed(2)} mins`) +
-      (o.network ? ln('Transfer network', o.network) : ''),
+      (o.network ? ln('Transfer network', railText(o)) : ''),
       `openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')`)}`
   : `
     <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:76px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
@@ -5612,6 +5647,67 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     return '<div style="font-size:11.5px;font-weight:' + (tone ? '700' : '600') + ';line-height:1.55;margin-top:8px;padding:9px 11px;border-radius:9px;background:' +
       c[0] + ';border:1px solid ' + c[1] + ';color:' + c[2] + ';">' + text + '</div>';
   }
+  // ---------- ONE PANEL INSTEAD OF A STACK OF BOXES ----------
+  // Nikhil, 30 Jul: "make confirmation page looks attractive and simple". The
+  // AMP sell was five separate red and amber blocks stacked down the page, each
+  // with its own border, its own tint and its own padding, and the effect was
+  // that none of them got read — a wall of red reads as one undifferentiated
+  // alarm, so the eye skips it and goes looking for the button.
+  //
+  // Same words, one frame. A single panel, tinted by the WORST thing in it,
+  // with each point on its own hairline-separated row and a coloured dot
+  // carrying its severity. Five boxes become five lines, the page gets short
+  // enough that PROCEED stays on the first screen, and nothing is hidden:
+  // this is emphatically NOT a fold. The rule that nothing red or amber may
+  // live inside a <details> is untouched, and this panel is how the page keeps
+  // to it without looking like a stack of warnings.
+  function ftAlerts(items, title) {
+    var list = (items || []).filter(function (i) { return i && i.html; });
+    if (!list.length) return '';
+    var worst = list.some(function (i) { return i.tone === 'bad'; }) ? 'bad'
+      : list.some(function (i) { return i.tone === 'warn'; }) ? 'warn' : 'info';
+    var edge = worst === 'bad' ? '#e9b4b4' : worst === 'warn' ? '#ecd79f' : '#d7dfea';
+    var tint = worst === 'bad' ? '#fdecec' : worst === 'warn' ? '#fff7e6' : '#f4f6fa';
+    var ink = worst === 'bad' ? '#a51f1f' : worst === 'warn' ? '#8a5a00' : '#48525f';
+    var dot = { bad: '#c31d1d', warn: '#b7791f', info: '#7b8794' };
+    var head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;background:' + tint +
+      ';font-size:10.5px;font-weight:900;letter-spacing:.045em;color:' + ink + ';">' +
+      '<span>' + (title || (worst === 'info' ? 'WORTH KNOWING' : 'READ THIS FIRST')) + '</span>' +
+      '<span style="font-weight:800;opacity:.75;">' + list.length + (list.length === 1 ? ' point' : ' points') + '</span></div>';
+    var rows = list.map(function (i, n) {
+      return '<div style="display:flex;gap:9px;align-items:flex-start;padding:10px 12px;font-size:11.5px;font-weight:600;line-height:1.55;color:#3a4653;' +
+        (n ? 'border-top:1px solid #eef1f6;' : 'border-top:1px solid ' + edge + ';') + '">' +
+        '<span style="color:' + (dot[i.tone] || dot.info) + ';font-size:15px;line-height:1.1;font-weight:900;">•</span>' +
+        '<span style="min-width:0;">' + i.html + '</span></div>';
+    }).join('');
+    return '<div style="margin-top:10px;border:1.5px solid ' + edge + ';border-radius:12px;background:#fff;overflow:hidden;">' + head + rows + '</div>';
+  }
+  // Server warnings, converted into panel rows rather than boxes of their own.
+  function ftWarnItems(ws) {
+    return (ws || []).map(function (w) { return { tone: w.level === 'high' ? 'bad' : 'warn', html: w.text }; });
+  }
+  // The card header, as one band that bleeds to the card's edges instead of an
+  // emoji floating over three centred lines. The card is overflow:auto, so the
+  // negative margins are clipped by its radius and the band reads as a header.
+  function ftHeadBand(icon, title, sub, tone, pill) {
+    var tint = tone === 'bad' ? '#fdf1f1' : tone === 'good' ? '#f0f8f3' : tone === 'warn' ? '#fff8ea' : '#f3f6fa';
+    var ink = tone === 'bad' ? '#b02525' : tone === 'good' ? '#177a4c' : tone === 'warn' ? '#8a5a00' : '#2b3a4a';
+    return '<div style="margin:-20px -20px 12px;padding:14px 18px 12px;background:' + tint + ';border-bottom:1px solid rgba(0,0,0,.06);">' +
+      '<div style="display:flex;align-items:center;gap:11px;">' +
+        '<div style="width:38px;height:38px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.07);display:flex;align-items:center;justify-content:center;font-size:19px;flex:none;">' + icon + '</div>' +
+        '<div style="min-width:0;flex:1;">' +
+          '<div style="font-size:15.5px;font-weight:900;letter-spacing:.02em;color:' + ink + ';line-height:1.2;">' + title + '</div>' +
+          '<div style="font-size:11.5px;font-weight:700;color:#5b6472;margin-top:2px;">' + sub + '</div>' +
+        '</div>' +
+        (pill ? '<div style="flex:none;">' + pill + '</div>' : '') +
+      '</div></div>';
+  }
+  function ftPill(text, tone) {
+    var c = tone === 'bad' ? ['#fdecec', '#e9b4b4', '#a51f1f'] : tone === 'good' ? ['#e9f6ee', '#bfe0cd', '#177a4c']
+      : tone === 'warn' ? ['#fff4de', '#ecd79f', '#8a5a00'] : ['#eef2f7', '#d7dfea', '#48525f'];
+    return '<span style="display:inline-block;padding:5px 9px;border-radius:999px;font-size:9.5px;font-weight:900;letter-spacing:.05em;background:' +
+      c[0] + ';border:1px solid ' + c[1] + ';color:' + c[2] + ';white-space:nowrap;">' + text + '</span>';
+  }
   function ftBtns(retry) {
     return '<div style="display:flex;gap:8px;margin-top:14px;">' +
       (retry ? '<button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:11px;border-radius:9px;border:none;background:#2b6ea3;color:#fff;cursor:pointer;">Try again</button>' : '') +
@@ -5650,6 +5746,21 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // a failure, and it must not read like one.
     var cancelled = !!r.cancelled || !!r.notFilled;
     var lim = r.limitPrice != null ? num(r.limitPrice, 8) : null;
+    // REFUSED-AT-PLACEMENT vs CANCELLED-FOR-WANT-OF-A-BUYER, decided BEFORE the
+    // headline is written. Order #332's summary line said "the remaining 5 was
+    // cancelled, not chased" when WazirX had in fact refused it outright — the
+    // headline contradicted the level table three inches below it. If every dead
+    // level was refused, the headline has to say so.
+    var refusedRows = [], deadRows = 0;
+    if (Array.isArray(r.rungs)) {
+      for (var qi = 0; qi < r.rungs.length; qi++) {
+        var Q = r.rungs[qi], qst = String(Q.status || '').toLowerCase();
+        if (qst === 'filled') continue;
+        deadRows++;
+        if (qst === 'rejected') refusedRows.push(Q);
+      }
+    }
+    var allDeadRefused = refusedRows.length > 0 && refusedRows.length === deadRows;
     var hero = openOrder
       ? '<div style="font-size:40px;text-align:center;">🕒</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">ORDER IS IN OPEN ORDERS</div>' +
         '<div style="font-size:12px;font-weight:700;color:#b7791f;text-align:center;margin:-4px 0 10px;">It did not fill in time and the cancel didn’t confirm — open the WazirX app → Open Orders and cancel or watch it there.</div>'
@@ -5658,11 +5769,15 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin:-4px 0 10px;">Nothing filled at' + (lim ? ' your limit of ' + lim : ' your price') +
           ', so the order was cancelled. Nothing was traded, no money moved, and nothing is left open on WazirX.</div>'
       : ok && partial
-        ? '<div style="font-size:40px;text-align:center;">◑</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">PARTIALLY FILLED — REST CANCELLED</div>' +
+        ? '<div style="font-size:40px;text-align:center;">◑</div><div style="font-size:17px;font-weight:800;text-align:center;color:#b7791f;margin:4px 0 10px;">PARTIALLY FILLED — REST ' +
+          (allDeadRefused ? 'REFUSED' : 'CANCELLED') + '</div>' +
           '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin:-4px 0 10px;">' +
           (r.askedQty != null ? num(r.qty) + ' of ' + num(r.askedQty) + ' filled' : 'Only part of your size filled') +
           (lim ? ' at your ' + lim + ' limit' : ' at your price') + ' — the remaining ' +
-          (r.cancelledQty != null ? num(r.cancelledQty) + ' was' : 'size was') + ' cancelled, not chased. Nothing is resting.</div>'
+          (r.cancelledQty != null ? num(r.cancelledQty) + ' was' : 'size was') +
+          (allDeadRefused
+            ? ' REFUSED by WazirX at placement, so it never reached the book. Nothing is resting.'
+            : ' cancelled, not chased. Nothing is resting.') + '</div>'
       : ok
         ? '<div style="font-size:40px;text-align:center;">✅</div><div style="font-size:17px;font-weight:800;text-align:center;color:#177a4c;margin:4px 0 10px;">ORDER EXECUTED</div>'
       : soft
@@ -5672,7 +5787,11 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       ftRow('Status', status.toUpperCase()) + ftRow('Order #', orderId);
     if (r.qty != null) rows += ftRow('Filled', num(r.qty) + (r.avgPrice != null ? ' @ ' + num(r.avgPrice, 8) : ''));
     if ((cancelled || partial) && r.askedQty != null) rows += ftRow('You asked for', num(r.askedQty));
-    if ((cancelled || partial) && r.cancelledQty != null) rows += ftRow('Cancelled', '<span style="color:#b7791f;">' + num(r.cancelledQty) + ' — never placed at a worse price</span>');
+    if ((cancelled || partial) && r.cancelledQty != null) {
+      rows += allDeadRefused
+        ? ftRow('Refused', '<span style="color:#c31d1d;">' + num(r.cancelledQty) + ' — WazirX rejected it at placement</span>')
+        : ftRow('Cancelled', '<span style="color:#b7791f;">' + num(r.cancelledQty) + ' — never placed at a worse price</span>');
+    }
     if ((cancelled || partial) && lim != null) rows += ftRow('Your limit held at', lim);
     // PER-LEVEL BREAKDOWN. Each price he approved went out as its own order, so
     // each one gets its own verdict here: ₹1.51 × 3,500 FILLED, ₹1.483 × 5,000
@@ -5688,20 +5807,41 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       for (var ri = 0; ri < r.rungs.length; ri++) {
         var R = r.rungs[ri];
         var st = String(R.status || (Number(R.filledQty) > 0 ? 'filled' : 'cancelled')).toLowerCase();
-        var stCol = st === 'filled' ? '#177a4c' : st === 'partial' ? '#b7791f' : st === 'open' ? '#b7791f' : '#8a5a00';
+        var stCol = st === 'filled' ? '#177a4c' : st === 'partial' ? '#b7791f' : st === 'open' ? '#b7791f' :
+          st === 'rejected' ? '#c31d1d' : '#8a5a00';
+        // REFUSED and CANCELLED are two different deaths and must never read the
+        // same. Order #332's ₹11 × 5 was REFUSED at placement — it never reached
+        // the book — and the page called it cancelled for want of a buyer.
         var stTxt = st === 'filled' ? 'FILLED' : st === 'partial' ? 'PART FILL' : st === 'open' ? 'STILL OPEN' :
-          st === 'rejected' ? 'REJECTED' : 'CANCELLED';
-        rows += '<div style="display:flex;gap:8px;align-items:center;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
+          st === 'rejected' ? (R.placeFailed ? 'REFUSED' : 'REJECTED') : 'CANCELLED';
+        // …and WHY. The backend now carries WazirX's own words on the rung; a
+        // bare REJECTED with nothing beside it is what made #332 unanswerable.
+        var why = R.exchangeError || (st === 'rejected' ? R.error : '') || '';
+        rows += '<div style="display:flex;gap:8px;align-items:flex-start;padding:9px 10px;font-size:12px;font-weight:700;color:#1c2733;' +
           (ri ? 'border-top:1px solid #e6ebf1;' : '') + '">' +
           '<span style="flex:1.2;">' + rcur + num(R.price, 8) +
             (R.placedPrice != null && Number(R.placedPrice) !== Number(R.price)
               ? '<div style="font-size:10px;font-weight:800;color:#d33131;margin-top:2px;">sent as ' + rcur + num(R.placedPrice, 8) + '</div>' : '') +
+            (why ? '<div style="font-size:10px;font-weight:700;color:#c31d1d;margin-top:3px;line-height:1.4;">WazirX: ' + why + '</div>' : '') +
           '</span>' +
           '<span style="flex:1;text-align:right;color:#5b6472;">' + num(R.qty) + '</span>' +
           '<span style="flex:1;text-align:right;">' + num(R.filledQty) + '</span>' +
           '<span style="flex:1.1;text-align:right;font-size:10.5px;font-weight:800;color:' + stCol + ';">' + stTxt + '</span></div>';
       }
       rows += '</div>';
+      // THE REFUSAL BLOCK. A level WazirX would not accept is not a level that
+      // failed to fill, and the difference decides what he does next: a refused
+      // level is a problem with the request (size, balance, price grid), a
+      // cancelled one is simply nobody on the other side.
+      var refused = refusedRows;  // computed above, before the headline was written
+      if (refused.length) {
+        rows += '<div style="font-size:11px;font-weight:700;color:#a51f1f;background:#fdecec;border:1.5px solid #e9b4b4;border-radius:9px;padding:9px 11px;margin:7px 0 0;line-height:1.55;">' +
+          'WazirX <b>REFUSED ' + refused.length + ' of your ' + r.rungs.length + ' level(s)</b> at placement — ' +
+          refused.map(function (X) {
+            return rcur + num(X.price, 8) + ' × ' + num(X.qty) + (X.exchangeError ? ' (' + X.exchangeError + ')' : '');
+          }).join(', ') +
+          '. Those never reached the order book, so they never had a chance to fill. This is not the same as finding no counterparty.</div>';
+      }
       // THE FOOTNOTE MUST NOT LIE. On 30 Jul this line said every level went out
       // at the approved price while two of the four had been moved to ₹4.11 by
       // tick rounding — which is exactly why they found nobody. It is now a
@@ -5716,7 +5856,15 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       var held = r.pricesHeld !== false && !moved.length;
       rows += held
         ? '<div style="font-size:11px;font-weight:600;color:#5b6472;margin:6px 0 4px;line-height:1.5;">' +
-          'Every level went out at exactly the price on your confirmation page. Anything marked CANCELLED found no counterparty there and was pulled — it was never chased to a worse price.</div>'
+          // "that reached WazirX" is a hedge, and a hedge is only honest when
+          // something did NOT reach WazirX. With nothing refused, every level
+          // reached it, so the plain sentence is the true one — qualifying it
+          // would plant a doubt the order never earned.
+          (refused.length
+            ? 'Every level that reached WazirX went out at exactly the price on your confirmation page.'
+            : 'Every level went out at exactly the price on your confirmation page.') +
+          ' Anything marked CANCELLED found no counterparty there and was pulled — it was never chased to a worse price.' +
+          (refused.length ? ' Anything marked REFUSED never reached the book at all; the reason WazirX gave is printed beside it.' : '') + '</div>'
         : '<div style="font-size:11px;font-weight:700;color:#d33131;background:#fff2f2;border:1.5px solid #f3c2c2;border-radius:9px;padding:8px 10px;margin:6px 0 4px;line-height:1.5;">' +
           (moved.length
             ? moved.length + ' of your ' + r.rungs.length + ' level(s) did NOT go out at the price on your confirmation page — tick rounding moved ' + moved.join(', ') + '. That can be why they found no counterparty.'
@@ -5954,17 +6102,33 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // read minutes ago.
     var canGo = !pv.blocker && Number(pv.qty) > 0 && pv.canExecute !== false;
     ftEnsureFoldStyles();
-    var head =
-      '<div style="font-size:36px;text-align:center;">' + (isBuy ? '🟢' : '🔴') + '</div>' +
-      '<div style="font-size:17px;font-weight:800;text-align:center;margin:4px 0 2px;">CONFIRM ' + (isBuy ? 'BUY' : 'SELL') + '</div>' +
-      '<div style="font-size:12px;font-weight:700;color:#5b6472;text-align:center;margin-bottom:11px;line-height:1.5;">' +
-        C + ' / ' + mkt + ' · WazirX<br>Nothing is placed until you tap PROCEED.</div>';
+    // NO BINANCE REFERENCE AT ALL. AMP and PEPE have no Binance perp, so the
+    // trader opens no Binance book for them and there is nothing to measure a
+    // WazirX price against. That used to be a locked button; on his instruction
+    // it is now a warned trade. The state gets its own name on the page —
+    // "NOT ARB-CHECKED" — because it is neither a good arbitrage nor a bad one.
+    var unpriced = !!pv.unpriced || (pv.arbKnown === false && pv.canExecute !== false);
+    // The pill takes the arbitrage OF THE SELECTION, not of the full ladder. With
+    // the order-count toggles set to 1 of 3, the strip restates every figure for
+    // that one order — a pill still showing the nine-level number would be the
+    // page arguing with itself two inches apart. So the head is built from
+    // whatever arbitrage is actually on offer, and drawn once that is known.
+    var mkHead = function (arbNow) {
+      var verdict = pv.blocker || pv.canExecute === false
+        ? ftPill('BLOCKED', 'bad')
+        : unpriced ? ftPill('NOT ARB-CHECKED', 'warn')
+        : Number(arbNow) > 0 ? ftPill('ARB +' + Number(arbNow).toFixed(2) + '%', 'good') : null;
+      // The band's colour is the VERDICT, never the side. Tinting a sell red made
+      // every ordinary sell look like a failure before he had read a number.
+      return ftHeadBand(isBuy ? '🟢' : '🔴', 'CONFIRM ' + (isBuy ? 'BUY' : 'SELL'),
+        C + ' / ' + mkt + ' · WazirX · ' + String(ft.mode || '').toUpperCase(),
+        pv.blocker || pv.canExecute === false ? 'bad' : unpriced ? 'warn' : Number(arbNow) > 0 ? 'good' : 'plain', verdict) +
+        '<div style="font-size:11px;font-weight:700;color:#7b8794;text-align:center;margin:-4px 0 2px;">Nothing is placed until you tap PROCEED.</div>';
+    };
 
     if (pv.blocker) {
-      return head +
-        '<div style="font-size:12.5px;font-weight:800;color:#c31d1d;background:#fdecec;border:1px solid #f0c0c0;border-radius:9px;padding:11px;line-height:1.5;">' +
-          'This order cannot be placed: ' + pv.blocker + '</div>' +
-        ftWarns(pv.warnings) +
+      return mkHead(pv.arbPct) +
+        ftAlerts([{ tone: 'bad', html: '<b>This order cannot be placed.</b><br>' + pv.blocker }].concat(ftWarnItems(pv.warnings)), 'WHY IT IS BLOCKED') +
         '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
     }
 
@@ -6010,6 +6174,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       selSlipHigh = selSlipPct >= (pv.slipWarnPct || 1);
     }
     var apos = selArb != null && Number(selArb) > 0;
+    var head = mkHead(selArb);   // now that the selection's arbitrage is known
     var money = selCost != null ? cur + num(selCost, 2) + (mkt === 'USDT' ? ' USDT' : '') : '—';
 
     // ================= 1. THE DECISION STRIP =================
@@ -6020,16 +6185,33 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // THE TOTAL ARBITRAGE — the one number that decides whether a BUY is even
     // offered. Positive and green, or the PROCEED button is not there at all.
     if (selArb != null) {
-      strip += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px;border-radius:11px;background:' +
-        (apos ? '#eef7f1' : '#fdecec') + ';border:2px solid ' + (apos ? '#bfe0cd' : '#e08a8a') + ';">' +
-        '<span style="font-size:13px;font-weight:800;color:#3a4653;">Total arbitrage</span>' +
-        '<span style="font-size:20px;font-weight:900;color:' + (apos ? '#177a4c' : '#c31d1d') + ';">' +
+      strip += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:' +
+        (apos ? '#eef7f1' : '#fdecec') + ';border:1.5px solid ' + (apos ? '#bfe0cd' : '#e08a8a') + ';">' +
+        '<span style="font-size:12.5px;font-weight:800;color:#3a4653;">Total arbitrage</span>' +
+        '<span style="font-size:22px;font-weight:900;letter-spacing:-.01em;color:' + (apos ? '#177a4c' : '#c31d1d') + ';">' +
           (apos ? '+' : '') + Number(selArb).toFixed(2) + '%</span></div>';
+    } else if (unpriced) {
+      // The honest version of the number: unknown, and WHY it is unknown, in the
+      // same slot the arbitrage would have occupied. Reading "—" there would
+      // have told him nothing; a locked button told him less.
+      strip += '<div style="padding:11px 14px;border-radius:12px;background:#fff7e6;border:1.5px solid #ecd79f;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">' +
+          '<span style="font-size:12.5px;font-weight:800;color:#3a4653;">Total arbitrage</span>' +
+          '<span style="font-size:14px;font-weight:900;color:#8a5a00;">NOT MEASURABLE</span></div>' +
+        '<div style="font-size:11px;font-weight:600;color:#8a5a00;line-height:1.5;margin-top:5px;">' +
+          (pv.noPerp
+            ? 'There is no ' + C + 'USDT perpetual on Binance, so the trader streams no Binance ' + C + ' book and there is no price to measure this against.'
+            : 'There is no live Binance ' + C + ' book right now, so there is no price to measure this against.') +
+          ' This ' + (isBuy ? 'buy' : 'sell') + ' is on WazirX alone — judge the ' + px8(selAvg) + ' average on its own merits.</div></div>';
     }
     // The average is THE COTI number: the card said ₹1.483, the sweep averaged
     // ₹1.852. It is on screen before anything else can be tapped.
     strip += ftTwoUp(
-      ftStat('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(selAvg) + (selSlipHigh ? ' ⚠' : ''), !!selSlipHigh),
+      // Green means "checked and fine". With no Binance reference nothing has
+      // been checked, so the tile is grey — it states the number without
+      // blessing it.
+      unpriced ? ftStatPlain('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(selAvg))
+        : ftStat('Average you ' + (isBuy ? 'PAY' : 'GET'), px8(selAvg) + (selSlipHigh ? ' ⚠' : ''), !!selSlipHigh),
       pv.binSpotQuote != null
         ? ftStat('vs Binance, your size', (selVb == null ? '—' : (selVb > 0 ? '+' : '') + Number(selVb).toFixed(2) + '%') + (selVbHigh ? ' ⚠' : ''), !!selVbHigh)
         : ftStatPlain('Top of book', px8(pv.topPrice)));
@@ -6046,43 +6228,62 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // Every one of these is a reason to stop. None of them is ever allowed
     // inside a <details>, because a fold he does not open is a fold he does not
     // read, and these are exactly the lines the COTI sweep needed him to read.
-    var alerts = '';
+    // They are now ROWS OF ONE PANEL rather than a stack of separate boxes —
+    // his "attractive and simple". Nothing is dropped and nothing is folded;
+    // the words are identical, the frame is one.
+    var al = [];
     if (qtyShort) {
-      alerts += ftNote('You asked for <b>' + num(pv.requestedQty) + ' ' + C + '</b>, but only <b>' + num(pv.qty) +
-        '</b> can fill at a price worth taking — ' + num(pv.requestedQty - pv.qty) + ' ' + C + ' will NOT go out.', 'bad');
+      al.push({ tone: 'bad', html: 'You asked for <b>' + num(pv.requestedQty) + ' ' + C + '</b>, but only <b>' + num(pv.qty) +
+        '</b> can fill at a price worth taking — ' + num(pv.requestedQty - pv.qty) + ' ' + C + ' will NOT go out.' });
     }
     if (selSlipHigh) {
-      alerts += ftNote('This size sweeps ' + (trimmedSel ? keepN : (pv.levelsUsed || '?')) + ' levels — ' +
+      al.push({ tone: 'bad', html: 'This size sweeps ' + (trimmedSel ? keepN : (pv.levelsUsed || '?')) + ' levels — ' +
         (selSlipPct != null ? Number(selSlipPct).toFixed(2) + '% ' : '') + 'worse than the top of the book, reaching ' +
-        px8(selWorst) + '. That is above your ' + (pv.slipWarnPct || 1) + '% mark.', 'bad');
+        px8(selWorst) + '. That is above your ' + (pv.slipWarnPct || 1) + '% mark.' });
     }
     if (selVbHigh && selVb != null) {
-      alerts += ftNote('You are ' + (isBuy ? 'BUYING above' : 'SELLING below') + ' the global market by ' +
-        Math.abs(Number(selVb)).toFixed(2) + '% — a hedge opened against this starts that far under water.', 'bad');
+      al.push({ tone: 'bad', html: 'You are ' + (isBuy ? 'BUYING above' : 'SELLING below') + ' the global market by ' +
+        Math.abs(Number(selVb)).toFixed(2) + '% — a hedge opened against this starts that far under water.' });
     }
     // Levels the server refused to include because the running arbitrage had
     // already turned negative. COTI's ₹1.999 tail would have lived here.
     if (pv.droppedLevels && pv.droppedLevels.length) {
       var dq = 0;
       for (var di = 0; di < pv.droppedLevels.length; di++) dq += Number(pv.droppedLevels[di].qty) || 0;
-      alerts += ftNote('Stopped after ' + lad.length + ' level(s). The next ' + pv.droppedLevels.length +
+      al.push({ tone: 'warn', html: 'Stopped after ' + lad.length + ' level(s). The next ' + pv.droppedLevels.length +
         ' would take the arbitrage negative, so ' + num(dq) + ' ' + C +
-        ' of the size is left on the table rather than traded at a loss.', 'warn');
+        ' of the size is left on the table rather than traded at a loss.' });
     }
     // TRIM — how much fits inside the 1% mark, one tap away.
     if (selSlipHigh && pv.capQty > 0 && pv.capQty < selQty * 0.999) {
-      alerts += ftNote('Only <b>' + num(pv.capQty) + ' ' + C + '</b> fits inside ' + (pv.slipWarnPct || 1) + '% of the top of the book' +
+      al.push({ tone: 'warn', html: 'Only <b>' + num(pv.capQty) + ' ' + C + '</b> fits inside ' + (pv.slipWarnPct || 1) + '% of the top of the book' +
         (pv.capCost != null ? ' (' + cur + num(pv.capCost, 2) + ')' : '') + '.' +
         '<button onclick="__ftWzxTrim()" style="width:100%;font:inherit;font-weight:800;font-size:12px;padding:9px;border-radius:8px;border:1px solid #d9c48a;background:#fff;color:#8a5a00;cursor:pointer;margin-top:8px;">✂ Trim to ' +
-        num(pv.capQty) + ' ' + C + ' and re-check</button>', 'warn');
+        num(pv.capQty) + ' ' + C + ' and re-check</button>' });
     }
-    if (pv.keysReady === false) alerts += ftNote('WazirX keys are not set on the server — nothing can be placed until they are.', 'bad');
+    if (pv.keysReady === false) al.unshift({ tone: 'bad', html: 'WazirX keys are not set on the server — nothing can be placed until they are.' });
     if (pv.canExecute === false && !pv.blocker) {
-      alerts += ftNote((isBuy ? 'Buying' : 'Selling') + ' is switched off — there is no total positive arbitrage on ' + C +
+      // FIRST, not sixth. This is the reason there is no button; everything else
+      // on the panel is detail about a trade that is not going out anyway.
+      al.unshift({ tone: 'bad', html: '<b>' + (isBuy ? 'Buying' : 'Selling') + ' is switched off</b> — there is no total positive arbitrage on ' + C +
         ' right now. It re-arms by itself the moment the book offers one.' +
-        (isBuy ? '' : ' Nothing is sold into whatever the book has left; if you want out regardless, transfer the coins to Binance and sell there.'), 'bad');
+        (isBuy ? '' : ' Nothing is sold into whatever the book has left; if you want out regardless, transfer the coins to Binance and sell there.') });
     }
-    alerts += ftWarns(pv.warnings);
+    // The server's own warnings. The two that describe the missing Binance
+    // reference are dropped HERE and only here, because the amber band in the
+    // strip above already says both things in fewer words and printing them
+    // twice is exactly the wall of red he asked to be rid of. Everything else
+    // the server says is kept verbatim.
+    var ws = (pv.warnings || []).filter(function (w) {
+      if (!unpriced) return true;
+      return !/NOT arbitrage-checked|no reference price to measure this against|can never be hedged on Binance futures/.test(w.text || '');
+    });
+    if (unpriced && pv.noPerp) {
+      al.push({ tone: 'warn', html: '<b>' + C + ' cannot be hedged on Binance futures</b> — there is no ' + C +
+        'USDT perpetual. Whatever ' + (isBuy ? 'you buy' : 'is left') + ' has to be moved and closed by hand, so treat this as an outright position, not a hedged leg.' });
+    }
+    al = al.concat(ftWarnItems(ws));
+    var alerts = ftAlerts(al, canGo ? 'READ THIS BEFORE YOU TAP PROCEED' : 'WHY THIS IS NOT OFFERED');
 
     // ================= 3. THE FOLDS — detail, on tap =================
     var folds = '';

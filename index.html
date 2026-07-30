@@ -567,6 +567,11 @@
   .leg-line { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 3px 0; }
   .leg-line .k { color: var(--gray-700); flex: 1; min-width: 0; }
   .leg-line .v { font-weight: 700; color: #1c2637; font-variant-numeric: tabular-nums; flex: 0 0 auto; white-space: nowrap; text-align: right; }
+  /* A caveat is a sentence, not a figure, so it gets its own full width. The
+     first attempt put it in the .v column, where white-space:nowrap drove it
+     straight off the right edge and across the label. */
+  .leg-note { margin: 4px 0 2px; padding: 6px 8px; border-radius: 6px; background: #fffbeb;
+              border: 1px solid #fde68a; color: #8a6114; font-size: 11px; line-height: 1.45; font-weight: 600; }
 
   .arb-box { background: linear-gradient(135deg, #34b184, #23a06f); color: #fff; border-radius: var(--radius-xs); padding: 10px 14px; margin-bottom: 6px; }
   .arb-box .arb-pct { font-size: 15.5px; font-weight: 700; }
@@ -1993,6 +1998,35 @@ function arbFold(cls, main, sub, detail, onclickJs) {
     </details>`;
 }
 function ln(k, v) { return `<div class="leg-line"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+// UNKNOWN on the rail line, and the ₹0.0000 beside it, are not facts about the
+// coin — they are what is left when Binance's signed wallet call did not answer.
+// Printing them bare stated a free transfer on a chain we never identified, and
+// the arbitrage % above was computed on that free transfer. These two say so.
+function railText(o) {
+  if (!o.network || o.network === 'UNKNOWN') return '<span style="color:#b7791f;">NOT CONFIRMED</span>';
+  if (o.network === 'NO_COMMON_RAIL') return '<span style="color:#c31d1d;">NO SHARED CHAIN</span>';
+  if (o.network === 'TRANSFER_DISABLED') return '<span style="color:#c31d1d;">TRANSFERS OFF</span>';
+  return o.network;
+}
+function transferChargeText(o, charge) {
+  if (o.feeUnknown) return '<span style="color:#b7791f;">not deducted</span>';
+  return fmtInr(charge, 4);
+}
+// One sentence, once, at full width — printed only when the numbers above it are
+// placeholders. The % on the green bar was walked with a zero transfer fee, so
+// saying nothing here would let a flattering figure pass as a checked one.
+function railNote(o) {
+  if (o.feeUnknown) {
+    return '<div class="leg-note">Binance\'s wallet check did not answer, so the chain and its ' +
+      'withdrawal fee are unknown. The arbitrage above is priced as if this transfer were free — ' +
+      'treat it as a ceiling, not a quote.</div>';
+  }
+  if (o.network === 'NO_COMMON_RAIL') {
+    return '<div class="leg-note">There is no chain both exchanges accept for this coin' +
+      (o.wantedRail ? ' (WazirX wants ' + o.wantedRail + ')' : '') + ', so the coin cannot be moved between them.</div>';
+  }
+  return '';
+}
 
 function directCard(o) {
   const pct = pctOf(o);
@@ -2030,8 +2064,9 @@ function directCard(o) {
       </summary>
       <div class="kk-body">
         <div class="leg-line"><span class="k">Sell price:</span><span class="v">${fmtInr(d.sellPrice,4)}</span></div>
-        <div class="leg-line"><span class="k">Crypto transfer charges:</span><span class="v">${fmtInr(d.transferCharge,4)}</span></div>
-        <div class="leg-line"><span class="k">Crypto transfer network:</span><span class="v">${o.network}</span></div>
+        <div class="leg-line"><span class="k">Crypto transfer charges:</span><span class="v">${transferChargeText(o, d.transferCharge)}</span></div>
+        <div class="leg-line"><span class="k">Crypto transfer network:</span><span class="v">${railText(o)}</span></div>
+        ${railNote(o)}
         <div class="leg-line"><span class="k">Trading charges:</span><span class="v">${fmtInr(d.tradingChargeSell,4)}</span></div>
         <div class="leg-line"><span class="k">Final sell price:</span><span class="v">${fmtInr(d.finalSell,4)}</span></div>
       </div>
@@ -2042,7 +2077,7 @@ function directCard(o) {
       ln('Buy on', `${exLabel(o.buyExchange)} · ${marketLabel(o.buyMarket)}`) +
       ln('Sell on', `${exLabel(o.sellExchange)} · ${marketLabel(o.sellMarket)}`) +
       ln('Execution time', `${o.executionMin.toFixed(2)} mins`) +
-      (o.network ? ln('Transfer network', o.network) : ''),
+      (o.network ? ln('Transfer network', railText(o)) : ''),
       `openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')`)}`
   : (o.fixed ? `
     <details class="kk-row">
@@ -2081,7 +2116,7 @@ function directCard(o) {
       ln('Buy on', `${exLabel(o.buyExchange)} · ${marketLabel(o.buyMarket)}`) +
       ln('Sell on', `${exLabel(o.sellExchange)} · ${marketLabel(o.sellMarket)}`) +
       ln('Execution time', `${o.executionMin.toFixed(2)} mins`) +
-      (o.network ? ln('Transfer network', o.network) : ''),
+      (o.network ? ln('Transfer network', railText(o)) : ''),
       `openCardModal('direct','${o.coin}','','','${o.buyExchange}','${o.buyMarket}')`)}`
   : `
     <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:76px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
