@@ -7494,6 +7494,42 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       };
     }
   } catch (e) { /* scanner internals moved — the popup keeps its old matcher */ }
+
+  // ---------- VOLUME OFF MEANS VOLUME OFF ----------
+  // His question, and he is right: with the toggle off the popup says "showing
+  // top-of-book only" and "figures priced on a fixed ₹1,00,000 at the first
+  // ask/bid" — so nothing on that screen should know what a transfer fee is.
+  //
+  // But the consumption bars were still there. They are not computed by the
+  // page: the backend walks the depth on EVERY request and stamps consumedQty /
+  // consumedPct onto liveBooks.legs, and the volume flag only decides what the
+  // page does with the walk afterwards. The Volume-OFF branch of
+  // renderDirectModal hands those legs straight to loopOrderBookTable(), whose
+  // showBars defaults to true — so the walk's quantities were drawn under a
+  // header computed on a completely different basis.
+  //
+  // On COTI that read as "Binance 34.1, WazirX 0.1" on a screen that had just
+  // promised fees were not applied: 34 of that 34.1 is the ERC20 withdrawal
+  // fee, which belongs to the depth walk and to nothing else.
+  //
+  // showBars:false is the page's own existing answer — the card book at line
+  // 2611 and the loop modal on a negative arb already use it — and it hides
+  // ONLY the bar. Sizes, prices and the spread row are untouched.
+  try {
+    var _lob = window.loopOrderBookTable;
+    if (typeof _lob === 'function') {
+      window.loopOrderBookTable = function (legs, opts) {
+        try {
+          if (typeof withVolume !== 'undefined' && !withVolume) {
+            var o2 = {}; for (var k in (opts || {})) o2[k] = opts[k];
+            o2.showBars = false;
+            return _lob.call(this, legs, o2);
+          }
+        } catch (e) {}
+        return _lob.apply(this, arguments);
+      };
+    }
+  } catch (e) {}
 })();
 
 </script>
