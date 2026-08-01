@@ -5564,9 +5564,23 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       : '<button onclick="__ftFire(' + ft.sel + ')" style="width:100%;font:inherit;font-size:13px;font-weight:800;padding:12px;border:none;border-radius:9px;cursor:pointer;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:7px;' +
         'background:' + col + ';color:#fff;">Execute · ' + selLabel + ' · ' + szTxt + '</button>';
 
-    var st = ft.ready
-      ? '<div style="font-size:10.5px;font-weight:700;color:var(--success);">● trader books live — Execute is armed</div>'
-      : '<div style="font-size:10.5px;font-weight:700;color:var(--gray-500);">◌ warming the trader’s live books (a few seconds)… Execute retries by itself if tapped early</div>';
+    // ---- "EXECUTE IS ARMED" WAS ONLY EVER HALF TRUE.
+    //
+    // ft.ready is a WAZIRX fact: liveOpps only emits a coin once its WazirX book
+    // is live. The arbitrage needs a SECOND book — Binance — and that one can
+    // still be seconds behind, which is exactly the gap that let this line read
+    // green while the confirmation page underneath it said NOT ARB-CHECKED. Two
+    // parts of the same screen disagreeing is worse than either being slow.
+    //
+    // The depth ladder is the honest tell: it is computed level-by-level against
+    // Binance, so an empty ladder on a coin that should have one means the
+    // reference has not arrived. Said plainly, in amber, instead of green.
+    var arbCold = p.wantLadder && !(p.ladder && p.ladder.length);
+    var st = !ft.ready
+      ? '<div style="font-size:10.5px;font-weight:700;color:var(--gray-500);">◌ warming the trader’s live books (a few seconds)… Execute retries by itself if tapped early</div>'
+      : arbCold
+      ? '<div style="font-size:10.5px;font-weight:700;color:#b7791f;">◐ WazirX book live · the Binance reference that prices the arbitrage is still loading — the arb check is not ready yet</div>'
+      : '<div style="font-size:10.5px;font-weight:700;color:var(--success);">● trader books live — Execute is armed</div>';
     return head + note + legs + pcts + tally + hedgeBox + lad + btn + st + '<div id="ftMsg" style="font-size:11.5px;font-weight:700;"></div>';
   }
   // ---------- SCROLL ANCHOR ----------
@@ -5638,7 +5652,12 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     el.style.display = 'flex';
     return el;
   }
-  window.__ftCloseResult = function () { var el = document.getElementById('ftResult'); if (el) el.style.display = 'none'; };
+  // Every confirmation page gets a sequence number. Closing the overlay, or
+  // opening a different one, invalidates whatever the previous page was still
+  // waiting on — so a retry that lands late can never repaint over a page he has
+  // moved on from.
+  var ftConfirmSeq = 0;
+  window.__ftCloseResult = function () { ftConfirmSeq++; var el = document.getElementById('ftResult'); if (el) el.style.display = 'none'; };
   function ftCard(inner) {
     return '<div style="background:#fff;border-radius:16px;max-width:540px;width:100%;max-height:86vh;overflow:auto;padding:20px;box-shadow:0 18px 60px rgba(0,0,0,.4);" onclick="event.stopPropagation();">' + inner + '</div>';
   }
@@ -6275,6 +6294,18 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     };
 
     if (pv.blocker) {
+      // "Waiting" and "refused" are different answers and they now look
+      // different. A pending arbitrage reference is amber with a Try again
+      // button; a real refusal keeps the red card and the Close button.
+      if (pv.arbPending) {
+        return ftHeadBand('◐', 'NOT READY YET', C + ' / ' + mkt + ' · WazirX · ' + String(ft.mode || '').toUpperCase(),
+          'warn', ftPill('WAITING FOR BINANCE', 'warn')) +
+          '<div style="font-size:11px;font-weight:700;color:#7b8794;text-align:center;margin:-4px 0 2px;">Nothing has been placed and nothing has been refused.</div>' +
+          ftAlerts([{ tone: 'warn', html: '<b>The arbitrage has not been measured yet.</b><br>' + pv.blocker }].concat(ftWarnItems(pv.warnings)), 'WHAT IS HAPPENING') +
+          '<div style="display:flex;gap:8px;margin-top:14px;">' +
+            '<button onclick="__ftWzxRetry()" style="flex:1;font:inherit;font-weight:900;font-size:13px;padding:12px;border-radius:9px;border:none;background:#b7791f;color:#fff;cursor:pointer;">Try again</button>' +
+            '<button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
+      }
       return mkHead(pv.arbPct) +
         ftAlerts([{ tone: 'bad', html: '<b>This order cannot be placed.</b><br>' + pv.blocker }].concat(ftWarnItems(pv.warnings)), 'WHY IT IS BLOCKED') +
         '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Close</button></div>';
@@ -6347,7 +6378,13 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           '<span style="font-size:12.5px;font-weight:800;color:#3a4653;">Total arbitrage</span>' +
           '<span style="font-size:14px;font-weight:900;color:#8a5a00;">NOT MEASURABLE</span></div>' +
         '<div style="font-size:11px;font-weight:600;color:#8a5a00;line-height:1.5;margin-top:5px;">' +
-          (pv.noPerp
+          // The server now names the exact state — no perp, warming, frozen, or
+          // no USDT/INR rate — so the page states its reason instead of guessing
+          // one. Only the permanently-unpriceable case reaches this card at all;
+          // the temporary ones are held on the waiting card and never arm PROCEED.
+          (pv.unpricedReason
+            ? (String(pv.unpricedReason).charAt(0).toUpperCase() + String(pv.unpricedReason).slice(1) + '.')
+            : pv.noPerp
             ? 'There is no ' + C + 'USDT perpetual on Binance, so the trader streams no Binance ' + C + ' book and there is no price to measure this against.'
             : 'There is no live Binance ' + C + ' book right now, so there is no price to measure this against.') +
           ' This ' + (isBuy ? 'buy' : 'sell') + ' is on WazirX alone — judge the ' + px8(selAvg) + ' average on its own merits.</div></div>';
@@ -6582,8 +6619,31 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     return head + strip + alerts + folds + btns;
   }
 
+  // WAITING IS NOT REFUSING, AND IT SHOULD NOT LOOK LIKE IT.
+  //
+  // When the Binance reference has not landed yet the server now says so with
+  // arbPending instead of quietly dropping the positive-arb gate. That is the
+  // right answer, but showing him a red BLOCKED card for a coin that will price
+  // in a second and a half would just move the confusion. So this page waits for
+  // it — visibly, with a count — and paints the real numbers the moment they
+  // exist. He taps once; the page does the reopening he was doing by hand.
+  var ARB_WAIT_TRIES = 4;
+  var ARB_WAIT_MS = 1200;
+  function ftWzxWaitCard(o, n, of) {
+    var C = String(o.coin).toUpperCase();
+    return '<div style="font-size:34px;text-align:center;">◐</div>' +
+      '<div style="font-size:15px;font-weight:800;text-align:center;margin:6px 0 3px;">Waiting for the Binance ' + C + ' book…</div>' +
+      '<div style="font-size:12px;font-weight:600;color:#5b6472;text-align:center;line-height:1.6;">' +
+        C + ' was subscribed the moment you opened it, and the arbitrage cannot be measured until that book arrives. ' +
+        'Nothing is placed and nothing is being refused — this page arms itself as soon as there is a price to check against.' +
+      '</div>' +
+      '<div style="font-size:11px;font-weight:800;color:#b7791f;text-align:center;margin-top:9px;">attempt ' + n + ' of ' + of + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:14px;"><button onclick="__ftCloseResult()" style="flex:1;font:inherit;font-weight:800;font-size:13px;padding:12px;border-radius:9px;border:1px solid #d7dde6;background:#fff;color:#1c2733;cursor:pointer;">Cancel</button></div>';
+  }
+
   // o = { coin, side, market, qty, pct, lvl }
   async function ftWzxConfirm(o) {
+    var seq = ++ftConfirmSeq;
     ftOverlay().innerHTML = ftCard(
       '<div style="font-size:34px;text-align:center;">◌</div>' +
       '<div style="font-size:15px;font-weight:800;text-align:center;margin:6px 0 3px;">Walking the live book…</div>' +
@@ -6593,12 +6653,27 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     if (o.qty) body.qty = o.qty;
     if (o.lvl != null) body.lvl = o.lvl;
     if (o.market) body.market = o.market;
-    var pv;
-    try { pv = await ftPost('/api/trader/manual/preview', body); }
-    catch (e) { pv = { blocker: e.message, warnings: [], qty: null }; }
+    var pv, tries = 0;
+    for (;;) {
+      try { pv = await ftPost('/api/trader/manual/preview', body); }
+      catch (e) { pv = { blocker: e.message, warnings: [], qty: null }; }
+      if (seq !== ftConfirmSeq) return;              // he closed it, or opened another
+      if (!pv || !pv.arbPending || tries >= ARB_WAIT_TRIES) break;
+      tries++;
+      ftOverlay().innerHTML = ftCard(ftWzxWaitCard(o, tries, ARB_WAIT_TRIES));
+      await new Promise(function (r) { setTimeout(r, ARB_WAIT_MS); });
+      if (seq !== ftConfirmSeq) return;
+    }
     ftPend = { o: o, pv: pv, wzx: true };
     ftOverlay().innerHTML = ftCard(ftWzxCard(pv, o));
   }
+
+  // The manual half of the same self-heal: reopens the SAME request, so it
+  // cannot quietly change size or side while he was reading it.
+  window.__ftWzxRetry = function () {
+    if (!ftPend || !ftPend.wzx || !ftPend.o) return;
+    ftWzxConfirm(ftPend.o);
+  };
 
   // "Trim to what fits inside 1%" — re-opens the page on the smaller size, so
   // he approves the trimmed numbers rather than assuming them.
