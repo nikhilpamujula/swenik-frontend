@@ -7495,38 +7495,52 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     }
   } catch (e) { /* scanner internals moved — the popup keeps its old matcher */ }
 
-  // ---------- VOLUME OFF MEANS VOLUME OFF ----------
-  // His question, and he is right: with the toggle off the popup says "showing
-  // top-of-book only" and "figures priced on a fixed ₹1,00,000 at the first
-  // ask/bid" — so nothing on that screen should know what a transfer fee is.
+  // ---------- VOLUME OFF KEEPS ITS BARS ----------
+  // Reverted, at his word: "I like previous style even when volume turned off
+  // it was showing bars which leg order book can go".
   //
-  // But the consumption bars were still there. They are not computed by the
-  // page: the backend walks the depth on EVERY request and stamps consumedQty /
-  // consumedPct onto liveBooks.legs, and the volume flag only decides what the
-  // page does with the walk afterwards. The Volume-OFF branch of
-  // renderDirectModal hands those legs straight to loopOrderBookTable(), whose
-  // showBars defaults to true — so the walk's quantities were drawn under a
-  // header computed on a completely different basis.
+  // The previous build hid the red/green consumption bars whenever the Volume
+  // toggle was off, on the reasoning that a screen promising "figures priced on
+  // a fixed ₹1,00,000 at the first ask/bid" should not also be drawing
+  // quantities that came out of a depth walk. That reasoning was about the
+  // NUMBERS. It threw away the picture, and the picture was the point: the bars
+  // are how you see at a glance which leg's book the trade walks into and how
+  // far down it goes. Losing that to fix a caption was a bad trade.
   //
-  // On COTI that read as "Binance 34.1, WazirX 0.1" on a screen that had just
-  // promised fees were not applied: 34 of that 34.1 is the ERC20 withdrawal
-  // fee, which belongs to the depth walk and to nothing else.
+  // So the bars come back exactly as they were. Nothing is recomputed and
+  // nothing is re-fetched: consumedQty / consumedPct are stamped onto
+  // liveBooks.legs by the backend on EVERY request regardless of the volume
+  // flag, so this is a pure presentation revert — no extra work on any path,
+  // and the scan/refresh cycle is untouched.
   //
-  // showBars:false is the page's own existing answer — the card book at line
-  // 2611 and the loop modal on a negative arb already use it — and it hides
-  // ONLY the bar. Sizes, prices and the spread row are untouched.
+  // What survives from the earlier fix is the honest label, not the blanking.
+  // His COTI question — "when volume is turned off why it needs to bother about
+  // transfer fee" — came from reading "Binance 34.1 / WazirX 0.1" with no
+  // explanation: 34 of that 34.1 is the ERC20 withdrawal fee, which belongs to
+  // the walk and to nothing else. A one-line caption under the Volume-OFF book
+  // now says so, so the bars can be read for what they are.
+  //
+  // The caption is appended ONLY on the Direct modal's Volume-OFF book — the
+  // call site that passes no opts (renderDirectModal's early branch). The card
+  // preview at line 2611 passes { showBars:false } and the Loop modal passes
+  // its own opts, so neither is touched; Loop also forces withVolume = true and
+  // never reaches this at all.
   try {
     var _lob = window.loopOrderBookTable;
     if (typeof _lob === 'function') {
       window.loopOrderBookTable = function (legs, opts) {
+        var html = _lob.apply(this, arguments);
         try {
-          if (typeof withVolume !== 'undefined' && !withVolume) {
-            var o2 = {}; for (var k in (opts || {})) o2[k] = opts[k];
-            o2.showBars = false;
-            return _lob.call(this, legs, o2);
+          if (typeof withVolume !== 'undefined' && !withVolume && !opts) {
+            html += '<div class="note-box">Bars show how deep into each side’s' +
+                    ' book this trade would walk — which leg can absorb it and by' +
+                    ' how much. That walk is depth-based, so the buy leg’s quantity' +
+                    ' also carries the network transfer fee and can look far larger' +
+                    ' than the ₹1,00,000 figures above. Turn Volume on for the full' +
+                    ' fee and leg breakdown.</div>';
           }
         } catch (e) {}
-        return _lob.apply(this, arguments);
+        return html;
       };
     }
   } catch (e) {}
