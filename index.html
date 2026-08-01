@@ -2910,9 +2910,24 @@ function kkObCellPair(l, colorVar, currency, showBars) {
 // buy into); right pair = sell exchange (its bids are what we sell into).
 // The buy exchange has no rows in the bids section and vice versa, because
 // the backend only streams the walked side of each book.
+// How many levels to actually draw. The 13-row cap was a deliberate readability
+// call and it stays as the FLOOR — but it was applied blindly, so on a deep book
+// a level the trade genuinely consumed could be cut off the bottom of the table.
+// The walk would say it used 15 levels and the page would show 13, with the last
+// two bars simply missing. Now the cap stretches just far enough to keep every
+// consumed level on screen (never past the 20 the feed carries), and stays at 13
+// whenever the trade is shallower than that — which is nearly always.
+var OB_MIN_ROWS = 13, OB_MAX_ROWS = 20;
+function obCut(levels) {
+  const arr = levels || [];
+  let last = -1;
+  for (let i = 0; i < arr.length; i++) if ((arr[i] && arr[i].consumedQty) > 0) last = i;
+  return arr.slice(0, Math.min(OB_MAX_ROWS, Math.max(OB_MIN_ROWS, last + 1)));
+}
+
 function dualOrderBookTable(buy, sell) {
-  buy = { ...buy, levels: (buy.levels || []).slice(0, 13) };
-  sell = { ...sell, levels: (sell.levels || []).slice(0, 13) };
+  buy = { ...buy, levels: obCut(buy.levels) };
+  sell = { ...sell, levels: obCut(sell.levels) };
   const asksReversed = [...buy.levels].reverse(); // best ask ends up adjacent to the spread row
   const askRows = asksReversed.map(l =>
     `<tr class="kk-ask-row">${kkObCellPair(l, '--danger', buy.currency)}<td></td><td></td></tr>`
@@ -2992,6 +3007,32 @@ function renderDirectModal(entry) {
     if (fb) { buy = fb.buy; sell = fb.sell; usingFallbackBooks = true; }
   }
 
+  // "Why did it stop at THIS level?" — the question the table could never answer.
+  // The walk takes every level where the next one still pays, so the number of
+  // Binance levels it touches is decided by how big those levels happen to be,
+  // not by any cap. Two screenshots of the same coin a minute apart stopped at
+  // the same PRICE and used two levels one time and four the next, purely
+  // because the depth sitting at those prices had changed. That was invisible
+  // from the page, so it read as arbitrary. It isn't, and now it says so.
+  //
+  // The distinction that matters: 'unprofitable' means this IS the whole
+  // arbitrage. The two depth reasons mean the 20-level feed ran out while the
+  // trade was still paying — the profit shown is then a floor, not the total.
+  function walkStopNote(entry) {
+    const s = entry && entry.walkStop;
+    if (!s) return '';
+    const px = (v) => v == null ? '—' : fmtAdaptive(v);
+    if (s.reason === 'unprofitable') {
+      const nxt = s.nextAskPrice != null || s.nextBidPrice != null
+        ? ` The next level (buy ${px(s.nextAskPrice)} / sell ${px(s.nextBidPrice)}) would have lost money on every token, so it was left alone.`
+        : '';
+      return `<div class="note-box">Used the top ${s.bidLevelsUsed} sell level${s.bidLevelsUsed === 1 ? '' : 's'} and the top ${s.askLevelsUsed} buy level${s.askLevelsUsed === 1 ? '' : 's'} — it goes as deep as the arbitrage stays positive and stops there.${nxt} A different level count next time means the book changed, not the rule.</div>`;
+    }
+    const side = s.reason === 'bid_depth' ? 'sell' : 'buy';
+    return `<div class="note-box" style="border-color:#f4c2c2;">Took every one of the ${side === 'sell' ? s.bidLevelsAvailable : s.askLevelsAvailable} ${side} levels the feed carries and the trade was <b>still profitable</b> at the last one. This is as deep as the data goes, not as deep as the money goes — treat the profit above as a minimum.</div>`;
+  }
+  const obStopNote = walkStopNote(entry);
+
   const obLegend = `
     <div class="ob-legend">
       <div class="ob-legend-item"><span class="ob-swatch" style="background:var(--ask-bg); border:1px solid #f4c2c2;"></span><span class="ob-bar-icon" style="background:var(--danger);"></span>Asks — % consumed by this trade</div>
@@ -3003,12 +3044,14 @@ function renderDirectModal(entry) {
     <div class="ob-section-title">Order Book</div>
     ${liveBookError ? `<div class="modal-note" style="color:var(--danger);">Last refresh failed (${liveBookError}) — showing the previous snapshot, retrying every 15s.</div>` : ''}
     ${loopOrderBookTable(legs)}
-    <div class="note-box">Both sides of both books, 15 levels each. Bars mark the levels this trade consumes: ${exLabel(entry.buyExchange)}'s asks (buying) and ${exLabel(entry.sellExchange)}'s bids (selling).</div>`
+    ${obStopNote}
+    <div class="note-box">Both sides of both books, up to 20 levels each. Bars mark the levels this trade consumes: ${exLabel(entry.buyExchange)}'s asks (buying) and ${exLabel(entry.sellExchange)}'s bids (selling).</div>`
   : (buy && sell && liveFailStreak >= 2) ? `
     ${obLegend}
     <div class="ob-section-title">Order Book</div>
     <div class="banner-error">Live order-book feed unreachable${liveBookError ? ` — reason: ${liveBookError}` : ''} — showing only the levels this trade touched meanwhile.</div>
-    ${dualOrderBookTable(buy, sell)}`
+    ${dualOrderBookTable(buy, sell)}
+    ${obStopNote}`
   : (liveBookError && liveFailStreak >= 2
       ? `${obLegend}<div class="ob-section-title">Order Book</div><div class="banner-error">Couldn't load the order book (${liveBookError}). Retrying automatically every 15s — or tap "refresh now" above.</div>`
       : `${obLegend}<div class="ob-section-title">Order Book</div><div class="modal-note">Updating live order book depth…</div>`);
@@ -3137,8 +3180,10 @@ function loopOrderBookTable(legs, opts) {
   // reference) isn't part of the actual trade and only confuses. Real loops keep
   // their genuine c2 Binance book (e.g. GALAUSDT).
   legs = (legs || []).filter(l => (l.market || '').toLowerCase() !== 'usdtusdc');
-  // Cap at 13 levels a side — deeper reads poorly on screen (user call).
-  legs = legs.map(l => ({ ...l, asks: (l.asks || []).slice(0, 13), bids: (l.bids || []).slice(0, 13) }));
+  // Cap at 13 levels a side — deeper reads poorly on screen (user call) — but
+  // stretch past it when the trade itself reaches further, so no consumed level
+  // is ever cut off the bottom of the table. See obCut().
+  legs = legs.map(l => ({ ...l, asks: obCut(l.asks), bids: obCut(l.bids) }));
   const maxAsks = Math.max(...legs.map(l => l.asks.length));
   const maxBids = Math.max(...legs.map(l => l.bids.length));
 
@@ -3954,7 +3999,7 @@ async function refreshOrderbook() {
 // bids (best→worst) below — the per-market view from KoinKnight's
 // Orderbook page.
 function singleMarketBookTable(b) {
-  b = { ...b, asks: (b.asks || []).slice(0, 13), bids: (b.bids || []).slice(0, 13) };
+  b = { ...b, asks: obCut(b.asks), bids: obCut(b.bids) };
   const askRows = [...b.asks].reverse().map(l => `<tr class="kk-ask-row">${kkObCellPair(l, '--danger', b.currency)}</tr>`).join('');
   const bidRows = b.bids.map(l => `<tr class="kk-bid-row">${kkObCellPair(l, '--success', b.currency)}</tr>`).join('');
   const spread = (b.asks[0] && b.bids[0]) ? fmtAdaptive(b.asks[0].price - b.bids[0].price) : '—';
@@ -4735,8 +4780,14 @@ function gSrvBooksHtml(t) {
     const d = gDepth[L.market];
     if (d) {
       // Live depth for this market.
-      const lv = gLv(L.side === 'buy' ? d.asks : d.bids).slice(0, 13);
       const u = (liveUsed && liveUsed[j]) || [];
+      // Same rule as obCut(): 13 rows normally, stretched only as far as the
+      // deepest level this walk actually takes, so a "← you take" mark can never
+      // fall off the bottom of the table.
+      let uLast = -1;
+      for (let k = 0; k < u.length; k++) if (u[k] > 1e-9) uLast = k;
+      const lv = gLv(L.side === 'buy' ? d.asks : d.bids)
+        .slice(0, Math.min(OB_MAX_ROWS, Math.max(OB_MIN_ROWS, uLast + 1)));
       const rows = lv.map((l, i) =>
         `<tr class="${cls} ${u[i] > 1e-9 ? 'used' : ''}"><td>${l.p}</td><td>${l.q}</td><td class="take">${u[i] > 1e-9 ? '← ' + (+u[i].toPrecision(4)) : ''}</td></tr>`).join('');
       return `<div class="g-book"><div class="bt">${title}</div>
