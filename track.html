@@ -7325,6 +7325,175 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     ftCalm(document.getElementById('cardList'), true);
     ftCalm(document.getElementById('modalBody'));
   } catch (e) {}
+
+  // ---------- WHICH SELL LEG DID HE ACTUALLY TAP? ----------
+  // COTI, 1 Aug. The card read +1.98% and the popup it opened read -2.77%.
+  // Both figures were correct. They were describing two different trades.
+  //
+  // /api/opportunities/coti/live returns FOUR direct rows, and two of them share
+  // an identical BUY leg:
+  //     buy binance COTIUSDT  →  sell wazirx cotiinr     -2.90%
+  //     buy binance COTIUSDT  →  sell wazirx cotiusdt    +2.00%
+  // A direct opportunity's identity in the scanner is (coin, buyExchange,
+  // buyMarket). The SELL leg is not part of it — not in openCard, not in
+  // findOpportunity, not in the liveCache key, not in the card's own onclick.
+  // So refreshDirectModalLive's
+  //     list.find(o => o.buyExchange === … && o.buyMarket === …)
+  // returns whichever row the backend happened to emit first, which is the INR
+  // one. Tapping the USDT card opened the INR book.
+  //
+  // This is not a COTI quirk. Every coin quoted on BOTH wazirx INR and wazirx
+  // USDT is ambiguous in exactly this way, so the whole "USDT pairs" view is
+  // exposed — and the Execute panel sizes itself from directLiveEntry, i.e.
+  // from the row this matcher picked. A popup showing the wrong book is a
+  // display fault; an order sized against the wrong book is not.
+  //
+  // The fix is CLONE-ONLY, deliberately. All four defective sites live above
+  // line 5225 — the region that is byte-for-byte identical to the original
+  // scanner's index.html, the one this page's own toolbar promises is
+  // untouched. So rather than edit them, this block re-decides the sell leg at
+  // the moment of the tap and lets the untouched code downstream reach the
+  // right row by itself:
+  //   • openCardModal   — record which card was clicked, before the original runs
+  //   • findOpportunity — resolve the list entry with the sell leg included
+  //   • fetchLiveCoin   — put the tapped sell leg FIRST in the response, so the
+  //                       buy-leg-only matcher lands on it without being rewritten
+  //   • cachePfx        — key liveCache per sell leg, so the two siblings stop
+  //                       overwriting each other between opens
+  // Every one of them is a fall-through: if the tapped card cannot be
+  // identified, or the coin has only one row for that buy leg, the hint is
+  // dropped and the behaviour is exactly today's.
+  try {
+    var _sellHint = null;   // { coin, buyExchange, buyMarket, sellExchange, sellMarket }
+    var _clickEl = null;
+    // Capture phase, so this runs BEFORE the card's inline onclick — which is
+    // where openCardModal is called from, and which stopPropagation()s on the
+    // way back up. One listener, no work in it, nothing on the scan path.
+    document.addEventListener('click', function (ev) { _clickEl = ev.target; }, true);
+
+    var _oppSrc = function (venueId) {
+      try {
+        if (venueId && typeof venueState !== 'undefined' && venueState[venueId]) return venueState[venueId].opps || [];
+      } catch (e) {}
+      try { return (typeof allOpportunities !== 'undefined' && allOpportunities) || []; } catch (e) {}
+      return [];
+    };
+
+    // A hint belongs to ONE card. If the popup has moved on, it does not apply.
+    var _hintFor = function (card) {
+      if (!_sellHint || !card || card.type !== 'direct') return null;
+      if (card.coin !== _sellHint.coin || card.buyExchange !== _sellHint.buyExchange) return null;
+      if ((card.buyMarket || '') !== (_sellHint.buyMarket || '')) return null;
+      return _sellHint;
+    };
+
+    // Read the sell leg off the card he tapped, as it is PRINTED there.
+    var _readHint = function (coin, buyExchange, buyMarket, venueId) {
+      var el = _clickEl; _clickEl = null;   // consume: a stale click must not steer a later open
+      var cands = _oppSrc(venueId).filter(function (o) {
+        return o && o.type === 'direct' && o.coin === coin && o.buyExchange === buyExchange
+          && (!buyMarket || o.buyMarket === buyMarket);
+      });
+      if (cands.length < 2) return null;    // one row for this buy leg — nothing to disambiguate
+      if (!el && typeof window.event !== 'undefined' && window.event) el = window.event.target;
+      var card = (el && el.closest) ? el.closest('.card') : null;
+      if (!card) return null;
+      var hdr = card.querySelector('.coin-pair');
+      var hdrTxt = (hdr ? hdr.textContent : '').toLowerCase();
+      // Guard against a card that has nothing to do with this open.
+      if (hdrTxt.indexOf(String(coin).toLowerCase() + ' /') < 0) return null;
+      var tag = card.querySelector('.kk-tag.sell');
+      var row = (tag && tag.closest) ? tag.closest('.kk-row') : null;
+      var txt = (hdrTxt + ' | ' + (row ? row.textContent : '')).toLowerCase();
+      var has = function (s) { return !!s && txt.indexOf(String(s).toLowerCase()) >= 0; };
+      var pick = cands.filter(function (o) {
+        var exOk = has(o.sellExchange) || has(typeof exLabel === 'function' ? exLabel(o.sellExchange) : '');
+        var mkOk = has(o.sellMarket) || has(typeof marketLabel === 'function' ? marketLabel(o.sellMarket) : '');
+        var qtOk = has(' / ' + (o.quote || 'INR'));
+        return exOk && (mkOk || qtOk);
+      });
+      if (pick.length !== 1) return null;   // still ambiguous — say nothing rather than guess
+      return {
+        coin: coin, buyExchange: buyExchange, buyMarket: buyMarket || '',
+        sellExchange: pick[0].sellExchange, sellMarket: pick[0].sellMarket,
+      };
+    };
+
+    var _fo = window.findOpportunity;
+    if (typeof _fo === 'function') {
+      window.findOpportunity = function (card) {
+        try {
+          var h = _hintFor(card);
+          if (h) {
+            var exact = _oppSrc(card.venueId).find(function (o) {
+              return o && o.type === 'direct' && o.coin === card.coin && o.buyExchange === card.buyExchange
+                && (!card.buyMarket || o.buyMarket === card.buyMarket)
+                && o.sellExchange === h.sellExchange && o.sellMarket === h.sellMarket;
+            });
+            if (exact) return exact;
+          }
+        } catch (e) {}
+        return _fo.apply(this, arguments);
+      };
+    }
+
+    var _flc = window.fetchLiveCoin;
+    if (typeof _flc === 'function') {
+      window.fetchLiveCoin = function () {
+        var card = (typeof openCard !== 'undefined') ? openCard : null;
+        var out = _flc.apply(this, arguments);
+        if (!out || typeof out.then !== 'function') return out;
+        return out.then(function (data) {
+          try {
+            var h = _hintFor(card);
+            var list = data && data.opportunities;
+            if (h && list && list.length > 1) {
+              var mine = list.filter(function (o) {
+                return o && o.buyExchange === h.buyExchange && (!h.buyMarket || o.buyMarket === h.buyMarket)
+                  && o.sellExchange === h.sellExchange && o.sellMarket === h.sellMarket;
+              });
+              if (mine.length) {
+                var rest = list.filter(function (o) { return mine.indexOf(o) < 0; });
+                var copy = {}; for (var k in data) copy[k] = data[k];
+                copy.opportunities = mine.concat(rest);
+                return copy;   // same rows, his one first — the old matcher now lands on it
+              }
+            }
+          } catch (e) {}
+          return data;
+        });
+      };
+    }
+
+    var _cpx = window.cachePfx;
+    if (typeof _cpx === 'function') {
+      window.cachePfx = function () {
+        var base = _cpx.apply(this, arguments);
+        try {
+          var h = _hintFor(typeof openCard !== 'undefined' ? openCard : null);
+          if (h) return base + h.sellExchange + '>' + h.sellMarket + ':';
+        } catch (e) {}
+        return base;
+      };
+    }
+
+    // Installed LAST so it wraps the cadence wrapper above: the hint has to be
+    // on file before the original openCardModal reads the cache and fires the
+    // first refresh, otherwise the popup paints the wrong book for one beat.
+    var _ocm3 = window.openCardModal;
+    if (typeof _ocm3 === 'function') {
+      window.openCardModal = function (type, coin, coin1, coin2, buyExchange, buyMarket) {
+        _sellHint = null;
+        if (type === 'direct') {
+          try {
+            var vc = (typeof venueCfg === 'function') ? venueCfg() : null;
+            _sellHint = _readHint(coin, buyExchange, buyMarket, vc ? vc.id : null);
+          } catch (e) { _sellHint = null; }
+        }
+        return _ocm3.apply(this, arguments);
+      };
+    }
+  } catch (e) { /* scanner internals moved — the popup keeps its old matcher */ }
 })();
 
 </script>
