@@ -5222,5 +5222,81 @@ document.addEventListener('visibilitychange', () => {
 // scrolling, and the scroll nudge reverts within the same frame (no jitter).
 document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, passive: true });
 </script>
+<!-- ==== SIMPLE DEVICE LOCK ====
+"a simple lock to the total website when a new device is detected".
+Entirely inside this page: no backend change, no env var, nothing to
+configure on DigitalOcean. A device that has never entered the
+passcode sees only a lock screen; a device that has is remembered in
+its own browser storage and never asked again. The passcode is NOT in
+this file — only its one-way SHA-256 fingerprint is, so reading this
+source does not reveal it. Wrong tries slow down and lock this device
+out after 5 in a row. To change the passcode: generate a new
+fingerprint with the make-passcode page and swap the HASH line.
+IDENTICAL block in index.html and track.html. -->
+<script>
+(function () {
+  var HASH = '957369ce25a19183ce732cf8a59a3bdaa050f3e95fd89fe89bb8c825fe93cf8b'; // sha256('swenik-lock-v1|' + passcode) — empty string = lock off
+  var SALT = 'swenik-lock-v1|';
+  var OK_LS = 'swenik-device-ok-v1', FAIL_LS = 'swenik-lock-fails-v1';
+  if (!HASH) return;
+  try { if (localStorage.getItem(OK_LS) === HASH) return; } catch (e) {} // known device — straight in
+
+  var curtain = document.createElement('div');
+  curtain.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;background:#0d1524;display:flex;align-items:center;justify-content:center;');
+  curtain.innerHTML =
+    '<div style="width:min(320px,86vw);text-align:center;font-family:system-ui,-apple-system,sans-serif;color:#e8eef7;">' +
+    '<div style="font-size:34px;">&#128274;</div>' +
+    '<div style="font-weight:700;font-size:16px;margin:8px 0 2px;">Private</div>' +
+    '<div id="swkLockMsg" style="font-size:12.5px;color:#94a3b8;min-height:16px;">New device — enter your passcode to continue.</div>' +
+    '<input id="swkLockIn" type="password" autocomplete="current-password" placeholder="Passcode" ' +
+      'style="margin-top:12px;width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1px solid #2b3a52;background:#111c30;color:#e8eef7;font-size:14px;">' +
+    '<button id="swkLockBtn" style="margin-top:10px;width:100%;padding:10px;border-radius:8px;border:0;background:#2563eb;color:#fff;font-weight:700;font-size:14px;">Unlock</button>' +
+    '</div>';
+  (document.body || document.documentElement).appendChild(curtain);
+  var msgEl = function () { return document.getElementById('swkLockMsg'); };
+
+  function fails() {
+    try { return JSON.parse(localStorage.getItem(FAIL_LS) || '{"n":0,"until":0}'); }
+    catch (e) { return { n: 0, until: 0 }; }
+  }
+  function setFails(f) { try { localStorage.setItem(FAIL_LS, JSON.stringify(f)); } catch (e) {} }
+
+  var busy = false;
+  function tryUnlock() {
+    if (busy) return;
+    var v = (document.getElementById('swkLockIn').value || '').trim();
+    if (!v) return;
+    var f = fails(), now = Date.now();
+    if (f.until > now) {
+      msgEl().textContent = 'Too many wrong tries — wait ' + Math.ceil((f.until - now) / 60000) + ' min.';
+      return;
+    }
+    busy = true;
+    msgEl().textContent = 'Checking…';
+    // ~1s pause per attempt keeps hand-guessing slow without annoying a typo
+    setTimeout(function () {
+      var enc = new TextEncoder().encode(SALT + v);
+      crypto.subtle.digest('SHA-256', enc).then(function (d) {
+        var hex = '';
+        var a = new Uint8Array(d);
+        for (var i = 0; i < a.length; i++) hex += (a[i] < 16 ? '0' : '') + a[i].toString(16);
+        busy = false;
+        if (hex === HASH) {
+          try { localStorage.setItem(OK_LS, HASH); localStorage.removeItem(FAIL_LS); } catch (e) {}
+          curtain.remove(); // this device is now remembered — no reload needed
+          return;
+        }
+        var f2 = fails(); var n = (f2.until && f2.until <= Date.now()) ? 1 : f2.n + 1;
+        setFails({ n: n, until: n >= 5 ? Date.now() + 15 * 60 * 1000 : 0 });
+        msgEl().textContent = n >= 5 ? 'Wrong — locked for 15 minutes.' : 'Wrong passcode (' + n + '/5).';
+        document.getElementById('swkLockIn').value = '';
+      }).catch(function () { busy = false; msgEl().textContent = 'This browser blocked the check — use HTTPS.'; });
+    }, 1000);
+  }
+  document.getElementById('swkLockBtn').addEventListener('click', tryUnlock);
+  document.getElementById('swkLockIn').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryUnlock(); });
+  try { document.getElementById('swkLockIn').focus(); } catch (e) {}
+})();
+</script>
 </body>
 </html>
