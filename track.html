@@ -7544,6 +7544,192 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       };
     }
   } catch (e) {}
+
+  // ---------- THE LOOP TAB COUNT MUST IGNORE THE VOLUME TOGGLE ----------
+  // His report, and it is exactly right: "for loop, always the volume toggled
+  // is on ... but when I volume turned off in direct is zero showing in loop
+  // instead of 1 because it's fixed volume on in loop".
+  //
+  // Both tab-count sites — renderToolbar() and updateVenueTabCounts() — count
+  // out of `allOpportunities`, which is whichever volume snapshot is currently
+  // loaded. That is correct for Direct, whose count genuinely differs by mode
+  // (110 unwalked rows vs 1 walked one). It is wrong for Loop and Intra Loop,
+  // because vSetTab() forces withVolume = true the instant you tap Loop. So
+  // the badge was answering a question nobody asked: "how many loops are in
+  // the top-of-book snapshot?" — and the answer is always 0, since vFiltered()
+  // drops every loop lacking `o.walked` and the volume-OFF payload has no walk
+  // on any row. Tap the tab and one appears. The badge contradicted the page
+  // it was pointing at.
+  //
+  // Fixed here rather than at either site because both live above line 5225,
+  // the region held byte-for-byte identical to the original scanner. This runs
+  // after the original and rewrites only the two button labels.
+  //
+  // Direct's count is deliberately left alone — it is not wrong.
+  try {
+    var VOL_ON = 'true';
+
+    function _volOnSnap() {
+      var c = (typeof volSnapCache !== 'undefined') && volSnapCache[VOL_ON];
+      return (c && c.opportunities) ? c : null;
+    }
+
+    // True only when the badge is both visible and lying: native venue page,
+    // volume off, real (non-seed) data, and a walked snapshot to count from.
+    function _needsLoopFix() {
+      if (typeof withVolume === 'undefined' || withVolume) return null;
+      if (typeof venueCfg !== 'function') return null;
+      var v = venueCfg(); if (!v || !v.native) return null;
+      if (typeof usingSeedData !== 'undefined' && usingSeedData) return null; // "…" stands
+      return _volOnSnap();
+    }
+
+    function _repairLoopCounts() {
+      try {
+        var snap = _needsLoopFix(); if (!snap) return;
+        var f = vFiltered(snap.opportunities);
+        var el = document.getElementById('toolbar');
+        var seg = el && el.querySelector('.g-seg');
+        if (!seg) return;
+        var btns = seg.querySelectorAll('button');
+        var spec = [null, ['Loop', 'loop'], ['Intra Loop', 'intraloop']];
+        for (var i = 1; i < btns.length && i < spec.length; i++) {
+          var label = spec[i][0], key = spec[i][1];
+          var n = (f[key] || []).length;
+          var txt = label + ' (' + n + ')';
+          if (btns[i].textContent !== txt) btns[i].textContent = txt;
+          btns[i].title = label + ' is always depth-walked, so this count ignores the volume toggle.';
+        }
+      } catch (e) {}
+    }
+
+    ['renderToolbar', 'updateVenueTabCounts'].forEach(function (name) {
+      var orig = window[name];
+      if (typeof orig !== 'function') return;
+      window[name] = function () {
+        var r = orig.apply(this, arguments);
+        _repairLoopCounts();
+        return r;
+      };
+    });
+
+    // Keep the walked snapshot warm while the toggle is off, or the badge would
+    // freeze at whatever it read the moment he flipped it. The main 4s poll only
+    // ever fetches the CURRENT volume; prefetchOtherVolume() runs at boot and on
+    // toggle and then never again.
+    //
+    // Deliberately slow — one request every 12s, and only while all of the
+    // conditions above hold (volume off, native venue, tab in the foreground).
+    // The scanner recomputes every 3s, so 12s keeps the badge honest without
+    // going near the request rate of the real refresh path, and it touches
+    // nothing on that path: fetchOpportunities() writes volSnapCache only and
+    // never assigns allOpportunities or repaints. The `since=` tag still gets
+    // an empty 204 whenever the snapshot has not moved.
+    var LOOP_BADGE_MS = 12000;
+    setInterval(function () {
+      try {
+        if (document.visibilityState === 'hidden') return;
+        // Not _needsLoopFix() here: that also requires a warm snapshot, and the
+        // case where there ISN'T one is precisely the case that needs fetching.
+        if (typeof withVolume === 'undefined' || withVolume) return;
+        var v = (typeof venueCfg === 'function') && venueCfg();
+        if (!v || !v.native) return;
+        if (typeof fetchOpportunities !== 'function') return;
+        fetchOpportunities(true).then(_repairLoopCounts).catch(function () {});
+      } catch (e) {}
+    }, LOOP_BADGE_MS);
+  } catch (e) {}
+
+  // ---------- ONE GUARANTEED FRESH LOAD EVERY TIME THE PAGE IS OPENED ----------
+  // "whenever I opened website it has to instant refresh once because I could
+  // see some times" — i.e. sometimes what greets him on open is old.
+  //
+  // The page already tries. Boot calls fullRefresh(), and a visibilitychange
+  // handler calls it again on the way back. There are three holes, and each of
+  // them shows exactly the symptom he describes — stale on open, but only
+  // sometimes, which is why it never reproduced on demand:
+  //
+  //   1. THE IN-FLIGHT GUARD SWALLOWS IT. fullRefresh() returns immediately
+  //      when refreshInFlight is set — the guard that stops requests stacking
+  //      on a slow network. On a phone waking up, the throttled 4s tick very
+  //      often fires in the same instant as the return, so the open-refresh is
+  //      dropped on the floor and he waits for the NEXT tick, or longer if the
+  //      in-flight one is heading for its 11s timeout. Silently doing nothing
+  //      is the worst possible outcome for a refresh nobody can see fail.
+  //
+  //   2. NOTHING LISTENS FOR A BACK-FORWARD CACHE RESTORE. Returning to the
+  //      tab from the mobile tab-switcher, or backing into it, can restore the
+  //      whole page from bfcache with its timers and its old DOM intact.
+  //      visibilitychange is not reliably delivered on that path and there is
+  //      no pageshow handler at all, so the restored page can sit on data from
+  //      whenever it was put away.
+  //
+  //   3. THE TAG CAN ANSWER "NOTHING NEW" TO A QUESTION IT WAS NOT ASKED.
+  //      Polls carry `since=<tag>` and the server may reply 204 with no body,
+  //      which deliberately repaints nothing. That is right for a poll and
+  //      wrong for an open: on an open we want a whole answer we can stand
+  //      behind, not a promise that the thing we are still holding is current.
+  //
+  // So: one refresh per open, deduped across every trigger, that waits for an
+  // in-flight request instead of being cancelled by it, and that asks without
+  // a tag so the server must send the full list.
+  //
+  // Costs one request per open and NOTHING on the 4s path — the poll, its tag
+  // and its 204 short-circuit are all untouched. There is no spinner: the warm
+  // snapshot still paints instantly and this lands behind it, because "it looks
+  // like loading in live page which is not good please remove it" still stands.
+  try {
+    var OPEN_DEDUPE_MS = 1500;  // boot, pageshow, visibilitychange and focus can all fire within a few ms of each other
+    var OPEN_WAIT_MS = 250;     // how often to re-check whether the in-flight request has cleared
+    var OPEN_MAX_WAIT = 50;     // ~12.5s — long enough to outlast the 11s fetch timeout
+    // Seeded to NOW because the boot fullRefresh() on line 5148 has already run
+    // by the time this block evaluates. That IS this open's refresh, so the
+    // pageshow that follows a cold load must not fire a second one.
+    var _lastOpenRefreshAt = Date.now();
+    var _openRetryT = null;
+
+    function _fireOpenRefresh(attempt) {
+      try {
+        if (typeof refreshInFlight !== 'undefined' && refreshInFlight && attempt < OPEN_MAX_WAIT) {
+          if (_openRetryT) clearTimeout(_openRetryT);
+          _openRetryT = setTimeout(function () { _openRetryT = null; _fireOpenRefresh(attempt + 1); }, OPEN_WAIT_MS);
+          return;
+        }
+        if (typeof fullRefresh === 'function') fullRefresh();
+      } catch (e) {}
+    }
+
+    function _openRefresh() {
+      try {
+        if (document.visibilityState === 'hidden') return;   // opening into the background is not opening
+        var now = Date.now();
+        if (now - _lastOpenRefreshAt < OPEN_DEDUPE_MS) return;
+        _lastOpenRefreshAt = now;
+        // Forget the snapshot tag so this one asks for everything. The in-flight
+        // request, if any, still carries the OLD tag and can still come back 204
+        // — which is the whole reason we queue our own behind it rather than
+        // treating its completion as our answer.
+        try {
+          if (typeof snapTag === 'object' && snapTag) {
+            for (var k in snapTag) delete snapTag[k];
+          }
+        } catch (e) {}
+        _fireOpenRefresh(0);
+      } catch (e) {}
+    }
+
+    // pageshow covers both a normal load and a bfcache restore (e.persisted).
+    window.addEventListener('pageshow', function () { _openRefresh(); });
+    // The page's own visibilitychange handler still runs; this one adds the
+    // wait-for-in-flight behaviour, and the dedupe keeps the pair to one fetch.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') _openRefresh();
+    });
+    // Android app-switching sometimes restores focus without a visibility change.
+    window.addEventListener('focus', function () { _openRefresh(); });
+    // Page Lifecycle: a frozen/discarded tab coming back to life.
+    document.addEventListener('resume', function () { _openRefresh(); });
+  } catch (e) {}
 })();
 
 </script>
