@@ -7732,6 +7732,249 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   } catch (e) {}
 })();
 
+// ================================================================
+// BINANCE SPOT ⇄ BINANCE PERP BASIS — two new sub-tabs on the
+// Futures page. His spec: "binance futures vs binance spot, first
+// tab which are common in wazirx coins, 2nd tab non common coins...
+// all based on the percentage difference highest is first... and
+// calculation of funding how much... trade when in huge difference
+// and round off when price gap is minimal".
+//
+// Everything here talks to Binance's PUBLIC market-data endpoints
+// straight from the browser — the DigitalOcean backend is not
+// involved, nothing rides the scanner's 4s path, and there is no
+// key, no signature and no order anywhere in this block. Read-only.
+//
+// The Futures page itself lives above line 5225 (the byte-identical
+// region), so — same as the sell-leg fix — it is extended from down
+// here by wrapping renderFuturesPage(), never by editing it.
+// ================================================================
+(function () {
+  try {
+    if (typeof window.renderFuturesPage !== 'function') return;
+
+    // ---- state ----
+    var bfTab = 'engine';                       // 'engine' | 'common' | 'others'
+    try { bfTab = localStorage.getItem('swenik-bf-tab') || 'engine'; } catch (e) {}
+    var bfEntryPct = 3;                         // |gap| ≥ this ⇒ entry candidate
+    try { var _e = parseFloat(localStorage.getItem('swenik-bf-entry')); if (_e > 0) bfEntryPct = _e; } catch (e) {}
+    var BF_ROUNDOFF_PCT = 0.5;                  // |gap| ≤ this ⇒ "near round-off"
+    var BF_MAX_CARDS = 80;                      // painting 500 perps helps nobody
+    var bfRows = null, bfErr = null, bfTs = 0, bfInFlight = false;
+    var bfIntervals = null;                     // perp symbol -> funding interval hours (default 8)
+
+    // ---- the multiplier trap ----
+    // Binance perps for cheap coins trade as 1000SHIB / 1000PEPE / 1MBABYDOGE
+    // while spot is plain SHIB. Compared naively that reads as a 99,900%
+    // arbitrage. Strip the prefix and divide, or this page is garbage.
+    function bfSplit(sym) {                     // 'PERPBASE' (no USDT) -> {base, mult}
+      if (/^1000000/.test(sym)) return { base: sym.slice(7), mult: 1e6 };
+      if (/^1000/.test(sym))    return { base: sym.slice(4), mult: 1e3 };
+      if (/^1M/.test(sym))      return { base: sym.slice(2), mult: 1e6 };
+      return { base: sym, mult: 1 };
+    }
+
+    // Coins the scanner already knows on WazirX — no new request for this,
+    // the page is holding that list anyway.
+    function bfWzxSet() {
+      var s = {};
+      try {
+        (allOpportunities || []).forEach(function (o) {
+          if (o.coin)  s[String(o.coin).toUpperCase()] = 1;
+          if (o.coin1) s[String(o.coin1).toUpperCase()] = 1;
+          if (o.coin2) s[String(o.coin2).toUpperCase()] = 1;
+        });
+      } catch (e) {}
+      return s;
+    }
+
+    function bfBuild(spotArr, premArr) {
+      var spot = {};
+      (spotArr || []).forEach(function (t) { spot[t.symbol] = +t.price; });
+      var rows = [];
+      (premArr || []).forEach(function (p) {
+        var sym = p.symbol || '';
+        if (!/USDT$/.test(sym)) return;         // USDT-margined perps only (his pick)
+        if (sym.indexOf('_') >= 0) return;      // BTCUSDT_250926 = quarterly, out of scope
+        var sp = bfSplit(sym.slice(0, -4));
+        var s = spot[sp.base + 'USDT'];
+        var mark = (+p.markPrice) / sp.mult;
+        if (!(s > 0) || !(mark > 0)) return;    // no spot listing on Binance -> not comparable
+        var gap = (mark - s) / s * 100;
+        var hrs = (bfIntervals && bfIntervals[sym]) || 8;
+        var rate = (+p.lastFundingRate) * 100;  // % per interval
+        var perDay = rate * (24 / hrs);
+        // The convergence trade: perp rich -> short perp (+ buy spot); perp
+        // cheap -> long perp (+ sell/skip spot). Positive funding pays shorts.
+        // So while HOLDING that position, funding earns you:
+        var carry = gap > 0 ? perDay : -perDay;
+        rows.push({ coin: sp.base, sym: sym, mult: sp.mult, spot: s, perp: mark,
+                    gap: gap, rate: rate, hrs: hrs, perDay: perDay, carry: carry,
+                    next: +p.nextFundingTime || 0 });
+      });
+      rows.sort(function (a, b) { return Math.abs(b.gap) - Math.abs(a.gap); });
+      return rows;
+    }
+
+    // ---- fetch: 2 public GETs per tick, ~3 while-open ticks a minute,
+    // only while one of OUR sub-tabs is on screen. fundingInfo (which
+    // perps settle 4h/1h instead of 8h) is fetched once per session. ----
+    function bfActive() {
+      return currentPage === 'futures' && bfTab !== 'engine'
+          && document.visibilityState === 'visible';
+    }
+    function bfFetch() {
+      if (bfInFlight || !bfActive()) return;
+      bfInFlight = true;
+      var spotP = fetch('https://api.binance.com/api/v3/ticker/price').then(function (r) {
+        if (!r.ok) throw new Error('spot ' + r.status); return r.json();
+      }).catch(function () {
+        // data-api.binance.vision is Binance's own CORS-friendly mirror
+        return fetch('https://data-api.binance.vision/api/v3/ticker/price')
+          .then(function (r) { if (!r.ok) throw new Error('spot mirror ' + r.status); return r.json(); });
+      });
+      var premP = fetch('https://fapi.binance.com/fapi/v1/premiumIndex').then(function (r) {
+        if (!r.ok) throw new Error('perp ' + r.status); return r.json();
+      });
+      var infoP = bfIntervals ? Promise.resolve(null)
+        : fetch('https://fapi.binance.com/fapi/v1/fundingInfo')
+            .then(function (r) { return r.ok ? r.json() : []; })
+            .catch(function () { return []; }); // default-8h world if it fails
+      Promise.all([spotP, premP, infoP]).then(function (res) {
+        if (res[2]) {
+          bfIntervals = {};
+          (res[2] || []).forEach(function (f) {
+            if (f && f.symbol && f.fundingIntervalHours) bfIntervals[f.symbol] = +f.fundingIntervalHours;
+          });
+        }
+        bfRows = bfBuild(res[0], res[1]);
+        bfErr = null; bfTs = Date.now();
+      }).catch(function (e) {
+        bfErr = (e && e.message) || 'fetch failed';
+      }).then(function () {
+        // runs after both branches above — the in-flight flag can never leak
+        bfInFlight = false;
+        if (bfActive()) bfRender();
+      });
+    }
+
+    // ---- render ----
+    function bfFmtP(v) { return (typeof fmtAdaptive === 'function') ? fmtAdaptive(v) : String(v); }
+    function bfBar(counts) {
+      var b = function (k, label, n) {
+        return '<button class="' + (bfTab === k ? 'on' : '') + '" onclick="bfSetTab(\'' + k + '\')">'
+             + label + (n != null ? ' (' + n + ')' : '') + '</button>';
+      };
+      return '<div class="g-seg" style="grid-column:1/-1; margin-bottom:10px; justify-self:start;">'
+        + b('engine', 'WazirX ⇄ Binance perps', null)
+        + b('common', 'Spot vs Perp — WazirX coins', counts && counts.common)
+        + b('others', 'Spot vs Perp — others', counts && counts.others)
+        + '</div>';
+    }
+    function bfCounts() {
+      if (!bfRows) return null;
+      var wzx = bfWzxSet(), c = 0;
+      bfRows.forEach(function (r) { if (wzx[r.coin]) c++; });
+      return { common: c, others: bfRows.length - c };
+    }
+    function bfCard(r) {
+      var up = r.gap >= 0;
+      var col = up ? 'var(--danger, #d64545)' : 'var(--success, #1f9d55)';
+      var entry = Math.abs(r.gap) >= bfEntryPct;
+      var flat = Math.abs(r.gap) <= BF_ROUNDOFF_PCT;
+      var mins = r.next ? Math.max(0, Math.round((r.next - Date.now()) / 60000)) : null;
+      var nextTxt = mins == null ? '' : (mins >= 60 ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm' : mins + 'm');
+      var dir = up ? ('perp is RICHER — short perp' + (entry ? ' / buy spot' : '')) : 'perp is CHEAPER — long perp';
+      var carryTxt = 'funding ' + (r.carry >= 0 ? 'pays you +' : 'costs you −')
+                   + Math.abs(r.carry).toFixed(2) + '%/day while you hold';
+      return '<div style="background:#fff; border:1.5px solid ' + (entry ? col : 'var(--border, #e2e8f0)') + ';'
+        + 'border-radius:12px; padding:12px 14px;">'
+        + '<div style="display:flex; justify-content:space-between; align-items:baseline;">'
+        +   '<b style="font-size:15px;">' + r.coin + '</b>'
+        +   '<span style="font-size:16px; font-weight:800; color:' + col + ';">'
+        +     (up ? '+' : '') + r.gap.toFixed(2) + '%</span>'
+        + '</div>'
+        + '<div style="font-size:11.5px; color:var(--gray-500, #64748b); margin-top:3px;">'
+        +   'spot $' + bfFmtP(r.spot) + ' · perp $' + bfFmtP(r.perp)
+        +   (r.mult > 1 ? ' <span style="background:#eef1f6; border-radius:4px; padding:0 4px;">' + (r.mult === 1e6 ? '1M' : '1000') + 'x perp, normalized</span>' : '')
+        + '</div>'
+        + '<div style="font-size:11.5px; margin-top:5px;">' + dir + '</div>'
+        + '<div style="font-size:11.5px; margin-top:2px; color:' + (r.carry >= 0 ? 'var(--success, #1f9d55)' : 'var(--danger, #d64545)') + ';">'
+        +   carryTxt + '</div>'
+        + '<div style="font-size:11px; color:var(--gray-500, #64748b); margin-top:2px;">'
+        +   'rate ' + (r.rate >= 0 ? '+' : '') + r.rate.toFixed(4) + '% / ' + r.hrs + 'h'
+        +   (nextTxt ? ' · next funding in ' + nextTxt : '') + '</div>'
+        + (entry ? '<div style="margin-top:6px; font-size:11px; font-weight:700; color:' + col + ';">◉ gap ≥ ' + bfEntryPct + '% — entry candidate</div>' : '')
+        + (flat  ? '<div style="margin-top:6px; font-size:11px; font-weight:700; color:var(--gray-500, #64748b);">◎ near round-off (≤ ' + BF_ROUNDOFF_PCT + '%)</div>' : '')
+        + '</div>';
+    }
+    function bfRender() {
+      if (currentPage !== 'futures' || bfTab === 'engine') return;
+      var el = document.getElementById('cardList');
+      if (!el) return;
+      var counts = bfCounts();
+      var head = bfBar(counts);
+      if (!bfRows) {
+        el.innerHTML = head + '<div class="empty-state" style="grid-column:1/-1;">'
+          + (bfErr ? 'Couldn’t reach Binance market data from this browser (' + bfErr + '). Retrying with the engine’s next tick.' : '⏳ Loading Binance spot + perp snapshot…')
+          + '</div>';
+        return;
+      }
+      var wzx = bfWzxSet();
+      var rows = bfRows.filter(function (r) { return bfTab === 'common' ? !!wzx[r.coin] : !wzx[r.coin]; });
+      var shown = rows.slice(0, BF_MAX_CARDS);
+      var age = Math.max(0, Math.round((Date.now() - bfTs) / 1000));
+      el.innerHTML = head
+        + '<div style="grid-column:1/-1; display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; font-size:11.5px; color:var(--gray-500, #64748b);">'
+        +   '<span>Binance spot ⇄ USDT perps · ' + rows.length + ' pairs · biggest gap first · updated ' + age + 's ago · refreshes with this page’s 10s tick</span>'
+        +   '<label>entry threshold % <input type="number" step="0.5" min="0.5" value="' + bfEntryPct + '" style="width:64px; padding:3px 6px; border:1px solid var(--border, #e2e8f0); border-radius:6px;" onchange="bfSetEntry(this.value)"></label>'
+        + '</div>'
+        + '<div class="note-box" style="display:block; grid-column:1/-1;">Read-only view, priced off Binance’s mark price — no order is ever placed from here. A perp never expires, so a big gap only closes when funding forces it: that is why the funding line is signed for YOUR position — it is the rent you collect (or pay) while waiting for the round-off. A huge gap with funding badly against you usually means the market is paying people to keep that gap open — check the coin for delisting or transfer-suspension news before entering.</div>'
+        + (shown.length ? shown.map(bfCard).join('') : '<div class="empty-state" style="grid-column:1/-1;">😴 No ' + (bfTab === 'common' ? 'WazirX-listed' : 'other') + ' perp differs from its spot right now.</div>')
+        + (rows.length > shown.length ? '<div class="note-box" style="display:block; grid-column:1/-1;">' + (rows.length - shown.length) + ' more pair(s) below ±' + (shown.length ? Math.abs(shown[shown.length - 1].gap).toFixed(2) : '0') + '% not drawn — the tail is all noise-level gaps.</div>' : '');
+    }
+
+    // ---- controls (global, the buttons are inline onclick) ----
+    window.bfSetTab = function (t) {
+      bfTab = t;
+      try { localStorage.setItem('swenik-bf-tab', t); } catch (e) {}
+      if (t === 'engine') { window.renderFuturesPage(); return; }
+      bfRender();      // instant paint from whatever we hold
+      bfFetch();       // and a fresh snapshot right behind it
+    };
+    window.bfSetEntry = function (v) {
+      var n = parseFloat(v); if (!(n > 0)) return;
+      bfEntryPct = n;
+      try { localStorage.setItem('swenik-bf-entry', String(n)); } catch (e) {}
+      bfRender();
+    };
+
+    // ---- hooks: the engine view gets the sub-tab bar prepended; a basis
+    // view replaces the card list entirely. futRefresh already ticks every
+    // 10s while (and only while) the Futures page is open — our fetch rides
+    // that tick instead of owning a timer, so its lifecycle can't leak. ----
+    var _rfp = window.renderFuturesPage;
+    window.renderFuturesPage = function () {
+      if (bfTab !== 'engine') { bfRender(); return; }
+      _rfp.apply(this, arguments);
+      try {
+        var el = document.getElementById('cardList');
+        if (el && el.firstChild && String(el.innerHTML).indexOf('bfSetTab') < 0) {
+          el.insertAdjacentHTML('afterbegin', bfBar(bfCounts()));
+        }
+      } catch (e) {}
+    };
+    var _fr = window.futRefresh;
+    if (typeof _fr === 'function') {
+      window.futRefresh = function () {
+        var r = _fr.apply(this, arguments);
+        try { bfFetch(); } catch (e) {}
+        return r;
+      };
+    }
+  } catch (e) {}
+})();
+
 </script>
 </body>
 </html>
