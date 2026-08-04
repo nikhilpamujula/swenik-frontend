@@ -1117,7 +1117,7 @@ const snapTag = {};
 
 async function fetchOpportunities(volume = withVolume) {
   const have = snapTag[String(volume)];
-  const url = `${API_BASE}/api/opportunities?volume=${volume}&wallets=all&profit=all`
+  const url = `${API_BASE}/api/opportunities?volume=${volume}&wallets=all&profit=all&slim=1`
             + (have ? `&since=${encodeURIComponent(have)}` : '');
   const res = await fetchWithTimeout(url);
   // 204 = the snapshot behind our tag is still the current one. Nothing has
