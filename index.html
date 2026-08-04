@@ -3179,7 +3179,15 @@ function loopOrderBookTable(legs, opts) {
   // Binance "buy USDT" leg is a 1:1 no-op, so its book (an inverted USDC/USDT
   // reference) isn't part of the actual trade and only confuses. Real loops keep
   // their genuine c2 Binance book (e.g. GALAUSDT).
-  legs = (legs || []).filter(l => (l.market || '').toLowerCase() !== 'usdtusdc');
+  // Drop the synthetic USDTUSDC no-op — but ONLY when doing so still leaves a
+  // real two-sided view. On a stablecoin cash-out LOOP the usdtusdc leg is a
+  // 1:1 middle no-op among 3+ legs, so it goes. On the USDT DIRECT modal the
+  // legs are exactly [binance usdtusdc, wazirx usdtinr] — there the usdtusdc
+  // book IS the trade (usdt priced vs usdc), so dropping it would leave one
+  // lonely WazirX book, which is the "USDT shows only one leg" bug. Keep both
+  // whenever the filter would cut the display below two legs.
+  const _noStable = (legs || []).filter(l => (l.market || '').toLowerCase() !== 'usdtusdc');
+  legs = _noStable.length >= 2 ? _noStable : (legs || []);
   // Cap at 13 levels a side — deeper reads poorly on screen (user call) — but
   // stretch past it when the trade itself reaches further, so no consumed level
   // is ever cut off the bottom of the table. See obCut().
