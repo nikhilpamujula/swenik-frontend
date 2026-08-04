@@ -7820,7 +7820,9 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // only while one of OUR sub-tabs is on screen. fundingInfo (which
     // perps settle 4h/1h instead of 8h) is fetched once per session. ----
     function bfActive() {
-      return currentPage === 'futures' && bfTab !== 'engine'
+      // basis polling belongs to the two Spot-vs-Perp tabs only — the Research
+      // tab fetches on demand and the engine tab has its own feed
+      return currentPage === 'futures' && (bfTab === 'common' || bfTab === 'others')
           && document.visibilityState === 'visible';
     }
     function bfFetch() {
@@ -7869,6 +7871,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         + b('engine', 'WazirX ⇄ Binance perps', null)
         + b('common', 'Spot vs Perp — WazirX coins', counts && counts.common)
         + b('others', 'Spot vs Perp — others', counts && counts.others)
+        + b('research', 'Research', null)
         + '</div>';
     }
     function bfCounts() {
@@ -7910,6 +7913,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     }
     function bfRender() {
       if (currentPage !== 'futures' || bfTab === 'engine') return;
+      if (bfTab === 'research') { rsRender(); return; }
       var el = document.getElementById('cardList');
       if (!el) return;
       var counts = bfCounts();
@@ -7939,6 +7943,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       bfTab = t;
       try { localStorage.setItem('swenik-bf-tab', t); } catch (e) {}
       if (t === 'engine') { window.renderFuturesPage(); return; }
+      if (t === 'research') { rsRender(); return; } // on-demand only — no polling
       bfRender();      // instant paint from whatever we hold
       bfFetch();       // and a fresh snapshot right behind it
     };
@@ -7948,6 +7953,409 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       try { localStorage.setItem('swenik-bf-entry', String(n)); } catch (e) {}
       bfRender();
     };
+
+    // ================================================================
+    // RESEARCH — the fourth sub-tab. Type a coin, tap Research, get a
+    // full working-up of it: live multi-timeframe technicals (15m / 1h
+    // / 4h / 1d), crowd positioning (funding, open interest, long/short
+    // and taker ratios), live sentiment (Fear & Greed, CoinGecko votes),
+    // key levels, and a concrete trade plan — entry zone, stop, targets,
+    // both directions.
+    //
+    // His steer, honoured: the call is made from the CURRENT market
+    // state, not from history. The only historical element is a small
+    // per-timeframe footnote measuring how often this same setup worked
+    // recently — shown as evidence, never as the driver.
+    //
+    // And the promise kept honest: these are measured probabilities.
+    // Nothing anywhere can guarantee a 15-minute candle. When the
+    // timeframes disagree, this tab says "wait" — that refusal is the
+    // most protective output it has.
+    //
+    // All data is fetched from public market endpoints in HIS browser,
+    // on demand only (a tap costs ~10 small GETs). No key is ever sent
+    // (the lock's key goes only to our backends; these are public).
+    // Nothing polls, nothing rides the scanner path, no backend change.
+    // ================================================================
+    var RS_TFS = [
+      { tf: '15m', label: '15 min', horizon: 96,  mins: 15 },
+      { tf: '1h',  label: '1 hour', horizon: 72,  mins: 60 },
+      { tf: '4h',  label: '4 hour', horizon: 42,  mins: 240 },
+      { tf: '1d',  label: '1 day',  horizon: 30,  mins: 1440 }
+    ];
+    var rsBusy = false, rsReport = null, rsErr = null, rsCoinLast = '';
+    try { rsCoinLast = localStorage.getItem('swenik-rs-coin') || ''; } catch (e) {}
+
+    // ---- indicator math (series in, series out; standard formulas) ----
+    function rsEma(v, n) {
+      var k = 2 / (n + 1), out = [], prev = null;
+      for (var i = 0; i < v.length; i++) {
+        prev = prev == null ? v[i] : v[i] * k + prev * (1 - k);
+        out.push(prev);
+      }
+      return out;
+    }
+    function rsSma(v, n) {
+      var out = [], s = 0;
+      for (var i = 0; i < v.length; i++) {
+        s += v[i]; if (i >= n) s -= v[i - n];
+        out.push(i >= n - 1 ? s / n : null);
+      }
+      return out;
+    }
+    function rsRsi(c, n) { // Wilder
+      var out = [null], g = 0, l = 0, i;
+      for (i = 1; i < c.length; i++) {
+        var d = c[i] - c[i - 1], up = d > 0 ? d : 0, dn = d < 0 ? -d : 0;
+        if (i <= n) { g += up / n; l += dn / n; out.push(i === n ? 100 - 100 / (1 + (l === 0 ? 1e9 : g / l)) : null); }
+        else {
+          g = (g * (n - 1) + up) / n; l = (l * (n - 1) + dn) / n;
+          out.push(100 - 100 / (1 + (l === 0 ? 1e9 : g / l)));
+        }
+      }
+      return out;
+    }
+    function rsAtr(h, l, c, n) { // Wilder
+      var out = [null], prev = null, i;
+      for (i = 1; i < c.length; i++) {
+        var tr = Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
+        prev = prev == null ? tr : (prev * (n - 1) + tr) / n;
+        out.push(i >= n ? prev : null);
+      }
+      return out;
+    }
+    function rsStochK(h, l, c, n) {
+      var out = [];
+      for (var i = 0; i < c.length; i++) {
+        if (i < n - 1) { out.push(null); continue; }
+        var hh = -Infinity, ll = Infinity;
+        for (var j = i - n + 1; j <= i; j++) { if (h[j] > hh) hh = h[j]; if (l[j] < ll) ll = l[j]; }
+        out.push(hh === ll ? 50 : (c[i] - ll) / (hh - ll) * 100);
+      }
+      return out;
+    }
+    function rsStd(v, n, i) {
+      if (i < n - 1) return null;
+      var m = 0, j; for (j = i - n + 1; j <= i; j++) m += v[j]; m /= n;
+      var s = 0; for (j = i - n + 1; j <= i; j++) s += (v[j] - m) * (v[j] - m);
+      return Math.sqrt(s / n);
+    }
+    // swing levels: fractal highs/lows (2 neighbours each side), most recent first
+    function rsSwings(h, l) {
+      var res = [], sup = [], i;
+      for (i = h.length - 3; i >= 2 && (res.length < 6 || sup.length < 6); i--) {
+        if (h[i] > h[i-1] && h[i] > h[i-2] && h[i] > h[i+1] && h[i] > h[i+2] && res.length < 6) res.push(h[i]);
+        if (l[i] < l[i-1] && l[i] < l[i-2] && l[i] < l[i+1] && l[i] < l[i+2] && sup.length < 6) sup.push(l[i]);
+      }
+      return { res: res, sup: sup };
+    }
+
+    // votes at index i from precomputed series; returns {score, notes[]}
+    function rsVotes(S, i) {
+      var v = 0, notes = [];
+      var c = S.c[i];
+      if (S.rsi[i] != null) {
+        if (S.rsi[i] < 30) { v += 1; notes.push(['RSI ' + S.rsi[i].toFixed(1), 'oversold', 1]); }
+        else if (S.rsi[i] > 70) { v -= 1; notes.push(['RSI ' + S.rsi[i].toFixed(1), 'overbought', -1]); }
+        else notes.push(['RSI ' + S.rsi[i].toFixed(1), 'neutral zone', 0]);
+      }
+      // Trend carries MORE weight than the oscillators, deliberately. In a
+      // strong uptrend RSI and Stochastic sit "overbought" for days — if they
+      // could outvote the trend, this table would say SELL all the way up.
+      // Trend decides the direction; oscillators only fine-tune the timing.
+      var e20 = S.e20[i], e50 = S.e50[i], e200 = S.e200[i];
+      if (c > e20 && e20 > e50) { v += 1.5; notes.push(['EMA stack', 'price > EMA20 > EMA50 — uptrend', 1]); }
+      else if (c < e20 && e20 < e50) { v -= 1.5; notes.push(['EMA stack', 'price < EMA20 < EMA50 — downtrend', -1]); }
+      else if (e20 > e50) { v += 0.75; notes.push(['EMA stack', 'uptrend structure, price pulling back', 1]); }
+      else if (e20 < e50) { v -= 0.75; notes.push(['EMA stack', 'downtrend structure, price bouncing', -1]); }
+      else notes.push(['EMA stack', 'mixed — no clean trend', 0]);
+      if (i >= 200) {
+        if (c > e200) { v += 1; notes.push(['EMA200', 'above long trend', 1]); }
+        else { v -= 1; notes.push(['EMA200', 'below long trend', -1]); }
+      }
+      var m = S.macd[i], sg = S.sig[i], mp = S.macd[i-1], sp = S.sig[i-1];
+      if (m != null && sg != null) {
+        if (m > sg && mp <= sp) { v += 1.25; notes.push(['MACD', 'fresh bullish cross', 1]); }
+        else if (m < sg && mp >= sp) { v -= 1.25; notes.push(['MACD', 'fresh bearish cross', -1]); }
+        else if (m > sg) { v += 0.75; notes.push(['MACD', 'bullish', 1]); }
+        else { v -= 0.75; notes.push(['MACD', 'bearish', -1]); }
+      }
+      var sd = rsStd(S.c, 20, i), mid = S.s20[i];
+      if (sd != null && mid != null) {
+        var b = (c - (mid - 2 * sd)) / (4 * sd || 1); // %B
+        if (b < 0.05) { v += 0.5; notes.push(['Bollinger', 'at/below lower band', 1]); }
+        else if (b > 0.95) { v -= 0.5; notes.push(['Bollinger', 'at/above upper band', -1]); }
+        else notes.push(['Bollinger', 'inside bands (' + Math.round(b * 100) + '%B)', 0]);
+      }
+      var k = S.k[i];
+      if (k != null) {
+        if (k < 20) { v += 0.5; notes.push(['Stochastic', k.toFixed(0) + ' — oversold', 1]); }
+        else if (k > 80) { v -= 0.5; notes.push(['Stochastic', k.toFixed(0) + ' — overbought', -1]); }
+        else notes.push(['Stochastic', k.toFixed(0), 0]);
+      }
+      return { score: v, notes: notes };
+    }
+    function rsSeries(kl) { // kl: binance kline rows
+      var o = { t: [], c: [], h: [], l: [], vol: [] };
+      for (var i = 0; i < kl.length; i++) {
+        o.t.push(+kl[i][0]); o.c.push(+kl[i][4]); o.h.push(+kl[i][2]); o.l.push(+kl[i][3]); o.vol.push(+kl[i][5]);
+      }
+      o.e20 = rsEma(o.c, 20); o.e50 = rsEma(o.c, 50); o.e200 = rsEma(o.c, 200);
+      var e12 = rsEma(o.c, 12), e26 = rsEma(o.c, 26);
+      o.macd = o.c.map(function (_, i) { return e12[i] - e26[i]; });
+      o.sig = rsEma(o.macd, 9);
+      o.rsi = rsRsi(o.c, 14); o.atr = rsAtr(o.h, o.l, o.c, 14);
+      o.k = rsStochK(o.h, o.l, o.c, 14); o.s20 = rsSma(o.c, 20);
+      return o;
+    }
+    function rsVerdict(s) {
+      return s >= 3 ? ['STRONG BUY', '#1f9d55'] : s >= 1.25 ? ['BUY', '#3f9d6f']
+           : s <= -3 ? ['STRONG SELL', '#d64545'] : s <= -1.25 ? ['SELL', '#c96a5a']
+           : ['NEUTRAL', '#8494a8'];
+    }
+    // footnote: same votes replayed over this series — how often did the
+    // matching setup hit +1.5R before -1R lately? Evidence, not the driver.
+    function rsFootnote(S, horizon) {
+      var w = 0, n = 0;
+      for (var i = 210; i < S.c.length - 2; i++) {
+        var sc = rsVotes(S, i).score;
+        if (Math.abs(sc) < 2 || S.atr[i] == null) continue;
+        var long = sc > 0, entry = S.c[i];
+        var stop = long ? entry - 1.5 * S.atr[i] : entry + 1.5 * S.atr[i];
+        var tgt = long ? entry + 2.25 * S.atr[i] : entry - 2.25 * S.atr[i];
+        for (var j = i + 1; j < Math.min(S.c.length, i + horizon); j++) {
+          if (long ? S.l[j] <= stop : S.h[j] >= stop) { n++; break; }
+          if (long ? S.h[j] >= tgt : S.l[j] <= tgt) { n++; w++; break; }
+        }
+      }
+      return n >= 5 ? { pct: Math.round(w / n * 100), n: n } : null;
+    }
+
+    // ---- fetch helpers (public data only; the lock key is never attached
+    // because these URLs are not ours) ----
+    function rsJson(url) {
+      return fetch(url).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    }
+    function rsSpot(path) {
+      return rsJson('https://api.binance.com' + path).catch(function () {
+        return rsJson('https://data-api.binance.vision' + path);
+      });
+    }
+    function rsPerpSym(coin) { // resolve perp symbol incl. 1000x variants
+      var tries = [coin + 'USDT', '1000' + coin + 'USDT', '1M' + coin + 'USDT'];
+      var i = 0;
+      function next() {
+        if (i >= tries.length) return Promise.resolve(null);
+        var s = tries[i++];
+        return rsJson('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=' + s)
+          .then(function (p) { return { sym: s, prem: p }; })
+          .catch(next);
+      }
+      return next();
+    }
+
+    window.rsGo = function () {
+      var inp = document.getElementById('rsCoinIn');
+      var coin = String((inp && inp.value) || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!coin || rsBusy) return;
+      rsBusy = true; rsErr = null; rsReport = null; rsCoinLast = coin;
+      try { localStorage.setItem('swenik-rs-coin', coin); } catch (e) {}
+      rsRender();
+      var out = { coin: coin, at: Date.now(), tfs: {}, news: {} };
+      var jobs = [];
+      RS_TFS.forEach(function (T) {
+        jobs.push(rsSpot('/api/v3/klines?symbol=' + coin + 'USDT&interval=' + T.tf + '&limit=400')
+          .then(function (kl) { out.tfs[T.tf] = rsSeries(kl); })
+          .catch(function (e) { out.tfs[T.tf] = null; out.klErr = e.message; }));
+      });
+      jobs.push(rsSpot('/api/v3/ticker/24hr?symbol=' + coin + 'USDT')
+        .then(function (t) { out.day = t; }).catch(function () {}));
+      jobs.push(rsPerpSym(coin).then(function (p) {
+        out.perp = p;
+        if (!p) return;
+        return Promise.all([
+          rsJson('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + p.sym + '&period=1h&limit=25')
+            .then(function (x) { out.oi = x; }).catch(function () {}),
+          rsJson('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=' + p.sym + '&period=1h&limit=2')
+            .then(function (x) { out.ls = x; }).catch(function () {}),
+          rsJson('https://fapi.binance.com/futures/data/takerlongshortRatio?symbol=' + p.sym + '&period=1h&limit=2')
+            .then(function (x) { out.taker = x; }).catch(function () {})
+        ]);
+      }).catch(function () {}));
+      jobs.push(rsJson('https://api.alternative.me/fng/?limit=2')
+        .then(function (x) { out.fng = x && x.data; }).catch(function () {}));
+      jobs.push(rsJson('https://api.coingecko.com/api/v3/search?query=' + coin)
+        .then(function (s) {
+          var hit = (s.coins || []).filter(function (c) { return String(c.symbol).toUpperCase() === coin; })[0] || (s.coins || [])[0];
+          if (!hit) return;
+          out.cgId = hit.id;
+          return rsJson('https://api.coingecko.com/api/v3/coins/' + hit.id + '?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false')
+            .then(function (c) { out.cg = c; });
+        }).catch(function () {}));
+      Promise.all(jobs).then(function () {
+        var any = RS_TFS.some(function (T) { return out.tfs[T.tf]; });
+        if (!any) { rsErr = 'No Binance spot market found for ' + coin + '/USDT' + (out.klErr ? ' (' + out.klErr + ')' : ''); }
+        else rsReport = out;
+      }).catch(function (e) { rsErr = e.message; })
+        .then(function () { rsBusy = false; rsRender(); });
+    };
+
+    function rsNum(v, d) { return (typeof fmtAdaptive === 'function' && d == null) ? fmtAdaptive(v) : Number(v).toFixed(d == null ? 4 : d); }
+    function rsPct(v, d) { var n = Number(v); return (n >= 0 ? '+' : '') + n.toFixed(d == null ? 2 : d) + '%'; }
+
+    function rsPlanFor(S, T, dirUp) {
+      var i = S.c.length - 1, px = S.c[i], atr = S.atr[i];
+      if (!atr) return null;
+      var sw = rsSwings(S.h, S.l);
+      var sup = sw.sup.filter(function (x) { return x < px; }).sort(function (a, b) { return b - a; })[0];
+      var res = sw.res.filter(function (x) { return x > px; }).sort(function (a, b) { return a - b; })[0];
+      var entryA, entryB, stop, t1, t2;
+      if (dirUp) {
+        entryB = Math.min(px, S.e20[i]);                       // pullback to EMA20…
+        entryA = sup != null ? Math.max(sup, entryB - atr) : entryB - atr; // …or toward support
+        stop = (sup != null ? Math.min(sup, entryA) : entryA) - 1.5 * atr;
+        var r = ((entryA + entryB) / 2) - stop;
+        t1 = (entryA + entryB) / 2 + 1.5 * r;
+        t2 = res != null ? Math.max(res, t1) : (entryA + entryB) / 2 + 2.5 * r;
+      } else {
+        entryB = Math.max(px, S.e20[i]);
+        entryA = res != null ? Math.min(res, entryB + atr) : entryB + atr;
+        stop = (res != null ? Math.max(res, entryA) : entryA) + 1.5 * atr;
+        var r2 = stop - ((entryA + entryB) / 2);
+        t1 = (entryA + entryB) / 2 - 1.5 * r2;
+        t2 = sup != null ? Math.min(sup, t1) : (entryA + entryB) / 2 - 2.5 * r2;
+      }
+      var horizMin = T.horizon * T.mins;
+      var horiz = horizMin >= 2880 ? Math.round(horizMin / 1440) + ' days' : horizMin >= 120 ? Math.round(horizMin / 60) + ' hours' : horizMin + ' min';
+      return { entryLo: Math.min(entryA, entryB), entryHi: Math.max(entryA, entryB), stop: stop, t1: t1, t2: t2, sup: sup, res: res, horiz: horiz };
+    }
+
+    function rsRender() {
+      if (currentPage !== 'futures' || bfTab !== 'research') return;
+      var el = document.getElementById('cardList');
+      if (!el) return;
+      var head = bfBar(bfCounts());
+      var box = function (inner, extra) {
+        return '<div style="grid-column:1/-1;background:#fff;border:1.5px solid var(--border,#e2e8f0);border-radius:12px;padding:12px 14px;' + (extra || '') + '">' + inner + '</div>';
+      };
+      var html = head
+        + '<div style="grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+        + '<input id="rsCoinIn" value="' + rsCoinLast + '" placeholder="Coin (e.g. COTI)" '
+        + 'style="flex:1;min-width:140px;padding:10px 12px;border:1px solid var(--border,#e2e8f0);border-radius:8px;font-size:14px;text-transform:uppercase;" '
+        + 'onkeydown="if(event.key===\'Enter\')rsGo()">'
+        + '<button onclick="rsGo()" ' + (rsBusy ? 'disabled ' : '') + 'style="padding:10px 18px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;font-size:14px;">'
+        + (rsBusy ? 'Researching…' : 'Research') + '</button></div>';
+      if (rsBusy) { el.innerHTML = html + box('⏳ Pulling live candles, positioning and sentiment for <b>' + rsCoinLast + '</b>…'); return; }
+      if (rsErr) { el.innerHTML = html + box('<span style="color:var(--danger,#d64545);">' + rsErr + '</span>'); return; }
+      if (!rsReport) {
+        el.innerHTML = html + box('Type a coin and tap <b>Research</b>. You get: live 15m/1h/4h/1d technical votes, crowd positioning (funding · open interest · long/short), sentiment, key levels, and a concrete entry/stop/target plan for whichever direction the timeframes agree on. Probabilities, not promises — when the timeframes disagree, the honest answer is <b>wait</b>, and this page will say so.');
+        return;
+      }
+      var R = rsReport, coin = R.coin;
+      // -- snapshot --
+      var snap = '';
+      var lastS = R.tfs['15m'] || R.tfs['1h'];
+      var px = lastS ? lastS.c[lastS.c.length - 1] : null;
+      if (R.day) {
+        snap += '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">'
+          + '<b style="font-size:17px;">' + coin + ' / USDT</b>'
+          + '<span style="font-size:16px;font-weight:800;">$' + rsNum(px != null ? px : +R.day.lastPrice) + ' <span style="color:' + (+R.day.priceChangePercent >= 0 ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)') + ';font-size:13px;">' + rsPct(R.day.priceChangePercent) + ' 24h</span></span></div>'
+          + '<div style="font-size:11.5px;color:var(--gray-500,#64748b);margin-top:4px;">24h range $' + rsNum(+R.day.lowPrice) + ' – $' + rsNum(+R.day.highPrice) + ' · volume ' + Math.round(+R.day.quoteVolume / 1e6) + 'M USDT</div>';
+      }
+      // crowd positioning
+      var crowd = [];
+      if (R.perp && R.perp.prem) {
+        var fr = +R.perp.prem.lastFundingRate * 100;
+        crowd.push('funding ' + (fr >= 0 ? '+' : '') + fr.toFixed(4) + '%' + (fr > 0.03 ? ' — longs paying heavily (crowded long)' : fr < -0.03 ? ' — shorts paying heavily (crowded short)' : ''));
+      }
+      if (R.oi && R.oi.length > 1) {
+        var oiNow = +R.oi[R.oi.length - 1].sumOpenInterestValue, oiThen = +R.oi[0].sumOpenInterestValue;
+        var oiCh = oiThen ? (oiNow - oiThen) / oiThen * 100 : 0;
+        crowd.push('open interest ' + rsPct(oiCh) + ' / 24h' + (oiCh > 10 ? ' — money piling in' : oiCh < -10 ? ' — positions closing out' : ''));
+      }
+      if (R.ls && R.ls.length) crowd.push('accounts long/short ' + (+R.ls[R.ls.length - 1].longShortRatio).toFixed(2));
+      if (R.taker && R.taker.length) {
+        var tk = +R.taker[R.taker.length - 1].buySellRatio;
+        crowd.push('taker buy/sell ' + tk.toFixed(2) + (tk > 1.1 ? ' — aggressive buying' : tk < 0.9 ? ' — aggressive selling' : ''));
+      }
+      if (crowd.length) snap += '<div style="font-size:11.5px;margin-top:6px;">' + crowd.join(' · ') + '</div>';
+      // sentiment
+      var senti = [];
+      if (R.fng && R.fng[0]) senti.push('market Fear &amp; Greed <b>' + R.fng[0].value + '</b> (' + R.fng[0].value_classification + ')');
+      if (R.cg && R.cg.sentiment_votes_up_percentage != null) senti.push(coin + ' community ' + Math.round(R.cg.sentiment_votes_up_percentage) + '% bullish on CoinGecko');
+      if (R.cg && R.cg.market_cap_rank) senti.push('market-cap rank #' + R.cg.market_cap_rank);
+      if (R.cg && R.cg.market_data && R.cg.market_data.price_change_percentage_7d != null) senti.push('7d ' + rsPct(R.cg.market_data.price_change_percentage_7d, 1));
+      if (senti.length) snap += '<div style="font-size:11.5px;margin-top:4px;color:var(--gray-500,#64748b);">' + senti.join(' · ') + '</div>';
+      html += box(snap);
+      // -- timeframe table + overall direction --
+      var rows = '', trendScore = 0, timingScore = 0, foots = [];
+      RS_TFS.forEach(function (T) {
+        var S = R.tfs[T.tf];
+        if (!S) { rows += '<tr><td style="padding:5px 8px;">' + T.label + '</td><td colspan="3" style="padding:5px 8px;color:var(--gray-500,#64748b);">no data</td></tr>'; return; }
+        var i = S.c.length - 1, vt = rsVotes(S, i), vd = rsVerdict(vt.score);
+        if (T.tf === '4h' || T.tf === '1d') trendScore += vt.score; else timingScore += vt.score;
+        var f = rsFootnote(S, T.horizon);
+        if (f) foots.push(T.label + ': similar setups lately hit target ' + f.pct + '% of ' + f.n);
+        var det = vt.notes.map(function (n) {
+          var c2 = n[2] > 0 ? 'var(--success,#1f9d55)' : n[2] < 0 ? 'var(--danger,#d64545)' : 'var(--gray-500,#64748b)';
+          return '<span style="color:' + c2 + ';">' + n[0] + '</span>';
+        }).join(' · ');
+        rows += '<tr>'
+          + '<td style="padding:5px 8px;white-space:nowrap;"><b>' + T.label + '</b></td>'
+          + '<td style="padding:5px 8px;"><b style="color:' + vd[1] + ';">' + vd[0] + '</b></td>'
+          + '<td style="padding:5px 8px;font-size:10.5px;">' + det + '</td>'
+          + '<td style="padding:5px 8px;font-size:10.5px;white-space:nowrap;">RSI ' + (S.rsi[i] != null ? S.rsi[i].toFixed(0) : '—') + ' · ATR ' + (S.atr[i] != null ? (S.atr[i] / S.c[i] * 100).toFixed(2) + '%' : '—') + '</td>'
+          + '</tr>';
+      });
+      html += box('<div style="font-weight:700;margin-bottom:6px;">Timeframe votes</div>'
+        + '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11.5px;width:100%;">' + rows + '</table></div>');
+      // -- the call --
+      var dirUp = trendScore > 0.5, dirDown = trendScore < -0.5;
+      var aligned = (dirUp && timingScore > 0) || (dirDown && timingScore < 0);
+      var planTf = RS_TFS[1]; // plan primarily on 1h, with a 15m echo
+      var S1 = R.tfs['1h'], S15 = R.tfs['15m'];
+      if (!dirUp && !dirDown) {
+        html += box('<b>The call: WAIT.</b> The 4-hour and daily trends cancel out — there is no direction worth backing right now. Entering here is a coin-flip with fees. Re-research after the next 4h candle closes.', 'border-color:#e5b567;');
+      } else if (!aligned) {
+        html += box('<b>The call: WAIT for alignment.</b> The bigger trend points ' + (dirUp ? 'UP' : 'DOWN') + ' but the 15m/1h momentum is against it right now — that is exactly the moment entries get stopped out. The better entry is when the short timeframes turn back ' + (dirUp ? 'bullish (RSI recovering above 40–50, MACD re-crossing up)' : 'bearish') + '. Re-research in 15–30 minutes.', 'border-color:#e5b567;');
+      } else if (S1) {
+        var plan = rsPlanFor(S1, planTf, dirUp);
+        var plan15 = S15 ? rsPlanFor(S15, RS_TFS[0], dirUp) : null;
+        if (plan) {
+          var dcol = dirUp ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)';
+          var p = '<div style="font-weight:800;color:' + dcol + ';font-size:15px;">' + (dirUp ? 'LONG' : 'SHORT') + ' setup — trend and momentum agree</div>'
+            + '<table style="border-collapse:collapse;font-size:12px;margin-top:8px;">'
+            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Enter (1h basis)</td><td><b>$' + rsNum(plan.entryLo) + ' – $' + rsNum(plan.entryHi) + '</b>' + (px >= plan.entryLo && px <= plan.entryHi ? ' <span style="color:' + dcol + ';font-weight:700;">← price is in the zone now</span>' : dirUp ? ' (wait for the pullback)' : ' (wait for the bounce)') + '</td></tr>'
+            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Stop-loss</td><td><b>$' + rsNum(plan.stop) + '</b> — beyond ' + (dirUp ? 'support' : 'resistance') + ' + 1.5×ATR; if it hits, the idea was wrong, exit without argument</td></tr>'
+            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Target 1 (1.5R)</td><td><b>$' + rsNum(plan.t1) + '</b> — book at least half here</td></tr>'
+            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Target 2</td><td><b>$' + rsNum(plan.t2) + '</b>' + (plan.res != null && dirUp ? ' (next resistance)' : plan.sup != null && !dirUp ? ' (next support)' : '') + '</td></tr>'
+            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Time horizon</td><td>~' + plan.horiz + ' — if neither stop nor target is hit by then, the setup has gone stale: exit flat</td></tr>'
+            + '</table>';
+          if (plan15) p += '<div style="font-size:11px;color:var(--gray-500,#64748b);margin-top:6px;">15-min fine-tune: tighter zone $' + rsNum(plan15.entryLo) + ' – $' + rsNum(plan15.entryHi) + ', stop $' + rsNum(plan15.stop) + ' — smaller stop, smaller size, faster verdict.</div>';
+          html += box(p, 'border-color:' + dcol + ';');
+        }
+      }
+      // -- key levels --
+      if (S1) {
+        var sw1 = rsSwings(S1.h, S1.l);
+        var lv = '<div style="font-weight:700;margin-bottom:4px;">Key levels (1h swings)</div><div style="font-size:11.5px;">'
+          + 'Resistance: ' + (sw1.res.length ? sw1.res.slice(0, 4).sort(function (a, b) { return a - b; }).map(function (x) { return '$' + rsNum(x); }).join(' · ') : '—')
+          + '<br>Support: ' + (sw1.sup.length ? sw1.sup.slice(0, 4).sort(function (a, b) { return b - a; }).map(function (x) { return '$' + rsNum(x); }).join(' · ') : '—') + '</div>';
+        html += box(lv);
+      }
+      // -- evidence footnote + news links + honesty line --
+      if (foots.length) html += box('<div style="font-size:11px;color:var(--gray-500,#64748b);"><b>Confidence check</b> (evidence, not the driver of the call): ' + foots.join(' · ') + '. Below ~55% means this coin has not been rewarding this setup lately — size down or skip.</div>');
+      var nl = function (u, t) { return '<a href="' + u + '" target="_blank" rel="noopener" style="color:var(--primary,#2563eb);font-weight:600;">' + t + '</a>'; };
+      html += box('<div style="font-weight:700;margin-bottom:4px;">Latest news — check before entering</div><div style="font-size:12px;">'
+        + nl('https://news.google.com/search?q=' + coin + '%20crypto', 'Google News') + ' · '
+        + nl('https://x.com/search?q=%24' + coin, 'X ($' + coin + ')') + ' · '
+        + nl('https://www.binance.com/en/square/search?q=' + coin, 'Binance Square')
+        + (R.cgId ? ' · ' + nl('https://www.coingecko.com/en/coins/' + R.cgId, 'CoinGecko') : '')
+        + ' · ' + nl('https://www.tradingview.com/symbols/' + coin + 'USDT/', 'TradingView chart')
+        + '</div><div style="font-size:10.5px;color:var(--gray-500,#64748b);margin-top:4px;">One headline (listing, delisting, hack, unlock) outweighs every indicator above. If the news contradicts the plan, the news wins.</div>');
+      html += '<div class="note-box" style="display:block;grid-column:1/-1;">Live read taken ' + new Date(R.at).toLocaleTimeString() + ' — tap Research again to refresh. These are measured probabilities from the current market, not guarantees; no tool can promise a 15-minute price. Risk only what the stop-loss makes survivable.</div>';
+      el.innerHTML = html;
+    }
 
     // ---- hooks: the engine view gets the sub-tab bar prepended; a basis
     // view replaces the card list entirely. futRefresh already ticks every
