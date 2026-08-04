@@ -8341,187 +8341,251 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       return o;
     }
 
+    // ================================================================
+    // VISUAL KIT — inline SVG, zero dependencies. Dark trading-terminal
+    // look so the page rewards curiosity: predictions and the chart come
+    // FIRST, a confidence ring rides next to every call, and the crowd
+    // psychology is a dial + tug-of-war bars, not a wall of text.
+    // ================================================================
+    var RSC = { bg:'#0e1725', bg2:'#0a111d', line:'#22314a', ink:'#e8eef7', sub:'#8ba0bd', mut:'#5f7391',
+      up:'#22c55e', dn:'#ef4444', amb:'#fab219', vio:'#a78bfa', org:'#fb923c', blu:'#3b82f6', cyn:'#22d3ee' };
+    function rsConfCol(p){ return p>=65?RSC.up:p>=40?RSC.amb:RSC.dn; }
+    function rsConfTF(sc){ return Math.max(6, Math.min(98, Math.round(Math.abs(sc)/4.5*100))); }
+
+    // confidence ring — big number in the middle, colour by strength
+    function rsRing(pct, size, cap){
+      pct=Math.max(0,Math.min(100,pct)); size=size||66;
+      var r=size/2-5, cx=size/2, cy=size/2, circ=2*Math.PI*r, off=circ*(1-pct/100), col=rsConfCol(pct);
+      return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'
+        +'<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+RSC.line+'" stroke-width="5"/>'
+        +'<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+col+'" stroke-width="5" stroke-linecap="round" stroke-dasharray="'+circ.toFixed(1)+'" stroke-dashoffset="'+off.toFixed(1)+'" transform="rotate(-90 '+cx+' '+cy+')" style="filter:drop-shadow(0 0 4px '+col+'aa);"/>'
+        +'<text x="'+cx+'" y="'+(cy - (cap?size*0.06:0))+'" text-anchor="middle" dominant-baseline="central" fill="'+RSC.ink+'" font-size="'+(size*0.3).toFixed(0)+'" font-weight="800">'+Math.round(pct)+'</text>'
+        + (cap?'<text x="'+cx+'" y="'+(cy+size*0.28)+'" text-anchor="middle" fill="'+RSC.sub+'" font-size="'+(size*0.13).toFixed(0)+'" font-weight="700">'+cap+'</text>':'')
+        +'</svg>';
+    }
+    // fear/greed semicircle dial with needle
+    function rsDial(v, label){
+      v=Math.max(0,Math.min(100,v));
+      var W=196,H=116,cx=98,cy=100,r=78;
+      function pt(val){ var a=Math.PI*(1-val/100); return [cx+r*Math.cos(a), cy-r*Math.sin(a)]; }
+      function arc(a0,a1,col){ var a=pt(a0),b=pt(a1); return '<path d="M'+a[0].toFixed(1)+' '+a[1].toFixed(1)+' A'+r+' '+r+' 0 0 1 '+b[0].toFixed(1)+' '+b[1].toFixed(1)+'" fill="none" stroke="'+col+'" stroke-width="13"/>'; }
+      var n=pt(v), col=v>=75?RSC.up:v>=55?'#4ade80':v>=45?RSC.amb:v>=25?RSC.org:RSC.dn;
+      return '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">'
+        + arc(0,25,RSC.dn)+arc(25,45,RSC.org)+arc(45,55,RSC.amb)+arc(55,75,'#4ade80')+arc(75,100,RSC.up)
+        + '<line x1="'+cx+'" y1="'+cy+'" x2="'+n[0].toFixed(1)+'" y2="'+n[1].toFixed(1)+'" stroke="'+RSC.ink+'" stroke-width="3" stroke-linecap="round"/>'
+        + '<circle cx="'+cx+'" cy="'+cy+'" r="5.5" fill="'+RSC.ink+'"/>'
+        + '<text x="'+cx+'" y="'+(cy-16)+'" text-anchor="middle" fill="'+col+'" font-size="24" font-weight="800">'+Math.round(v)+'</text>'
+        + '<text x="'+cx+'" y="'+(H-2)+'" text-anchor="middle" fill="'+RSC.sub+'" font-size="10" font-weight="700">'+(label||'')+'</text>'
+        + '</svg>';
+    }
+    // signed tug-of-war bar (bear left / bull right), frac in -1..1
+    function rsTug(frac, leftLbl, rightLbl, valTxt, valCol){
+      frac=Math.max(-1,Math.min(1,frac)); var half=Math.abs(frac)*50, bull=frac>=0;
+      return '<div style="margin:8px 0;">'
+        +'<div style="display:flex;justify-content:space-between;font-size:10px;color:'+RSC.sub+';margin-bottom:3px;"><span>'+leftLbl+'</span><span style="color:'+(valCol||RSC.ink)+';font-weight:800;">'+valTxt+'</span><span>'+rightLbl+'</span></div>'
+        +'<div style="position:relative;height:10px;background:'+RSC.bg2+';border-radius:5px;overflow:hidden;">'
+        +'<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:'+RSC.mut+';z-index:2;"></div>'
+        + (bull ? '<div style="position:absolute;left:50%;top:0;bottom:0;width:'+half+'%;background:'+RSC.up+';box-shadow:0 0 8px '+RSC.up+'88;"></div>'
+                : '<div style="position:absolute;right:50%;top:0;bottom:0;width:'+half+'%;background:'+RSC.dn+';box-shadow:0 0 8px '+RSC.dn+'88;"></div>')
+        +'</div></div>';
+    }
+    // candlestick chart with entry-zone / stop / T1 / T2 overlays
+    function rsChart(S, plan, dirUp){
+      var W=340,H=176,padL=4,padR=56,padT=8,padB=6, n=56, start=Math.max(1,S.c.length-n);
+      var C=S.c.slice(start),Hh=S.h.slice(start),L=S.l.slice(start),O=[];
+      for(var i=0;i<C.length;i++) O.push(S.c[start+i-1]);
+      var lo=Math.min.apply(null,L), hi=Math.max.apply(null,Hh);
+      if(plan){ lo=Math.min(lo,plan.stop,plan.entryLo,plan.t1,plan.t2); hi=Math.max(hi,plan.stop,plan.entryHi,plan.t1,plan.t2); }
+      var pad=(hi-lo)*0.06||hi*0.01; lo-=pad; hi+=pad;
+      var plotW=W-padL-padR, plotH=H-padT-padB, cw=plotW/C.length, bw=Math.max(1.4,cw*0.62);
+      function y(p){ return padT+(hi-p)/(hi-lo)*plotH; }
+      var s='';
+      for(var i=0;i<C.length;i++){
+        var x=padL+i*cw+cw/2, up=C[i]>=O[i], col=up?RSC.up:RSC.dn;
+        s+='<line x1="'+x.toFixed(1)+'" y1="'+y(Hh[i]).toFixed(1)+'" x2="'+x.toFixed(1)+'" y2="'+y(L[i]).toFixed(1)+'" stroke="'+col+'" stroke-width="1"/>';
+        var yo=y(O[i]),yc=y(C[i]),top=Math.min(yo,yc),h=Math.max(1,Math.abs(yc-yo));
+        s+='<rect x="'+(x-bw/2).toFixed(1)+'" y="'+top.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+h.toFixed(1)+'" fill="'+col+'"/>';
+      }
+      function hln(p,col,dash,lbl){ var yy=y(p); return '<line x1="'+padL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-padR).toFixed(1)+'" y2="'+yy.toFixed(1)+'" stroke="'+col+'" stroke-width="1" stroke-dasharray="'+dash+'"/><text x="'+(W-padR+3)+'" y="'+(yy+3).toFixed(1)+'" fill="'+col+'" font-size="9" font-weight="800">'+lbl+'</text>'; }
+      var ov='';
+      if(plan){
+        var ya=y(plan.entryHi),yb=y(plan.entryLo), ec=dirUp?RSC.up:RSC.dn;
+        ov+='<rect x="'+padL+'" y="'+Math.min(ya,yb).toFixed(1)+'" width="'+plotW.toFixed(1)+'" height="'+Math.max(2,Math.abs(yb-ya)).toFixed(1)+'" fill="'+ec+'" opacity="0.14"/>';
+        ov+=hln((plan.entryHi+plan.entryLo)/2,ec,'1 0','entry')+hln(plan.stop,RSC.dn,'3 2','stop')+hln(plan.t1,RSC.up,'3 2','T1')+hln(plan.t2,RSC.cyn,'3 2','T2');
+      }
+      var last=C[C.length-1],yl=y(last);
+      ov+='<line x1="'+padL+'" y1="'+yl.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+yl.toFixed(1)+'" stroke="'+RSC.sub+'" stroke-width="0.6" stroke-dasharray="1 3"/>';
+      return '<svg width="100%" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="display:block;background:'+RSC.bg2+';border-radius:10px;">'+s+ov+'</svg>';
+    }
+
+    function rsCard(inner, accent){ return '<div style="grid-column:1/-1;background:'+RSC.bg+';border:1px solid '+RSC.line+';border-left:3px solid '+(accent||RSC.line)+';border-radius:14px;padding:14px 16px;color:'+RSC.ink+';">'+inner+'</div>'; }
+    function rsTitle(txt, col){ return '<div style="display:flex;align-items:center;gap:7px;font-weight:800;font-size:12.5px;letter-spacing:.4px;text-transform:uppercase;margin-bottom:9px;color:'+RSC.sub+';"><span style="width:8px;height:8px;border-radius:50%;background:'+(col||RSC.cyn)+';box-shadow:0 0 8px '+(col||RSC.cyn)+';"></span>'+txt+'</div>'; }
+    function rsBadge(txt,col){ return '<span style="display:inline-block;padding:5px 16px;border-radius:9px;font-weight:800;font-size:16px;color:#06101c;background:'+col+';box-shadow:0 0 18px '+col+'99;">'+txt+'</span>'; }
+
     function rsRender() {
       if (currentPage !== 'futures' || bfTab !== 'research') return;
       var el = document.getElementById('cardList');
       if (!el) return;
       var head = bfBar(bfCounts());
-      var box = function (inner, extra) {
-        return '<div style="grid-column:1/-1;background:#fff;border:1.5px solid var(--border,#e2e8f0);border-radius:12px;padding:12px 14px;' + (extra || '') + '">' + inner + '</div>';
-      };
-      var html = head
-        + '<div style="grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-        + '<input id="rsCoinIn" value="' + rsCoinLast + '" placeholder="Coin (e.g. COTI)" '
-        + 'style="flex:1;min-width:140px;padding:10px 12px;border:1px solid var(--border,#e2e8f0);border-radius:8px;font-size:14px;text-transform:uppercase;" '
+      var searchRow = '<div style="grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:'+RSC.bg+';border:1px solid '+RSC.line+';border-radius:14px;padding:12px 14px;">'
+        + '<span style="font-size:20px;">🔎</span>'
+        + '<input id="rsCoinIn" value="' + rsCoinLast + '" placeholder="Type a coin — COTI, SOL, PEPE…" '
+        + 'style="flex:1;min-width:150px;padding:11px 13px;border:1px solid '+RSC.line+';border-radius:10px;font-size:14px;text-transform:uppercase;background:'+RSC.bg2+';color:'+RSC.ink+';" '
         + 'onkeydown="if(event.key===\'Enter\')rsGo()">'
-        + '<button onclick="rsGo()" ' + (rsBusy ? 'disabled ' : '') + 'style="padding:10px 18px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;font-size:14px;">'
-        + (rsBusy ? 'Researching…' : 'Research') + '</button></div>';
-      if (rsBusy) { el.innerHTML = html + box('⏳ Pulling live candles, positioning and sentiment for <b>' + rsCoinLast + '</b>…'); return; }
-      if (rsErr) { el.innerHTML = html + box('<span style="color:var(--danger,#d64545);">' + rsErr + '</span>'); return; }
+        + '<button onclick="rsGo()" ' + (rsBusy ? 'disabled ' : '') + 'style="padding:11px 22px;border:0;border-radius:10px;background:linear-gradient(135deg,'+RSC.cyn+','+RSC.blu+');color:#06101c;font-weight:800;font-size:14px;letter-spacing:.3px;">'
+        + (rsBusy ? 'Reading…' : '⚡ Research') + '</button></div>';
+      var html = head + searchRow;
+      if (rsBusy) { el.innerHTML = html + rsCard('<div style="font-size:13px;">📡 Pulling live candles, positioning &amp; sentiment for <b style="color:'+RSC.cyn+';">' + rsCoinLast + '</b>…</div>', RSC.cyn); return; }
+      if (rsErr) { el.innerHTML = html + rsCard('<span style="color:'+RSC.dn+';">' + rsErr + '</span>', RSC.dn); return; }
       if (!rsReport) {
-        el.innerHTML = html + box('Type a coin and tap <b>Research</b>. You get: live 15m/1h/4h/1d technical votes, crowd positioning (funding · open interest · long/short), sentiment, key levels, and a concrete entry/stop/target plan for whichever direction the timeframes agree on. Probabilities, not promises — when the timeframes disagree, the honest answer is <b>wait</b>, and this page will say so.');
+        el.innerHTML = html + rsCard('<div style="font-size:13px;line-height:1.6;"><b style="color:'+RSC.ink+';font-size:15px;">Your desk analyst.</b><br>Type any coin and hit Research. You get a headline <b style="color:'+RSC.up+';">call</b> with a <b>confidence score</b>, a live chart with your entry / stop / targets drawn on it, exact levels for every timeframe, the forensic read on <b>who is driving the move</b>, and the crowd’s psychology as a fear/greed dial. Probabilities, never promises — when the timeframes fight, it says <b style="color:'+RSC.amb+';">WAIT</b>.</div>', RSC.cyn);
         return;
       }
       var R = rsReport, coin = R.coin;
-      // -- snapshot --
-      var snap = '';
-      var lastS = R.tfs['15m'] || R.tfs['1h'];
-      var px = lastS ? lastS.c[lastS.c.length - 1] : null;
-      if (R.day) {
-        snap += '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">'
-          + '<b style="font-size:17px;">' + coin + ' / USDT</b>'
-          + '<span style="font-size:16px;font-weight:800;">$' + rsNum(px != null ? px : +R.day.lastPrice) + ' <span style="color:' + (+R.day.priceChangePercent >= 0 ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)') + ';font-size:13px;">' + rsPct(R.day.priceChangePercent) + ' 24h</span></span></div>'
-          + '<div style="font-size:11.5px;color:var(--gray-500,#64748b);margin-top:4px;">24h range $' + rsNum(+R.day.lowPrice) + ' – $' + rsNum(+R.day.highPrice) + ' · volume ' + Math.round(+R.day.quoteVolume / 1e6) + 'M USDT</div>';
+      var S15 = R.tfs['15m'], S1 = R.tfs['1h'], S4 = R.tfs['4h'];
+      var lastS = S15 || S1; var px = lastS ? lastS.c[lastS.c.length-1] : (R.day?+R.day.lastPrice:0);
+
+      // ---- direction + confidence ----
+      var trendScore=0, timingScore=0, foots=[];
+      RS_TFS.forEach(function(T){ var S=R.tfs[T.tf]; if(!S) return; var sc=rsVotes(S,S.c.length-1).score;
+        if(T.tf==='4h'||T.tf==='1d') trendScore+=sc; else timingScore+=sc;
+        var f=rsFootnote(S,T.horizon); if(f) foots.push(T.label+' '+f.pct+'% of '+f.n); });
+      var dirUp=trendScore>0.5, dirDown=trendScore<-0.5, dir=dirUp?1:dirDown?-1:0;
+      var aligned=(dirUp&&timingScore>0)||(dirDown&&timingScore<0);
+      var withData=RS_TFS.filter(function(T){return R.tfs[T.tf];});
+      var agree=dir?withData.filter(function(T){var S=R.tfs[T.tf];var s=rsVotes(S,S.c.length-1).score;return (s>0?1:s<0?-1:0)===dir&&Math.abs(s)>=1.25;}).length/withData.length:0;
+      var mag=Math.min(1,Math.abs(trendScore)/5);
+      var headConf=dir?Math.max(10,Math.min(96,Math.round(100*(0.5*mag+0.3*agree+0.2*(aligned?1:0.35))))):Math.max(8,Math.round(28*(1-mag)));
+      var plan = (aligned && S1) ? rsPlanFor(S1, RS_TFS[1], dirUp) : null;
+      var chartS = S1 || S15;
+
+      // ---- 24h snapshot strip ----
+      var chg = R.day? +R.day.priceChangePercent : 0;
+      var strip = '<div style="grid-column:1/-1;background:'+RSC.bg+';border:1px solid '+RSC.line+';border-radius:14px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">'
+        + '<div><span style="font-size:18px;font-weight:800;color:'+RSC.ink+';">'+coin+'</span><span style="color:'+RSC.mut+';font-size:12px;"> / USDT</span></div>'
+        + '<div style="text-align:right;"><div style="font-size:20px;font-weight:800;color:'+RSC.ink+';">$'+rsNum(px)+'</div>'
+        + '<div style="font-size:12px;font-weight:700;color:'+(chg>=0?RSC.up:RSC.dn)+';">'+rsPct(chg)+' · 24h</div></div>'
+        + (R.day?'<div style="font-size:10.5px;color:'+RSC.sub+';">range $'+rsNum(+R.day.lowPrice)+' – $'+rsNum(+R.day.highPrice)+'<br>vol '+Math.round(+R.day.quoteVolume/1e6)+'M</div>':'')
+        + '</div>';
+      html += strip;
+
+      // ================= HERO PREDICTION (first, with chart + confidence) =================
+      var vTxt = dir? (dirUp?'LONG':'SHORT') : 'WAIT';
+      var vCol = dirUp?RSC.up:dirDown?RSC.dn:RSC.amb;
+      var hero = '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">'
+        + '<div>' + rsTitle('The Call', vCol)
+        + '<div style="display:flex;align-items:center;gap:10px;">'+rsBadge(vTxt,vCol)
+        + '<span style="font-size:11.5px;color:'+RSC.sub+';">'+(aligned?'trend &amp; momentum agree':dir?'trend set, momentum lagging':'timeframes split')+'</span></div></div>'
+        + '<div style="text-align:center;">'+rsRing(headConf,74,'confidence')+'</div></div>';
+      hero += '<div style="margin-top:12px;">'+rsChart(chartS, plan, dirUp)+'</div>';
+      if (plan) {
+        var inZone = px>=plan.entryLo && px<=plan.entryHi;
+        function kv(k,v,c){ return '<div style="flex:1;min-width:88px;"><div style="font-size:9.5px;color:'+RSC.mut+';text-transform:uppercase;letter-spacing:.4px;">'+k+'</div><div style="font-size:13px;font-weight:800;color:'+(c||RSC.ink)+';">'+v+'</div></div>'; }
+        hero += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid '+RSC.line+';">'
+          + kv('Entry zone','$'+rsNum(plan.entryLo)+' – $'+rsNum(plan.entryHi), vCol)
+          + kv('Stop','$'+rsNum(plan.stop), RSC.dn)
+          + kv('Target 1','$'+rsNum(plan.t1), RSC.up)
+          + kv('Target 2','$'+rsNum(plan.t2), RSC.cyn)
+          + kv('Give it','~'+plan.horiz, RSC.sub)
+          + '</div>'
+          + '<div style="margin-top:8px;font-size:11.5px;color:'+(inZone?RSC.up:RSC.sub)+';font-weight:'+(inZone?'700':'400')+';">'
+          + (inZone?'✅ Price is IN the entry zone right now.':(dirUp?'⏳ Wait for the pullback into the green zone.':'⏳ Wait for the bounce into the red zone.'))
+          + ' Stop is the trade — if $'+rsNum(plan.stop)+' breaks on a 1h close, the idea was wrong.</div>';
+      } else {
+        hero += '<div style="margin-top:12px;font-size:12.5px;line-height:1.55;color:'+RSC.sub+';">'
+          + (dir? '<b style="color:'+RSC.amb+';">Bigger trend points '+(dirUp?'UP':'DOWN')+'</b>, but the 15m/1h momentum is fighting it — the classic stop-out trap. Wait for the short timeframes to turn back '+(dirUp?'up':'down')+', then re-research.'
+               : '<b style="color:'+RSC.amb+';">No edge right now.</b> The 4h and daily cancel out — entering here is a coin-flip with fees. Re-check after the next 4h candle closes.')
+          + '</div>';
       }
-      // crowd positioning
-      var crowd = [];
-      if (R.perp && R.perp.prem) {
-        var fr = +R.perp.prem.lastFundingRate * 100;
-        crowd.push('funding ' + (fr >= 0 ? '+' : '') + fr.toFixed(4) + '%' + (fr > 0.03 ? ' — longs paying heavily (crowded long)' : fr < -0.03 ? ' — shorts paying heavily (crowded short)' : ''));
-      }
-      if (R.oi && R.oi.length > 1) {
-        var oiNow = +R.oi[R.oi.length - 1].sumOpenInterestValue, oiThen = +R.oi[0].sumOpenInterestValue;
-        var oiCh = oiThen ? (oiNow - oiThen) / oiThen * 100 : 0;
-        crowd.push('open interest ' + rsPct(oiCh) + ' / 24h' + (oiCh > 10 ? ' — money piling in' : oiCh < -10 ? ' — positions closing out' : ''));
-      }
-      if (R.ls && R.ls.length) crowd.push('accounts long/short ' + (+R.ls[R.ls.length - 1].longShortRatio).toFixed(2));
-      if (R.taker && R.taker.length) {
-        var tk = +R.taker[R.taker.length - 1].buySellRatio;
-        crowd.push('taker buy/sell ' + tk.toFixed(2) + (tk > 1.1 ? ' — aggressive buying' : tk < 0.9 ? ' — aggressive selling' : ''));
-      }
-      if (crowd.length) snap += '<div style="font-size:11.5px;margin-top:6px;">' + crowd.join(' · ') + '</div>';
-      // sentiment
-      var senti = [];
-      if (R.fng && R.fng[0]) senti.push('market Fear &amp; Greed <b>' + R.fng[0].value + '</b> (' + R.fng[0].value_classification + ')');
-      if (R.cg && R.cg.sentiment_votes_up_percentage != null) senti.push(coin + ' community ' + Math.round(R.cg.sentiment_votes_up_percentage) + '% bullish on CoinGecko');
-      if (R.cg && R.cg.market_cap_rank) senti.push('market-cap rank #' + R.cg.market_cap_rank);
-      if (R.cg && R.cg.market_data && R.cg.market_data.price_change_percentage_7d != null) senti.push('7d ' + rsPct(R.cg.market_data.price_change_percentage_7d, 1));
-      if (senti.length) snap += '<div style="font-size:11.5px;margin-top:4px;color:var(--gray-500,#64748b);">' + senti.join(' · ') + '</div>';
-      html += box(snap);
-      // -- why it's moving: pump/dump anatomy --
+      html += rsCard(hero, vCol);
+
+      // ================= PER-TIMEFRAME PREDICTIONS (confidence on each) =================
+      var tfCards = '';
+      RS_TFS.forEach(function(T){
+        var S=R.tfs[T.tf]; if(!S) return;
+        var sc=rsVotes(S,S.c.length-1).score, conf=rsConfTF(sc);
+        var wait=Math.abs(sc)<1.25, d=sc>0, tc=wait?RSC.amb:(d?RSC.up:RSC.dn);
+        var pl=wait?null:rsPlanFor(S,T,d);
+        var lvl = pl? ('<span style="color:'+RSC.sub+';">entry</span> $'+rsNum(pl.entryLo)+'–$'+rsNum(pl.entryHi)+' &nbsp;<span style="color:'+RSC.dn+';">stop</span> $'+rsNum(pl.stop)+' &nbsp;<span style="color:'+RSC.up+';">T1/T2</span> $'+rsNum(pl.t1)+' / $'+rsNum(pl.t2))
+          : '<span style="color:'+RSC.mut+';">no conviction — a forced trade here is a donation</span>';
+        var against=(!wait&&(T.tf==='15m'||T.tf==='1h')&&((d&&trendScore<-0.5)||(!d&&trendScore>0.5)));
+        tfCards += '<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid '+RSC.line+';">'
+          + rsRing(conf,52)
+          + '<div style="flex:1;min-width:0;">'
+          + '<div style="display:flex;align-items:center;gap:8px;"><b style="font-size:13px;color:'+RSC.ink+';">'+T.label+'</b>'
+          + '<span style="font-size:11px;font-weight:800;color:'+tc+';">'+(wait?'WAIT':(d?'LONG':'SHORT'))+'</span>'
+          + (against?'<span style="font-size:9px;color:'+RSC.amb+';">against 4h/1d · half size</span>':'')
+          + '<span style="font-size:9.5px;color:'+RSC.mut+';margin-left:auto;">RSI '+(S.rsi[S.rsi.length-1]!=null?S.rsi[S.rsi.length-1].toFixed(0):'—')+'</span></div>'
+          + '<div style="font-size:10.5px;margin-top:2px;line-height:1.5;">'+lvl+'</div></div></div>';
+      });
+      html += rsCard(rsTitle('Every timeframe','#818cf8') + '<div>'+tfCards+'</div>'
+        + '<div style="font-size:10px;color:'+RSC.mut+';margin-top:8px;">The ring is conviction 0–100. Entry zones beat single prices — one price is luck, a zone is a plan.</div>', '#818cf8');
+
+      // ================= WHY IT'S MOVING (flow forensics) =================
       var pump = rsPumpRead(R);
       if (pump) {
-        var pcol = pump.active ? (pump.up ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)') : 'var(--border,#e2e8f0)';
-        var pb = '<div style="font-weight:700;margin-bottom:4px;">Why it’s moving — flow forensics</div>'
-          + '<div style="font-size:12px;">Last 4h ' + rsPct(pump.mv4) + ' · 24h ' + rsPct(pump.mv24)
-          + ' · volume ' + (pump.volZ >= 2 ? '<b>' + pump.volZ.toFixed(1) + '× above normal</b>' : 'normal')
-          + (pump.oiCh4 != null ? ' · open interest ' + rsPct(pump.oiCh4) + '/4h' : '') + '</div>'
-          + '<div style="font-size:12px;margin-top:6px;"><b>Driver:</b> ' + pump.driver + '</div>'
-          + (pump.ending ? '<div style="font-size:11.5px;margin-top:3px;color:var(--gray-500,#64748b);"><b>How these usually end:</b> ' + pump.ending + '</div>' : '')
-          + (pump.distrib ? '<div style="font-size:11.5px;margin-top:3px;color:var(--danger,#d64545);"><b>Distribution warning:</b> heavy volume with long upper wicks — someone large is selling into this strength.</div>' : '')
-          + (pump.ext != null && Math.abs(pump.ext) > 2.5 ? '<div style="font-size:11.5px;margin-top:3px;color:var(--danger,#d64545);"><b>Overextension:</b> price is ' + Math.abs(pump.ext).toFixed(1) + ' ATRs from its 1h mean — chasing here is buying someone else’s exit.</div>' : '');
-        html += box(pb, 'border-color:' + pcol + ';');
+        var pcol = pump.active?(pump.up?RSC.up:RSC.dn):RSC.mut;
+        var chips = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+          + '<span style="background:'+RSC.bg2+';border-radius:7px;padding:4px 9px;font-size:11px;">4h <b style="color:'+(pump.mv4>=0?RSC.up:RSC.dn)+';">'+rsPct(pump.mv4)+'</b></span>'
+          + '<span style="background:'+RSC.bg2+';border-radius:7px;padding:4px 9px;font-size:11px;">24h <b style="color:'+(pump.mv24>=0?RSC.up:RSC.dn)+';">'+rsPct(pump.mv24)+'</b></span>'
+          + '<span style="background:'+RSC.bg2+';border-radius:7px;padding:4px 9px;font-size:11px;">vol '+(pump.volZ>=2?'<b style="color:'+RSC.amb+';">'+pump.volZ.toFixed(1)+'×</b>':'normal')+'</span>'
+          + (pump.oiCh4!=null?'<span style="background:'+RSC.bg2+';border-radius:7px;padding:4px 9px;font-size:11px;">OI <b style="color:'+(pump.oiCh4>=0?RSC.up:RSC.dn)+';">'+rsPct(pump.oiCh4)+'</b></span>':'')
+          + '</div>';
+        var pb = rsTitle('Why it’s moving','#fb923c') + chips
+          + '<div style="font-size:12.5px;"><b style="color:'+pcol+';">'+pump.driver+'</b></div>'
+          + (pump.ending?'<div style="font-size:11px;color:'+RSC.sub+';margin-top:4px;">↳ '+pump.ending+'</div>':'')
+          + (pump.distrib?'<div style="font-size:11px;color:'+RSC.dn+';margin-top:4px;">⚠️ Distribution: heavy volume with long upper wicks — someone large is selling into strength.</div>':'')
+          + (pump.ext!=null&&Math.abs(pump.ext)>2.5?'<div style="font-size:11px;color:'+RSC.dn+';margin-top:4px;">⚠️ Overextended '+Math.abs(pump.ext).toFixed(1)+' ATRs from the 1h mean — chasing here is buying someone’s exit.</div>':'');
+        html += rsCard(pb, RSC.org);
       }
-      // -- crowd psychology --
-      var psych = rsPsych(R);
-      if (psych.length) html += box('<div style="font-weight:700;margin-bottom:4px;">Crowd psychology — what they’re paying, not saying</div><div style="font-size:12px;line-height:1.55;">' + psych.join('<br>') + '</div>');
-      // -- BTC context --
+
+      // ================= CROWD PSYCHOLOGY (dial + tug bars) =================
+      var fng = (R.fng&&R.fng[0])?+R.fng[0].value:null;
+      var fund = (R.perp&&R.perp.prem)?+R.perp.prem.lastFundingRate*100:null;
+      var ls = (R.ls&&R.ls.length)?+R.ls[R.ls.length-1].longShortRatio:null;
+      var tk = (R.taker&&R.taker.length)?+R.taker[R.taker.length-1].buySellRatio:null;
+      var psy = rsTitle('Crowd psychology','#a78bfa')
+        + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">';
+      if (fng!=null) psy += '<div style="text-align:center;">'+rsDial(fng, (R.fng[0].value_classification||'')+'')+'<div style="font-size:9.5px;color:'+RSC.mut+';">market mood</div></div>';
+      psy += '<div style="flex:1;min-width:200px;">';
+      if (fund!=null) psy += rsTug(Math.max(-1,Math.min(1,fund/0.08)), 'shorts pay', 'longs pay', (fund>=0?'+':'')+fund.toFixed(3)+'%', fund>0.05?RSC.amb:fund<-0.05?RSC.cyn:RSC.ink);
+      if (ls!=null) psy += rsTug(Math.max(-1,Math.min(1,(ls-1))), 'shorts', 'longs', ls.toFixed(2)+' : 1', ls>2?RSC.amb:RSC.ink);
+      if (tk!=null) psy += rsTug(Math.max(-1,Math.min(1,(tk-1)/0.3)), 'sellers', 'buyers', tk.toFixed(2), tk>1.15||tk<0.87?RSC.amb:RSC.ink);
+      psy += '</div></div>';
+      // one-line human read
+      var readLine = [];
+      if (fund!=null&&fund>0.05) readLine.push('Longs are paying to stay in — greed with a bill; crowded-long is squeeze-DOWN fuel.');
+      else if (fund!=null&&fund<-0.05) readLine.push('Shorts are paying — fear is crowded; that is squeeze-UP fuel.');
+      if (ls!=null&&ls>2) readLine.push('The boat is '+ls.toFixed(1)+':1 long — markets punish the crowded side first.');
+      if (fng!=null&&fng>=75) readLine.push('Extreme greed forgives nothing.'); else if (fng!=null&&fng<=25) readLine.push('Extreme fear is where bottoms are built — slowly.');
+      if (readLine.length) psy += '<div style="font-size:11px;color:'+RSC.sub+';margin-top:8px;line-height:1.5;">'+readLine.join(' ')+'</div>';
+      html += rsCard(psy, RSC.vio);
+
+      // ================= BTC TIDE =================
       var btc = rsBtcCtx(R);
-      if (btc.lines.length) html += box('<div style="font-weight:700;margin-bottom:4px;">The tide — BTC context</div><div style="font-size:12px;line-height:1.55;">' + btc.lines.join('<br>') + '</div>'
-        + (btc.corr > 0.6 && btc.btcScore != null && R.tfs['4h'] ? (function () {
-            var cs = rsVotes(R.tfs['4h'], R.tfs['4h'].c.length - 1).score;
-            return (cs > 0.5 && btc.btcScore < -1.25) ? '<div style="font-size:11.5px;margin-top:4px;color:var(--danger,#d64545);"><b>Conflict:</b> this coin looks bullish but it is a BTC passenger and BTC is bearish — the tide usually wins.</div>'
-                 : (cs < -0.5 && btc.btcScore > 1.25) ? '<div style="font-size:11.5px;margin-top:4px;color:#e5b567;"><b>Note:</b> coin looks weak but BTC is strong — shorts here fight the tide.</div>' : '';
-          })() : ''));
-      // -- timeframe table + overall direction --
-      var rows = '', trendScore = 0, timingScore = 0, foots = [];
-      RS_TFS.forEach(function (T) {
-        var S = R.tfs[T.tf];
-        if (!S) { rows += '<tr><td style="padding:5px 8px;">' + T.label + '</td><td colspan="3" style="padding:5px 8px;color:var(--gray-500,#64748b);">no data</td></tr>'; return; }
-        var i = S.c.length - 1, vt = rsVotes(S, i), vd = rsVerdict(vt.score);
-        if (T.tf === '4h' || T.tf === '1d') trendScore += vt.score; else timingScore += vt.score;
-        var f = rsFootnote(S, T.horizon);
-        if (f) foots.push(T.label + ': similar setups lately hit target ' + f.pct + '% of ' + f.n);
-        var det = vt.notes.map(function (n) {
-          var c2 = n[2] > 0 ? 'var(--success,#1f9d55)' : n[2] < 0 ? 'var(--danger,#d64545)' : 'var(--gray-500,#64748b)';
-          return '<span style="color:' + c2 + ';">' + n[0] + '</span>';
-        }).join(' · ');
-        rows += '<tr>'
-          + '<td style="padding:5px 8px;white-space:nowrap;"><b>' + T.label + '</b></td>'
-          + '<td style="padding:5px 8px;"><b style="color:' + vd[1] + ';">' + vd[0] + '</b></td>'
-          + '<td style="padding:5px 8px;font-size:10.5px;">' + det + '</td>'
-          + '<td style="padding:5px 8px;font-size:10.5px;white-space:nowrap;">RSI ' + (S.rsi[i] != null ? S.rsi[i].toFixed(0) : '—') + ' · ATR ' + (S.atr[i] != null ? (S.atr[i] / S.c[i] * 100).toFixed(2) + '%' : '—') + '</td>'
-          + '</tr>';
-      });
-      html += box('<div style="font-weight:700;margin-bottom:6px;">Timeframe votes</div>'
-        + '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11.5px;width:100%;">' + rows + '</table></div>');
-      // -- the call --
-      var dirUp = trendScore > 0.5, dirDown = trendScore < -0.5;
-      var aligned = (dirUp && timingScore > 0) || (dirDown && timingScore < 0);
-      var planTf = RS_TFS[1]; // plan primarily on 1h, with a 15m echo
-      var S1 = R.tfs['1h'], S15 = R.tfs['15m'];
-      if (!dirUp && !dirDown) {
-        html += box('<b>The call: WAIT.</b> The 4-hour and daily trends cancel out — there is no direction worth backing right now. Entering here is a coin-flip with fees. Re-research after the next 4h candle closes.', 'border-color:#e5b567;');
-      } else if (!aligned) {
-        html += box('<b>The call: WAIT for alignment.</b> The bigger trend points ' + (dirUp ? 'UP' : 'DOWN') + ' but the 15m/1h momentum is against it right now — that is exactly the moment entries get stopped out. The better entry is when the short timeframes turn back ' + (dirUp ? 'bullish (RSI recovering above 40–50, MACD re-crossing up)' : 'bearish') + '. Re-research in 15–30 minutes.', 'border-color:#e5b567;');
-      } else if (S1) {
-        var plan = rsPlanFor(S1, planTf, dirUp);
-        var plan15 = S15 ? rsPlanFor(S15, RS_TFS[0], dirUp) : null;
-        if (plan) {
-          var dcol = dirUp ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)';
-          var p = '<div style="font-weight:800;color:' + dcol + ';font-size:15px;">' + (dirUp ? 'LONG' : 'SHORT') + ' setup — trend and momentum agree</div>'
-            + '<table style="border-collapse:collapse;font-size:12px;margin-top:8px;">'
-            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Enter (1h basis)</td><td><b>$' + rsNum(plan.entryLo) + ' – $' + rsNum(plan.entryHi) + '</b>' + (px >= plan.entryLo && px <= plan.entryHi ? ' <span style="color:' + dcol + ';font-weight:700;">← price is in the zone now</span>' : dirUp ? ' (wait for the pullback)' : ' (wait for the bounce)') + '</td></tr>'
-            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Stop-loss</td><td><b>$' + rsNum(plan.stop) + '</b> — beyond ' + (dirUp ? 'support' : 'resistance') + ' + 1.5×ATR; if it hits, the idea was wrong, exit without argument</td></tr>'
-            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Target 1 (1.5R)</td><td><b>$' + rsNum(plan.t1) + '</b> — book at least half here</td></tr>'
-            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Target 2</td><td><b>$' + rsNum(plan.t2) + '</b>' + (plan.res != null && dirUp ? ' (next resistance)' : plan.sup != null && !dirUp ? ' (next support)' : '') + '</td></tr>'
-            + '<tr><td style="padding:3px 10px 3px 0;color:var(--gray-500,#64748b);">Time horizon</td><td>~' + plan.horiz + ' — if neither stop nor target is hit by then, the setup has gone stale: exit flat</td></tr>'
-            + '</table>';
-          if (plan15) p += '<div style="font-size:11px;color:var(--gray-500,#64748b);margin-top:6px;">15-min fine-tune: tighter zone $' + rsNum(plan15.entryLo) + ' – $' + rsNum(plan15.entryHi) + ', stop $' + rsNum(plan15.stop) + ' — smaller stop, smaller size, faster verdict.</div>';
-          html += box(p, 'border-color:' + dcol + ';');
-        }
+      if (btc.lines.length) {
+        var bt = rsTitle('The tide — BTC','#f0b429') + '<div style="font-size:11.5px;line-height:1.6;color:'+RSC.ink+';">'+btc.lines.join('<br>')+'</div>';
+        if (btc.corr>0.6 && btc.btcScore!=null && S4) { var cs=rsVotes(S4,S4.c.length-1).score;
+          if (cs>0.5 && btc.btcScore<-1.25) bt += '<div style="font-size:11px;color:'+RSC.dn+';margin-top:5px;">⚠️ Coin looks bullish but it is a BTC passenger and BTC is bearish — the tide usually wins.</div>';
+          else if (cs<-0.5 && btc.btcScore>1.25) bt += '<div style="font-size:11px;color:'+RSC.amb+';margin-top:5px;">Note: coin looks weak but BTC is strong — shorts here fight the tide.</div>'; }
+        html += rsCard(bt, '#f0b429');
       }
-      // -- exact levels for EVERY timeframe. Each timeframe trades its own
-      // structure: its own direction, entry zone, stop, targets, horizon.
-      // A timeframe with no conviction says WAIT instead of inventing one.
-      var tfRows = '';
-      RS_TFS.forEach(function (T) {
-        var S = R.tfs[T.tf]; if (!S) return;
-        var iL = S.c.length - 1, sc = rsVotes(S, iL).score;
-        var cell = 'padding:5px 8px;white-space:nowrap;';
-        if (Math.abs(sc) < 1.25) {
-          tfRows += '<tr><td style="' + cell + '"><b>' + T.label + '</b></td>'
-            + '<td style="' + cell + 'color:var(--gray-500,#64748b);">WAIT</td>'
-            + '<td colspan="4" style="padding:5px 8px;font-size:10.5px;color:var(--gray-500,#64748b);">no conviction on this timeframe (score ' + sc.toFixed(1) + ') — a forced trade here is a donation</td></tr>';
-          return;
-        }
-        var d = sc > 0, pl = rsPlanFor(S, T, d);
-        if (!pl) return;
-        var dc = d ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)';
-        var against = ((T.tf === '15m' || T.tf === '1h') && ((d && trendScore < -0.5) || (!d && trendScore > 0.5)));
-        tfRows += '<tr>'
-          + '<td style="' + cell + '"><b>' + T.label + '</b></td>'
-          + '<td style="' + cell + '"><b style="color:' + dc + ';">' + (d ? 'LONG' : 'SHORT') + '</b>' + (against ? '<div style="font-size:9.5px;color:#e5b567;">against 4h/1d — half size</div>' : '') + '</td>'
-          + '<td style="' + cell + '">$' + rsNum(pl.entryLo) + ' – $' + rsNum(pl.entryHi) + '</td>'
-          + '<td style="' + cell + 'color:var(--danger,#d64545);">$' + rsNum(pl.stop) + '</td>'
-          + '<td style="' + cell + '">$' + rsNum(pl.t1) + ' / $' + rsNum(pl.t2) + '</td>'
-          + '<td style="' + cell + 'font-size:10.5px;color:var(--gray-500,#64748b);">' + pl.horiz + '</td>'
-          + '</tr>';
-      });
-      if (tfRows) html += box('<div style="font-weight:700;margin-bottom:6px;">Exact levels per timeframe</div>'
-        + '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11.5px;width:100%;">'
-        + '<tr style="color:var(--gray-500,#64748b);font-size:10px;"><td style="padding:2px 8px;">TF</td><td style="padding:2px 8px;">Side</td><td style="padding:2px 8px;">Entry zone</td><td style="padding:2px 8px;">Stop</td><td style="padding:2px 8px;">T1 / T2</td><td style="padding:2px 8px;">Give it</td></tr>'
-        + tfRows + '</table></div>'
-        + '<div style="font-size:10.5px;color:var(--gray-500,#64748b);margin-top:6px;">Levels move as candles close — refresh before acting. Entry zones beat entry points: one price is luck, a zone is a plan. The stop is the trade; without it none of these numbers mean anything.</div>');
-      // -- key levels --
-      if (S1) {
-        var sw1 = rsSwings(S1.h, S1.l);
-        var lv = '<div style="font-weight:700;margin-bottom:4px;">Key levels (1h swings)</div><div style="font-size:11.5px;">'
-          + 'Resistance: ' + (sw1.res.length ? sw1.res.slice(0, 4).sort(function (a, b) { return a - b; }).map(function (x) { return '$' + rsNum(x); }).join(' · ') : '—')
-          + '<br>Support: ' + (sw1.sup.length ? sw1.sup.slice(0, 4).sort(function (a, b) { return b - a; }).map(function (x) { return '$' + rsNum(x); }).join(' · ') : '—') + '</div>';
-        html += box(lv);
+
+      // ================= KEY LEVELS + NEWS =================
+      if (S1) { var sw1=rsSwings(S1.h,S1.l);
+        var lv = rsTitle('Key levels','#22d3ee')
+          + '<div style="font-size:11.5px;line-height:1.7;"><span style="color:'+RSC.dn+';font-weight:700;">Resistance</span> '+(sw1.res.length?sw1.res.slice(0,4).sort(function(a,b){return a-b;}).map(function(x){return '$'+rsNum(x);}).join(' · '):'—')
+          + '<br><span style="color:'+RSC.up+';font-weight:700;">Support</span> '+(sw1.sup.length?sw1.sup.slice(0,4).sort(function(a,b){return b-a;}).map(function(x){return '$'+rsNum(x);}).join(' · '):'—')+'</div>';
+        html += rsCard(lv, RSC.cyn);
       }
-      // -- evidence footnote + news links + honesty line --
-      if (foots.length) html += box('<div style="font-size:11px;color:var(--gray-500,#64748b);"><b>Confidence check</b> (evidence, not the driver of the call): ' + foots.join(' · ') + '. Below ~55% means this coin has not been rewarding this setup lately — size down or skip.</div>');
-      var nl = function (u, t) { return '<a href="' + u + '" target="_blank" rel="noopener" style="color:var(--primary,#2563eb);font-weight:600;">' + t + '</a>'; };
-      html += box('<div style="font-weight:700;margin-bottom:4px;">Latest news — check before entering</div><div style="font-size:12px;">'
-        + nl('https://news.google.com/search?q=' + coin + '%20crypto', 'Google News') + ' · '
-        + nl('https://x.com/search?q=%24' + coin, 'X ($' + coin + ')') + ' · '
-        + nl('https://www.binance.com/en/square/search?q=' + coin, 'Binance Square')
-        + (R.cgId ? ' · ' + nl('https://www.coingecko.com/en/coins/' + R.cgId, 'CoinGecko') : '')
-        + ' · ' + nl('https://www.tradingview.com/symbols/' + coin + 'USDT/', 'TradingView chart')
-        + '</div><div style="font-size:10.5px;color:var(--gray-500,#64748b);margin-top:4px;">One headline (listing, delisting, hack, unlock) outweighs every indicator above. If the news contradicts the plan, the news wins.</div>');
-      html += '<div class="note-box" style="display:block;grid-column:1/-1;">Live read taken ' + new Date(R.at).toLocaleTimeString() + ' — tap Research again to refresh. These are measured probabilities from the current market, not guarantees; no tool can promise a 15-minute price. Risk only what the stop-loss makes survivable.</div>';
+      var nl=function(u,t){ return '<a href="'+u+'" target="_blank" rel="noopener" style="color:'+RSC.cyn+';font-weight:700;text-decoration:none;">'+t+'</a>'; };
+      var news = rsTitle('Latest news — check before entering','#facc15')
+        + '<div style="font-size:12px;line-height:1.9;">'+nl('https://news.google.com/search?q='+coin+'%20crypto','Google News')+' · '+nl('https://x.com/search?q=%24'+coin,'X ($'+coin+')')+' · '+nl('https://www.binance.com/en/square/search?q='+coin,'Binance Square')
+        + (R.cgId?' · '+nl('https://www.coingecko.com/en/coins/'+R.cgId,'CoinGecko'):'')+' · '+nl('https://www.tradingview.com/symbols/'+coin+'USDT/','TradingView')+'</div>'
+        + '<div style="font-size:10px;color:'+RSC.mut+';margin-top:5px;">One headline (listing, delist, hack, unlock) outweighs every indicator above. If the news fights the plan, the news wins.</div>';
+      html += rsCard(news, '#facc15');
+      if (foots.length) html += rsCard('<div style="font-size:10.5px;color:'+RSC.mut+';"><b style="color:'+RSC.sub+';">Confidence check</b> (evidence, not the driver): '+foots.join(' · ')+'. Under ~55% means this coin has not rewarded this setup lately — size down or skip.</div>', RSC.line);
+      html += '<div style="grid-column:1/-1;font-size:10.5px;color:'+RSC.mut+';text-align:center;padding:6px;">Live read '+new Date(R.at).toLocaleTimeString()+' — tap Research to refresh · measured probabilities, never guarantees · risk only what the stop makes survivable.</div>';
       el.innerHTML = html;
     }
 
