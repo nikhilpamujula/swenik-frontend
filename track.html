@@ -7872,6 +7872,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         + b('common', 'Spot vs Perp — WazirX coins', counts && counts.common)
         + b('others', 'Spot vs Perp — others', counts && counts.others)
         + b('research', 'Research', null)
+        + b('mycoins', hcUrgent() ? 'My Coins ⚠️' : 'My Coins', hcList().length || null)
         + '</div>';
     }
     function bfCounts() {
@@ -7914,6 +7915,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     function bfRender() {
       if (currentPage !== 'futures' || bfTab === 'engine') return;
       if (bfTab === 'research') { rsRender(); return; }
+      if (bfTab === 'mycoins') { hcRender(); return; }
       var el = document.getElementById('cardList');
       if (!el) return;
       var counts = bfCounts();
@@ -7944,6 +7946,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       try { localStorage.setItem('swenik-bf-tab', t); } catch (e) {}
       if (t === 'engine') { window.renderFuturesPage(); return; }
       if (t === 'research') { rsRender(); return; } // on-demand only — no polling
+      if (t === 'mycoins') { hcRender(); hcSync(); hcTick(true); return; } // server list first, then live eval
       bfRender();      // instant paint from whatever we hold
       bfFetch();       // and a fresh snapshot right behind it
     };
@@ -8170,11 +8173,18 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       });
       jobs.push(rsSpot('/api/v3/ticker/24hr?symbol=' + coin + 'USDT')
         .then(function (t) { out.day = t; }).catch(function () {}));
+      // BTC context: the tide every alt swims in. 4h for trend, 1h for correlation.
+      jobs.push(rsSpot('/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=300')
+        .then(function (kl) { out.btc4 = rsSeries(kl); }).catch(function () {}));
+      if (coin !== 'BTC') jobs.push(rsSpot('/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=300')
+        .then(function (kl) { out.btc1 = rsSeries(kl); }).catch(function () {}));
+      jobs.push(rsJson('https://api.coingecko.com/api/v3/global')
+        .then(function (g) { out.global = g && g.data; }).catch(function () {}));
       jobs.push(rsPerpSym(coin).then(function (p) {
         out.perp = p;
         if (!p) return;
         return Promise.all([
-          rsJson('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + p.sym + '&period=1h&limit=25')
+          rsJson('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + p.sym + '&period=15m&limit=96')
             .then(function (x) { out.oi = x; }).catch(function () {}),
           rsJson('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=' + p.sym + '&period=1h&limit=2')
             .then(function (x) { out.ls = x; }).catch(function () {}),
@@ -8228,6 +8238,107 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       var horizMin = T.horizon * T.mins;
       var horiz = horizMin >= 2880 ? Math.round(horizMin / 1440) + ' days' : horizMin >= 120 ? Math.round(horizMin / 60) + ' hours' : horizMin + ' min';
       return { entryLo: Math.min(entryA, entryB), entryHi: Math.max(entryA, entryB), stop: stop, t1: t1, t2: t2, sup: sup, res: res, horiz: horiz };
+    }
+
+    // ---- WHO is driving the move — derivatives forensics. Price alone
+    // can't tell a real rally from a squeeze; price + open interest +
+    // taker flow + funding CAN, because every driver leaves a different
+    // fingerprint, and each fingerprint has a known typical ending. This
+    // is the closest honest thing to "why is it pumping". ----
+    function rsPearson(a, b) {
+      var n = Math.min(a.length, b.length);
+      if (n < 30) return null;
+      var ra = [], rb = [];
+      for (var i = 1; i < n; i++) { ra.push(a[i] / a[i - 1] - 1); rb.push(b[i] / b[i - 1] - 1); }
+      var ma = 0, mb = 0, i2;
+      for (i2 = 0; i2 < ra.length; i2++) { ma += ra[i2]; mb += rb[i2]; }
+      ma /= ra.length; mb /= rb.length;
+      var num = 0, da = 0, db = 0;
+      for (i2 = 0; i2 < ra.length; i2++) { num += (ra[i2] - ma) * (rb[i2] - mb); da += (ra[i2] - ma) * (ra[i2] - ma); db += (rb[i2] - mb) * (rb[i2] - mb); }
+      return (da && db) ? num / Math.sqrt(da * db) : null;
+    }
+    function rsPumpRead(R) {
+      var S = R.tfs['15m']; if (!S || S.c.length < 100) return null;
+      var i = S.c.length - 1;
+      var mv4 = (S.c[i] / S.c[i - 16] - 1) * 100;          // last 4h move
+      var mv24 = (S.c[i] / S.c[Math.max(0, i - 96)] - 1) * 100;
+      // volume z-score of the last 2h vs the day before it
+      var base = S.vol.slice(Math.max(0, i - 96), i - 8), rec = S.vol.slice(i - 8);
+      var m = 0, j; for (j = 0; j < base.length; j++) m += base[j]; m /= (base.length || 1);
+      var sd = 0; for (j = 0; j < base.length; j++) sd += (base[j] - m) * (base[j] - m);
+      sd = Math.sqrt(sd / (base.length || 1)) || 1;
+      var recAvg = 0; for (j = 0; j < rec.length; j++) recAvg += rec[j]; recAvg /= (rec.length || 1);
+      var volZ = (recAvg - m) / sd;
+      var oiCh4 = null;
+      if (R.oi && R.oi.length > 20) {
+        var oe = +R.oi[R.oi.length - 1].sumOpenInterestValue, os = +R.oi[R.oi.length - 17].sumOpenInterestValue;
+        if (os) oiCh4 = (oe - os) / os * 100;
+      }
+      var taker = (R.taker && R.taker.length) ? +R.taker[R.taker.length - 1].buySellRatio : null;
+      var fund = (R.perp && R.perp.prem) ? +R.perp.prem.lastFundingRate * 100 : null;
+      var active = Math.abs(mv4) >= 2 || volZ >= 2;
+      var up = mv4 >= 0;
+      var driver = 'quiet — no unusual flow right now', ending = '';
+      if (active && oiCh4 != null) {
+        if (up && oiCh4 > 2)  { driver = 'NEW LEVERAGED LONGS are driving it (price up + open interest up' + (taker > 1.05 ? ' + aggressive market buying' : '') + ')';
+                                ending = fund != null && fund > 0.05 ? 'funding is already expensive — late longs are paying the early ones; these moves end when the last chaser is in' : 'sustainable while funding stays cheap; watch funding for the top'; }
+        else if (up && oiCh4 < -2) { driver = 'a SHORT SQUEEZE (price up while open interest FALLS — shorts closing, not buyers arriving)';
+                                ending = 'squeezes end abruptly when the trapped shorts are done: do not chase, the fuel is finite'; }
+        else if (up)          { driver = 'mostly SPOT BUYING (price up, leverage flat)'; ending = 'the healthiest kind of rally — pullbacks are buyable while it lasts'; }
+        else if (oiCh4 > 2)   { driver = 'NEW SHORTS pressing it down (price down + open interest up)';
+                                ending = fund != null && fund < -0.05 ? 'shorts are paying heavy funding to stay — squeeze fuel is building under this' : 'trend-shorting; bounces get sold until OI stops rising'; }
+        else if (oiCh4 < -2)  { driver = 'a LONG LIQUIDATION FLUSH (price down + open interest collapsing — leveraged longs being force-closed)';
+                                ending = 'flushes overshoot and often V-bottom once the cascade ends — the reversal candle comes on the biggest volume'; }
+        else                  { driver = up ? 'steady buying, no leverage signature' : 'steady selling, no leverage signature'; }
+      }
+      // distribution check: big upper wicks on heavy volume = selling into strength
+      var wick = 0, body = 0;
+      for (j = i - 7; j <= i; j++) { wick += Math.max(0, S.h[j] - Math.max(S.c[j], S.c[j - 1])); body += Math.abs(S.c[j] - S.c[j - 1]); }
+      var distrib = up && volZ > 1.5 && wick > body * 0.9;
+      var S1 = R.tfs['1h']; var ext = null;
+      if (S1) { var k1 = S1.c.length - 1; if (S1.atr[k1]) ext = (S1.c[k1] - S1.e20[k1]) / S1.atr[k1]; }
+      return { active: active, up: up, mv4: mv4, mv24: mv24, volZ: volZ, oiCh4: oiCh4,
+               driver: driver, ending: ending, distrib: distrib, ext: ext };
+    }
+    // ---- the crowd's state of mind, read from what they are PAYING, not
+    // what they are saying. Funding is the price of conviction; the ratio
+    // tells you which side is crowded; crowded + extended = squeeze fuel. ----
+    function rsPsych(R) {
+      var lines = [];
+      var fund = (R.perp && R.perp.prem) ? +R.perp.prem.lastFundingRate * 100 : null;
+      var ls = (R.ls && R.ls.length) ? +R.ls[R.ls.length - 1].longShortRatio : null;
+      var taker = (R.taker && R.taker.length) ? +R.taker[R.taker.length - 1].buySellRatio : null;
+      var fng = (R.fng && R.fng[0]) ? +R.fng[0].value : null;
+      var S15 = R.tfs['15m']; var rsi15 = S15 ? S15.rsi[S15.rsi.length - 1] : null;
+      if (fund != null) lines.push(fund > 0.05 ? 'Longs are paying ' + fund.toFixed(3) + '%/interval to stay in — that is GREED with a bill attached; crowded longs are squeeze-down fuel.'
+        : fund < -0.05 ? 'Shorts are paying ' + Math.abs(fund).toFixed(3) + '%/interval — FEAR is crowded; that is squeeze-up fuel.'
+        : 'Funding near flat — no side is desperate; moves here are more honest.');
+      if (ls != null) lines.push(ls > 2 ? 'Retail accounts ' + ls.toFixed(1) + ':1 long — the boat is tilted; markets punish the crowded side first.'
+        : ls < 0.7 ? 'Accounts crowded short (' + ls.toFixed(2) + ') — bounces will be violent.' : 'Long/short balance is unremarkable (' + ls.toFixed(2) + ').');
+      if (taker != null && (taker > 1.15 || taker < 0.87)) lines.push(taker > 1.15 ? 'Market orders are hitting the ask (' + taker.toFixed(2) + ') — urgency, FOMO phase.' : 'Market orders smashing the bid (' + taker.toFixed(2) + ') — urgency to exit, capitulation behaviour.');
+      if (rsi15 != null && (rsi15 > 80 || rsi15 < 20)) lines.push(rsi15 > 80 ? '15m RSI ' + rsi15.toFixed(0) + ': euphoria zone — the crowd that buys HERE is the crowd that gets trapped.' : '15m RSI ' + rsi15.toFixed(0) + ': panic zone — the crowd that sells here usually sells the low.');
+      if (fng != null) lines.push('Whole-market mood: ' + fng + '/100 (' + (R.fng[0].value_classification || '') + ')' + (fng >= 75 ? ' — extreme greed markets forgive nothing.' : fng <= 25 ? ' — extreme fear is where bottoms are built, slowly.' : '.'));
+      return lines;
+    }
+    function rsBtcCtx(R) {
+      var o = { lines: [] };
+      if (R.global && R.global.market_cap_percentage && R.global.market_cap_percentage.btc != null) {
+        o.dom = R.global.market_cap_percentage.btc;
+        o.lines.push('BTC dominance ' + o.dom.toFixed(1) + '% — ' + (o.dom > 55 ? 'money is hiding in BTC; alt moves need their own strong story' : o.dom < 45 ? 'alt-friendly regime; moves travel further' : 'neutral regime'));
+      }
+      if (R.btc4) {
+        var i = R.btc4.c.length - 1, v = rsVotes(R.btc4, i), vd = rsVerdict(v.score);
+        o.btcScore = v.score;
+        o.lines.push('BTC 4h trend: ' + vd[0] + ' (score ' + v.score.toFixed(1) + ') at $' + Math.round(R.btc4.c[i]).toLocaleString());
+      }
+      if (R.btc1 && R.tfs['1h']) {
+        var corr = rsPearson(R.tfs['1h'].c.slice(-168), R.btc1.c.slice(-168));
+        if (corr != null) {
+          o.corr = corr;
+          o.lines.push('correlation with BTC (7d, 1h): ' + corr.toFixed(2) + ' — ' + (corr > 0.6 ? 'this coin is a BTC passenger: check the BTC line above before ANY entry' : corr < 0.3 ? 'moving to its own story right now — coin-specific news matters more than BTC' : 'loosely coupled'));
+        }
+      }
+      return o;
     }
 
     function rsRender() {
@@ -8287,6 +8398,31 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       if (R.cg && R.cg.market_data && R.cg.market_data.price_change_percentage_7d != null) senti.push('7d ' + rsPct(R.cg.market_data.price_change_percentage_7d, 1));
       if (senti.length) snap += '<div style="font-size:11.5px;margin-top:4px;color:var(--gray-500,#64748b);">' + senti.join(' · ') + '</div>';
       html += box(snap);
+      // -- why it's moving: pump/dump anatomy --
+      var pump = rsPumpRead(R);
+      if (pump) {
+        var pcol = pump.active ? (pump.up ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)') : 'var(--border,#e2e8f0)';
+        var pb = '<div style="font-weight:700;margin-bottom:4px;">Why it’s moving — flow forensics</div>'
+          + '<div style="font-size:12px;">Last 4h ' + rsPct(pump.mv4) + ' · 24h ' + rsPct(pump.mv24)
+          + ' · volume ' + (pump.volZ >= 2 ? '<b>' + pump.volZ.toFixed(1) + '× above normal</b>' : 'normal')
+          + (pump.oiCh4 != null ? ' · open interest ' + rsPct(pump.oiCh4) + '/4h' : '') + '</div>'
+          + '<div style="font-size:12px;margin-top:6px;"><b>Driver:</b> ' + pump.driver + '</div>'
+          + (pump.ending ? '<div style="font-size:11.5px;margin-top:3px;color:var(--gray-500,#64748b);"><b>How these usually end:</b> ' + pump.ending + '</div>' : '')
+          + (pump.distrib ? '<div style="font-size:11.5px;margin-top:3px;color:var(--danger,#d64545);"><b>Distribution warning:</b> heavy volume with long upper wicks — someone large is selling into this strength.</div>' : '')
+          + (pump.ext != null && Math.abs(pump.ext) > 2.5 ? '<div style="font-size:11.5px;margin-top:3px;color:var(--danger,#d64545);"><b>Overextension:</b> price is ' + Math.abs(pump.ext).toFixed(1) + ' ATRs from its 1h mean — chasing here is buying someone else’s exit.</div>' : '');
+        html += box(pb, 'border-color:' + pcol + ';');
+      }
+      // -- crowd psychology --
+      var psych = rsPsych(R);
+      if (psych.length) html += box('<div style="font-weight:700;margin-bottom:4px;">Crowd psychology — what they’re paying, not saying</div><div style="font-size:12px;line-height:1.55;">' + psych.join('<br>') + '</div>');
+      // -- BTC context --
+      var btc = rsBtcCtx(R);
+      if (btc.lines.length) html += box('<div style="font-weight:700;margin-bottom:4px;">The tide — BTC context</div><div style="font-size:12px;line-height:1.55;">' + btc.lines.join('<br>') + '</div>'
+        + (btc.corr > 0.6 && btc.btcScore != null && R.tfs['4h'] ? (function () {
+            var cs = rsVotes(R.tfs['4h'], R.tfs['4h'].c.length - 1).score;
+            return (cs > 0.5 && btc.btcScore < -1.25) ? '<div style="font-size:11.5px;margin-top:4px;color:var(--danger,#d64545);"><b>Conflict:</b> this coin looks bullish but it is a BTC passenger and BTC is bearish — the tide usually wins.</div>'
+                 : (cs < -0.5 && btc.btcScore > 1.25) ? '<div style="font-size:11.5px;margin-top:4px;color:#e5b567;"><b>Note:</b> coin looks weak but BTC is strong — shorts here fight the tide.</div>' : '';
+          })() : ''));
       // -- timeframe table + overall direction --
       var rows = '', trendScore = 0, timingScore = 0, foots = [];
       RS_TFS.forEach(function (T) {
@@ -8335,6 +8471,38 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
           html += box(p, 'border-color:' + dcol + ';');
         }
       }
+      // -- exact levels for EVERY timeframe. Each timeframe trades its own
+      // structure: its own direction, entry zone, stop, targets, horizon.
+      // A timeframe with no conviction says WAIT instead of inventing one.
+      var tfRows = '';
+      RS_TFS.forEach(function (T) {
+        var S = R.tfs[T.tf]; if (!S) return;
+        var iL = S.c.length - 1, sc = rsVotes(S, iL).score;
+        var cell = 'padding:5px 8px;white-space:nowrap;';
+        if (Math.abs(sc) < 1.25) {
+          tfRows += '<tr><td style="' + cell + '"><b>' + T.label + '</b></td>'
+            + '<td style="' + cell + 'color:var(--gray-500,#64748b);">WAIT</td>'
+            + '<td colspan="4" style="padding:5px 8px;font-size:10.5px;color:var(--gray-500,#64748b);">no conviction on this timeframe (score ' + sc.toFixed(1) + ') — a forced trade here is a donation</td></tr>';
+          return;
+        }
+        var d = sc > 0, pl = rsPlanFor(S, T, d);
+        if (!pl) return;
+        var dc = d ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)';
+        var against = ((T.tf === '15m' || T.tf === '1h') && ((d && trendScore < -0.5) || (!d && trendScore > 0.5)));
+        tfRows += '<tr>'
+          + '<td style="' + cell + '"><b>' + T.label + '</b></td>'
+          + '<td style="' + cell + '"><b style="color:' + dc + ';">' + (d ? 'LONG' : 'SHORT') + '</b>' + (against ? '<div style="font-size:9.5px;color:#e5b567;">against 4h/1d — half size</div>' : '') + '</td>'
+          + '<td style="' + cell + '">$' + rsNum(pl.entryLo) + ' – $' + rsNum(pl.entryHi) + '</td>'
+          + '<td style="' + cell + 'color:var(--danger,#d64545);">$' + rsNum(pl.stop) + '</td>'
+          + '<td style="' + cell + '">$' + rsNum(pl.t1) + ' / $' + rsNum(pl.t2) + '</td>'
+          + '<td style="' + cell + 'font-size:10.5px;color:var(--gray-500,#64748b);">' + pl.horiz + '</td>'
+          + '</tr>';
+      });
+      if (tfRows) html += box('<div style="font-weight:700;margin-bottom:6px;">Exact levels per timeframe</div>'
+        + '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11.5px;width:100%;">'
+        + '<tr style="color:var(--gray-500,#64748b);font-size:10px;"><td style="padding:2px 8px;">TF</td><td style="padding:2px 8px;">Side</td><td style="padding:2px 8px;">Entry zone</td><td style="padding:2px 8px;">Stop</td><td style="padding:2px 8px;">T1 / T2</td><td style="padding:2px 8px;">Give it</td></tr>'
+        + tfRows + '</table></div>'
+        + '<div style="font-size:10.5px;color:var(--gray-500,#64748b);margin-top:6px;">Levels move as candles close — refresh before acting. Entry zones beat entry points: one price is luck, a zone is a plan. The stop is the trade; without it none of these numbers mean anything.</div>');
       // -- key levels --
       if (S1) {
         var sw1 = rsSwings(S1.h, S1.l);
@@ -8354,6 +8522,237 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         + ' · ' + nl('https://www.tradingview.com/symbols/' + coin + 'USDT/', 'TradingView chart')
         + '</div><div style="font-size:10.5px;color:var(--gray-500,#64748b);margin-top:4px;">One headline (listing, delisting, hack, unlock) outweighs every indicator above. If the news contradicts the plan, the news wins.</div>');
       html += '<div class="note-box" style="display:block;grid-column:1/-1;">Live read taken ' + new Date(R.at).toLocaleTimeString() + ' — tap Research again to refresh. These are measured probabilities from the current market, not guarantees; no tool can promise a 15-minute price. Risk only what the stop-loss makes survivable.</div>';
+      el.innerHTML = html;
+    }
+
+    // ================================================================
+    // MY COINS — the trading-buddy tab. Log what you bought (coin, buy
+    // price in USDT, quantity); while this page is open the same engine
+    // that produced the research re-reads every holding on a 2-minute
+    // cycle and gives ONE of four words, with the reason:
+    //   SELL NOW      — structure broke against you; the market changed
+    //   TAKE PROFIT   — you're up and the move shows exhaustion; bank some
+    //   ADD THE DIP   — trend intact, price pulled back to value, crowd sane
+    //   HOLD          — nothing changed; sit still (hardest, most profitable)
+    // The ⚠️ on the sub-tab lights from any tab of the Futures page the
+    // moment a holding turns urgent.
+    //
+    // HONEST LIMIT, stated once: this is a page, not a server. It watches
+    // while the site is open; a closed phone is not watched. Positions
+    // live in THIS browser's storage — they are private and never leave
+    // the device, which also means another device has its own list.
+    // ================================================================
+    var HC_LS = 'swenik-holdings-v1', HC_EVAL_MS = 120000;
+    var hcState = {};   // coin -> { px, pnlPct, verdict, why, stopLine, at }
+    var hcBusy = false;
+    // ---- server sync: the DigitalOcean watcher keeps checking after the
+    // phone is closed and drops verdict changes into Notifications (48h
+    // auto-clean). Auth = the lock passcode this device saved at unlock;
+    // the server holds only the fingerprint. If the server isn't enabled
+    // or reachable, everything below still works purely on-device. ----
+    var hcSrv = { on: null };   // true / false / null(unknown)
+    function hcKeyHdr() {
+      try { var k = localStorage.getItem('swenik-app-key'); return k ? { 'x-swenik-key': k } : null; } catch (e) { return null; }
+    }
+    function hcSync() {
+      var h = hcKeyHdr();
+      if (!h || typeof API_BASE !== 'string') { hcSrv.on = false; return; }
+      fetch(API_BASE + '/api/holdings', { headers: h }).then(function (r) {
+        if (r.status === 503 || r.status === 401) { hcSrv.on = false; hcRender(); return null; }
+        return r.ok ? r.json() : null;
+      }).then(function (d) {
+        if (!d || !d.holdings) return;
+        hcSrv.on = true;
+        // server is the master list — adds/removes from any device converge
+        var l = d.holdings.map(function (r) {
+          var st = r.last_state || null;
+          if (st && typeof st === 'string') { try { st = JSON.parse(st); } catch (e) { st = null; } }
+          if (st && st.verdict) hcState[String(r.coin) + '@' + Number(r.buy_price)] = {
+            px: st.px, pnlPct: st.pnlPct, verdict: st.verdict, why: st.why,
+            stopLine: 'Exit line: 1h close below $' + st.stop,
+            at: new Date(r.checked_at || Date.now()).getTime(), srv: true
+          };
+          return { coin: r.coin, buy: Number(r.buy_price), qty: Number(r.qty), added: new Date(r.added_at).getTime(), srvId: r.id };
+        });
+        hcSave(l); hcRender();
+      }).catch(function () {});
+    }
+    function hcSrvAdd(h) {
+      var hd = hcKeyHdr(); if (!hd || typeof API_BASE !== 'string') return;
+      hd['Content-Type'] = 'application/json';
+      fetch(API_BASE + '/api/holdings', { method: 'POST', headers: hd, body: JSON.stringify({ coin: h.coin, buy: h.buy, qty: h.qty }) })
+        .then(function (r) { if (r.ok) hcSync(); }).catch(function () {});
+    }
+    function hcSrvDel(h) {
+      var hd = hcKeyHdr(); if (!hd || !h.srvId || typeof API_BASE !== 'string') return;
+      fetch(API_BASE + '/api/holdings/' + h.srvId, { method: 'DELETE', headers: hd }).catch(function () {});
+    }
+    function hcList() {
+      try { return JSON.parse(localStorage.getItem(HC_LS) || '[]'); } catch (e) { return []; }
+    }
+    function hcSave(l) { try { localStorage.setItem(HC_LS, JSON.stringify(l)); } catch (e) {} }
+    function hcUrgent() {
+      for (var k in hcState) if (hcState[k] && hcState[k].verdict === 'SELL NOW') return true;
+      return false;
+    }
+
+    // The verdict. Direction is LONG by definition (he bought the coin).
+    function hcJudge(h, S15, S1, S4) {
+      var i15 = S15.c.length - 1, i1 = S1.c.length - 1, i4 = S4 ? S4.c.length - 1 : null;
+      var px = S15.c[i15];
+      var pnl = (px - h.buy) / h.buy * 100;
+      var v15 = rsVotes(S15, i15).score, v1 = rsVotes(S1, i1).score, v4 = S4 ? rsVotes(S4, i4).score : 0;
+      var sw = rsSwings(S1.h, S1.l);
+      var sup = sw.sup.filter(function (x) { return x < px; }).sort(function (a, b) { return b - a; })[0];
+      var atr1 = S1.atr[i1] || px * 0.02;
+      var stop = sup != null ? sup - 0.5 * atr1 : px - 2 * atr1;
+      var ext = S1.atr[i1] ? (px - S1.e20[i1]) / S1.atr[i1] : 0;
+      var rsi15 = S15.rsi[i15];
+      var out = { px: px, pnlPct: pnl, stop: stop, at: Date.now() };
+      // SELL NOW — the market has changed against the position. Thresholds
+      // are set for how downtrends actually score: oscillators go "oversold"
+      // all the way down and partially offset the trend votes, so a real
+      // waterfall reads about -1.5 to -3, not the theoretical minimum.
+      if (v4 <= -1.5 && v1 <= -1) {
+        out.verdict = 'SELL NOW';
+        out.why = 'The 4h trend has broken down (score ' + v4.toFixed(1) + ') and the 1h agrees — this is no longer the market you bought. ' + (pnl >= 0 ? 'You still have profit: take it.' : 'Cutting here is cheaper than hoping.');
+      } else if (sup == null && v1 <= -1.25 && v4 < 0) {
+        // every recent swing low is ABOVE the current price — it is falling
+        // through air with nothing left underneath to lean on
+        out.verdict = 'SELL NOW';
+        out.why = 'Price is below every recent 1h support with momentum against you — there is no floor under this. Structure gone.';
+      } else if (px < stop && v1 < 0) {
+        out.verdict = 'SELL NOW';
+        out.why = 'Price has lost its 1h support floor ($' + rsNum(stop) + ') with momentum against you — the structure that justified holding is gone.';
+      } else if (pnl <= -10 && v4 < 0 && v1 < 0) {
+        out.verdict = 'SELL NOW';
+        out.why = 'Down ' + Math.abs(pnl).toFixed(1) + '% with both the 4h and 1h against the position — a deep loss with no trend support is how small losses become big ones.';
+      } else if (pnl >= 8 && (ext > 2.5 || (rsi15 != null && rsi15 > 80 && v15 < 0) || (pnl >= 20 && ext > 1.5))) {
+        out.verdict = 'TAKE PROFIT';
+        out.why = 'Up ' + pnl.toFixed(1) + '% and the move is showing exhaustion (' + (ext > 2.5 ? ext.toFixed(1) + ' ATRs above the 1h mean' : '15m euphoria rolling over') + '). Book at least half — nobody went broke doing that.';
+      } else if (v4 >= 1.25 && px <= S1.e20[i1] * 1.005 && px > stop && v15 > -2) {
+        out.verdict = 'ADD THE DIP';
+        out.why = 'The 4h uptrend is intact (score ' + v4.toFixed(1) + ') and price has pulled back to its 1h value zone — this is the dip the trend has been buying. Adds only count if the stop still protects them.';
+      } else {
+        out.verdict = 'HOLD';
+        out.why = v4 >= 1.25 ? 'Trend intact, nothing broken — sitting still is the trade.'
+          : v4 <= -1.25 ? 'Trend is weakening but the floor is holding — tighten your attention, not yet your finger.'
+          : 'No strong signal either way — the stop line below is what matters.';
+      }
+      out.stopLine = 'Exit line: 1h close below $' + rsNum(stop) + (px > stop ? ' (' + ((px - stop) / px * 100).toFixed(1) + '% below current)' : '');
+      return out;
+    }
+
+    function hcTick(force) {
+      if (hcBusy) return;
+      if (!force && !(currentPage === 'futures' && bfTab === 'mycoins' && document.visibilityState === 'visible')) return;
+      var list = hcList();
+      if (!list.length) return;
+      hcBusy = true;
+      var idx = 0;
+      function nextCoin() {
+        if (idx >= list.length) { hcBusy = false; hcRender(); try { updateVenueTabCounts(); } catch (e) {} return; }
+        var h = list[idx++];
+        Promise.all([
+          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=15m&limit=300'),
+          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=1h&limit=300'),
+          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=4h&limit=300')
+        ]).then(function (r) {
+          hcState[h.coin + '@' + h.buy] = hcJudge(h, rsSeries(r[0]), rsSeries(r[1]), rsSeries(r[2]));
+        }).catch(function (e) {
+          hcState[h.coin + '@' + h.buy] = { err: e.message, at: Date.now() };
+        }).then(function () { setTimeout(nextCoin, 250); }); // gentle spacing
+      }
+      nextCoin();
+    }
+    setInterval(function () { try { hcTick(false); } catch (e) {} }, HC_EVAL_MS);
+
+    window.hcAdd = function () {
+      var c = String((document.getElementById('hcCoin') || {}).value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      var b = parseFloat((document.getElementById('hcBuy') || {}).value);
+      var q = parseFloat((document.getElementById('hcQty') || {}).value);
+      if (!c || !(b > 0) || !(q > 0)) return;
+      var h = { coin: c, buy: b, qty: q, added: Date.now() };
+      var l = hcList(); l.push(h);
+      hcSave(l); hcRender(); hcTick(true); hcSrvAdd(h);
+    };
+    window.hcDel = function (i) {
+      var l = hcList(); var h = l.splice(i, 1)[0];
+      if (h) { delete hcState[h.coin + '@' + h.buy]; hcSrvDel(h); }
+      hcSave(l); hcRender();
+    };
+    window.hcResearch = function (coin) {
+      rsCoinLast = coin;
+      try { localStorage.setItem('swenik-rs-coin', coin); } catch (e) {}
+      bfSetTab('research');
+      setTimeout(function () { try { rsGo(); } catch (e) {} }, 80);
+    };
+
+    var HC_STYLE = {
+      'SELL NOW':    ['#d64545', '#fdf1f0'],
+      'TAKE PROFIT': ['#c07f16', '#fdf7ec'],
+      'ADD THE DIP': ['#1f9d55', '#eefaf3'],
+      'HOLD':        ['#64748b', '#f4f6f9']
+    };
+    function hcRender() {
+      if (currentPage !== 'futures' || bfTab !== 'mycoins') return;
+      var el = document.getElementById('cardList');
+      if (!el) return;
+      var list = hcList();
+      var html = bfBar(bfCounts())
+        + '<div style="grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+        + '<input id="hcCoin" placeholder="Coin" style="width:90px;padding:9px 10px;border:1px solid var(--border,#e2e8f0);border-radius:8px;font-size:13px;text-transform:uppercase;">'
+        + '<input id="hcBuy" type="number" step="any" placeholder="Buy price (USDT)" style="width:130px;padding:9px 10px;border:1px solid var(--border,#e2e8f0);border-radius:8px;font-size:13px;">'
+        + '<input id="hcQty" type="number" step="any" placeholder="Qty" style="width:90px;padding:9px 10px;border:1px solid var(--border,#e2e8f0);border-radius:8px;font-size:13px;">'
+        + '<button onclick="hcAdd()" style="padding:9px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;font-size:13px;">Track it</button>'
+        + '</div>';
+      if (!list.length) {
+        el.innerHTML = html + '<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">👛</span>Nothing tracked yet. After you buy a coin from the Research tab’s plan, log it here — every 2 minutes while this page is open, the same engine re-reads the market and tells you SELL NOW / TAKE PROFIT / ADD THE DIP / HOLD, with the reason. The ⚠️ lights on this tab from anywhere in Futures if something turns urgent.</div>';
+        return;
+      }
+      // portfolio summary
+      var inv = 0, cur = 0, missing = 0;
+      list.forEach(function (h) {
+        inv += h.buy * h.qty;
+        var st = hcState[h.coin + '@' + h.buy];
+        if (st && st.px) cur += st.px * h.qty; else { cur += h.buy * h.qty; missing++; }
+      });
+      var pl = cur - inv, plp = inv ? pl / inv * 100 : 0;
+      html += '<div style="grid-column:1/-1;background:#fff;border:1.5px solid var(--border,#e2e8f0);border-radius:12px;padding:10px 14px;display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;">'
+        + '<span style="font-size:11.5px;color:var(--gray-500,#64748b);">Invested <b style="color:#16202e;">$' + inv.toFixed(2) + '</b></span>'
+        + '<span style="font-size:11.5px;color:var(--gray-500,#64748b);">Now <b style="color:#16202e;">$' + cur.toFixed(2) + '</b></span>'
+        + '<span style="font-size:14px;font-weight:800;color:' + (pl >= 0 ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)') + ';">' + (pl >= 0 ? '+' : '') + pl.toFixed(2) + ' (' + rsPct(plp) + ')</span>'
+        + (missing ? '<span style="font-size:10.5px;color:var(--gray-500,#64748b);">' + missing + ' awaiting first check…</span>' : '')
+        + (hcBusy ? '<span style="font-size:10.5px;color:var(--gray-500,#64748b);">checking…</span>' : '')
+        + '</div>';
+      list.forEach(function (h, i) {
+        var st = hcState[h.coin + '@' + h.buy];
+        var inner = '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">'
+          + '<b style="font-size:15px;">' + h.coin + '</b>'
+          + '<span style="font-size:10.5px;color:var(--gray-500,#64748b);">' + h.qty + ' @ $' + rsNum(h.buy) + '</span></div>';
+        if (!st) inner += '<div style="font-size:11.5px;color:var(--gray-500,#64748b);margin-top:6px;">⏳ first check queued…</div>';
+        else if (st.err) inner += '<div style="font-size:11.5px;color:var(--danger,#d64545);margin-top:6px;">check failed (' + st.err + ') — retries every 2 min</div>';
+        else {
+          var sty = HC_STYLE[st.verdict] || HC_STYLE.HOLD;
+          inner += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;flex-wrap:wrap;gap:6px;">'
+            + '<span style="font-size:13px;font-weight:800;">$' + rsNum(st.px) + ' <span style="color:' + (st.pnlPct >= 0 ? 'var(--success,#1f9d55)' : 'var(--danger,#d64545)') + ';">' + rsPct(st.pnlPct) + '</span></span>'
+            + '<span style="background:' + sty[1] + ';color:' + sty[0] + ';border:1px solid ' + sty[0] + ';border-radius:6px;padding:2px 10px;font-size:12px;font-weight:800;">' + st.verdict + '</span></div>'
+            + '<div style="font-size:11.5px;margin-top:6px;line-height:1.5;">' + st.why + '</div>'
+            + '<div style="font-size:11px;color:var(--gray-500,#64748b);margin-top:4px;">' + st.stopLine + '</div>'
+            + '<div style="font-size:10px;color:var(--gray-500,#64748b);margin-top:2px;">checked ' + new Date(st.at).toLocaleTimeString() + '</div>';
+        }
+        inner += '<div style="margin-top:8px;display:flex;gap:8px;">'
+          + '<button onclick="hcResearch(\'' + h.coin + '\')" style="padding:6px 12px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:#fff;font-size:11.5px;font-weight:600;">Full research</button>'
+          + '<button onclick="hcDel(' + i + ')" style="padding:6px 12px;border:1px solid #f4c2c2;border-radius:6px;background:#fff;color:var(--danger,#d64545);font-size:11.5px;font-weight:600;">Remove</button>'
+          + '</div>';
+        var bd = (st && !st.err && HC_STYLE[st.verdict]) ? HC_STYLE[st.verdict][0] : 'var(--border,#e2e8f0)';
+        html += '<div style="background:#fff;border:1.5px solid ' + bd + ';border-radius:12px;padding:12px 14px;">' + inner + '</div>';
+      });
+      html += '<div class="note-box" style="display:block;grid-column:1/-1;">'
+        + (hcSrv.on === true ? '<b>Server watcher is ON</b> — your DigitalOcean scanner re-checks these 24/7 even with the phone closed, and posts SELL NOW / TAKE PROFIT / ADD THE DIP changes to the Notifications page (auto-cleans after 48h). This page additionally re-checks every 2 minutes while open. '
+           : hcSrv.on === false ? 'Server watcher not enabled — watching only while this page is open. To arm 24/7 watching, set the SWENIK_LOCK_HASH env var on the scanner backend. '
+           : 'Checking server watcher\u2026 ')
+        + ' SELL NOW means the structure that justified the buy is gone — decide fast, but it is advice, not an order: nothing here trades by itself.</div>';
       el.innerHTML = html;
     }
 
@@ -8445,6 +8844,10 @@ IDENTICAL block in index.html and track.html. -->
         busy = false;
         if (hex === HASH) {
           try { localStorage.setItem(OK_LS, HASH); localStorage.removeItem(FAIL_LS); } catch (e) {}
+          // Keep the passcode on THIS device too: the server's My Coins
+          // watcher accepts only requests that can present it (the server
+          // stores just the fingerprint, so only your devices qualify).
+          try { localStorage.setItem('swenik-app-key', v); } catch (e) {}
           curtain.remove(); // this device is now remembered — no reload needed
           return;
         }

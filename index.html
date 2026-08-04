@@ -5283,6 +5283,10 @@ IDENTICAL block in index.html and track.html. -->
         busy = false;
         if (hex === HASH) {
           try { localStorage.setItem(OK_LS, HASH); localStorage.removeItem(FAIL_LS); } catch (e) {}
+          // Keep the passcode on THIS device too: the server's My Coins
+          // watcher accepts only requests that can present it (the server
+          // stores just the fingerprint, so only your devices qualify).
+          try { localStorage.setItem('swenik-app-key', v); } catch (e) {}
           curtain.remove(); // this device is now remembered — no reload needed
           return;
         }
