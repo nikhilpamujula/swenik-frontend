@@ -1203,7 +1203,10 @@ function selectPage(page) {
   // External venues (Zebpay/CoinDCX) poll their own engine while open. WazirX
   // (native) rides the global fullRefresh, so no separate timer.
   if (isVenue && !isNativeVenue) {
-    if (!vTimer) vTimer = setInterval(vRefresh, 10000);
+    // Don't blindly poll: vRefresh() learns the paused flag, then vSyncTimer()
+    // (called inside it) arms the 10s poll ONLY when the engine is running. A
+    // paused venue makes exactly this one request, then stays idle — no capture,
+    // no bandwidth — per the per-venue Pause control.
     vRefresh();
   } else if (vTimer) { clearInterval(vTimer); vTimer = null; }
   if (page === 'giottus') {
@@ -1484,7 +1487,9 @@ function updateVenueTabCounts() {
     b.classList.toggle('on', vTab === k);
   });
   const gs = el.querySelector('.g-status');
-  if (gs) gs.textContent = st.err ? `error: ${st.err}`
+  const vPausedC = !_v.native && (st.paused === true);
+  if (gs) gs.textContent = vPausedC ? (st.err ? `⚠ ${st.err} — still paused. Tap Play to retry.` : `⏸ ${_v.label} paused — not capturing (saves bandwidth). Tap Play to resume.`)
+    : st.err ? `error: ${st.err}`
     : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner}${_v.native ? '' : ` · ${st.tracked || 0} coins`}${vTab === 'loop' ? ' · depth-walked (volume always on)' : ''} · updated ${Math.max(0, Math.round((Date.now() - st.ts) / 1000))}s ago`
     : 'connecting…';
 }
@@ -1505,7 +1510,17 @@ function renderToolbar() {
     // behind. External venues always fetch fresh, so they show the real count.
     const staleCount = !!(_v.native && usingSeedData);
     const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l} (${staleCount ? '…' : (f[k]||[]).length})</button>`;
+    // Play/Pause control — external venues (Zebpay/CoinDCX) only. Pause turns the
+    // whole server-side engine off (no capture, no compute, no bandwidth); Play
+    // turns it back on. WazirX (native) has no button — it rides the main scanner.
+    const isExternal = !_v.native;
+    const vPaused = isExternal && (st.paused === true);
+    const vPausing = isExternal && (st.pausing === true);
+    const pauseBtn = isExternal
+      ? `<button onclick="vTogglePause()" ${vPausing ? 'disabled' : ''} title="${vPaused ? 'Start capturing ' + _v.label : 'Stop capturing ' + _v.label + ' — saves bandwidth'}" style="display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:8px;font-weight:700;font-size:12.5px;cursor:${vPausing ? 'default' : 'pointer'};opacity:${vPausing ? '0.6' : '1'};border:1px solid ${vPaused ? '#16a34a' : 'var(--border,#d1d5db)'};background:${vPaused ? '#16a34a' : 'var(--card,#fff)'};color:${vPaused ? '#fff' : '#b45309'};">${vPausing ? '…' : (vPaused ? '▶ Play' : '⏸ Pause')}</button>`
+      : '';
     el.innerHTML = `
+      ${pauseBtn}
       <div class="g-seg">${tab('direct','Direct')}${tab('loop','Loop')}${tab('intraloop','Intra Loop')}</div>
       ${volumeToggleHtml(vTab === 'loop')}
       ${vTab === 'direct' ? `<label class="toggle-wrap"><span>Disabled Wallets</span>
@@ -1518,7 +1533,8 @@ function renderToolbar() {
       <button class="apply-filter-btn" onclick="openDrawer()">Apply Filter</button>
       ${venueFilterChips()}
       <span class="g-status" style="margin:0;">${
-        st.err ? `error: ${st.err}`
+        vPaused ? (st.err ? `⚠ ${st.err} — still paused. Tap Play to retry.` : `⏸ ${_v.label} paused — not capturing (saves bandwidth). Tap Play to resume.`)
+        : st.err ? `error: ${st.err}`
         : st.ts ? `⚡ ${_v.label} ⇄ ${_v.partner}${_v.native ? '' : ` · ${st.tracked||0} coins`}${vTab === 'loop' ? ' · depth-walked (volume always on)' : ''} · updated ${Math.max(0, Math.round((Date.now()-st.ts)/1000))}s ago`
         : 'connecting…'}</span>
     `;
@@ -2324,7 +2340,19 @@ function cachePfx() { return (openCard && openCard.venueId) ? openCard.venueId +
 // One place applies EVERY venue filter (wallet toggle, USDT toggle, coin
 // search, the ₹100 intra noise floor) so the card list and the sub-tab
 // counts can never disagree — toggling a filter visibly changes both.
+// Memoized per (opps, filter-state). The tab COUNT (updateVenueTabCounts) and
+// the card RENDER (renderVenuePage) each call this once per tick, and
+// minProfitGate's hysteresis MUTATES a shared set — so two independent passes
+// could disagree, e.g. "Intra Loop (1)" over an empty list, or a stale tab. One
+// computation per state makes the count and the list read the exact same object.
+let _vfMemo = { opps: null, sig: null, val: null };
+function _vfSig() {
+  try { return [showDisabledWallets, showUsdtPairs, withVolume, JSON.stringify(venueFilter)].join('|'); }
+  catch (e) { return 'x' + Math.random(); }
+}
 function vFiltered(opps) {
+  const sig = _vfSig();
+  if (_vfMemo.opps === opps && _vfMemo.sig === sig && _vfMemo.val) return _vfMemo.val;
   const f = { direct: [], loop: [], intraloop: [] };
   const vf = venueFilter;
   for (const o of opps || []) {
@@ -2350,6 +2378,7 @@ function vFiltered(opps) {
     }
     f[o.type].push(o);
   }
+  _vfMemo = { opps: opps, sig: sig, val: f };
   return f;
 }
 function vSetTab(t) {
@@ -2394,18 +2423,68 @@ function clearVenueFilter(tab, field) {
   saveUiState(); renderToolbar(); renderVenuePage();
 }
 
+// Start/stop the venue's 10s poll based on its paused flag. A paused venue must
+// NOT poll — that's the whole point of Pause (no capture, no bandwidth). Called
+// after we learn the state (initial load, a tick, or a Play/Pause tap).
+function vSyncTimer() {
+  const v = venueCfg();
+  const running = !!(v && !v.native && !((venueState[v.id] || {}).paused));
+  if (running) { if (!vTimer) vTimer = setInterval(vRefresh, 10000); }
+  else if (vTimer) { clearInterval(vTimer); vTimer = null; }
+}
+
+// Flip a venue engine on/off. POSTs the new paused state to the server (the flag
+// is global + persisted, default OFF), then re-syncs polling and repaints. This
+// is the only venue write and it never touches orders/execution — pause only
+// controls whether the engine captures & computes.
+async function vTogglePause() {
+  const v = venueCfg(); if (!v || v.native) return;
+  const st = venueState[v.id] || (venueState[v.id] = { opps: [], ts: 0, tracked: 0, err: null });
+  const wantPaused = !st.paused;          // flip the current state
+  st.pausing = true; renderToolbar();     // disable the button while the call is in flight
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 11000);
+  try {
+    const res = await fetch(`${API_BASE}/api/venue/${v.id}/pause`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paused: wantPaused }), signal: ctrl.signal
+    });
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    const data = await res.json();
+    st.paused = data.paused === true; st.err = null;
+    if (!st.paused) { st.ts = 0; st.opps = []; } // resuming: drop stale, fetch fresh below
+  } catch (e) {
+    st.err = (e && e.name === 'AbortError') ? 'pause request timed out' : e.message;
+  } finally { clearTimeout(to); }
+  st.pausing = false;
+  if (venueCfg() === v) {
+    vSyncTimer();                    // arm polling if now running, kill it if paused
+    renderToolbar(); renderVenuePage();
+    if (st.paused === false && !st.err) vRefresh(); // resuming: pull live data now
+  }
+}
+
 async function vRefresh() {
   const v = venueCfg(); if (!v) return;
   const st = venueState[v.id] || (venueState[v.id] = { opps: [], ts: 0, tracked: 0, err: null });
+  const wasPaused = st.paused === true;
   try {
     const res = await fetchWithTimeout(`${API_BASE}${v.api}/opportunities?volume=${withVolume}&wallets=all&profit=all`);
     if (!res.ok) throw new Error(`API returned ${res.status}`);
     const data = await res.json();
     st.opps = data.opportunities || []; st.ts = data.ts; st.tracked = data.trackedPairs || 0; st.err = null;
+    st.paused = data.paused === true;
   } catch (e) { st.err = e.message; }
   // Same rule as the native venue: data ticks update toolbar text in place,
   // they never rebuild the toolbar (which would swallow an in-flight tap).
-  if (venueCfg() === v) { updateVenueTabCounts(); renderVenuePage(); }
+  // EXCEPTION: a paused-state flip is a discrete event (not a per-tick change),
+  // so rebuild the toolbar then to swap the Play/Pause button + status.
+  if (venueCfg() === v) {
+    vSyncTimer();
+    if ((st.paused === true) !== wasPaused) renderToolbar();
+    else updateVenueTabCounts();
+    renderVenuePage();
+  }
 }
 
 function renderVenuePage() {
@@ -2419,6 +2498,10 @@ function renderVenuePage() {
     opps = allOpportunities;
   } else {
     const st = venueState[v.id];
+    if (st && st.paused) {
+      el.innerHTML = `<div class="empty-state"><span class="emoji">⏸️</span><div style="font-weight:700;font-size:15px;margin-bottom:6px;">${v.label} is paused</div><div style="font-size:12.5px;color:var(--gray-500,#6b7280);max-width:340px;margin:0 auto 16px;line-height:1.5;">The ${v.label} engine isn't capturing or computing right now, so it uses no bandwidth. Tap Start when you want live ${v.label} ⇄ ${v.partner} data.</div><button onclick="vTogglePause()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 20px;border-radius:9px;font-weight:700;font-size:13.5px;cursor:pointer;border:1px solid #16a34a;background:#16a34a;color:#fff;">▶ Start ${v.label}</button></div>`;
+      return;
+    }
     if (!st || (!st.ts && !st.err)) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Connecting to ${v.label}…</div>`; return; }
     if (st.err && !(st.opps && st.opps.length)) {
       el.innerHTML = `<div class="empty-state"><span class="emoji">⚠️</span>Couldn't reach the ${v.label} engine (${st.err}). If the backend was just deployed, give it a moment to discover markets.</div>`;
@@ -2586,7 +2669,7 @@ function openFuturesModal(coin) {
   futModalCoin = coin;
   document.getElementById('modalOverlay').classList.remove('hidden');
   document.getElementById('modalTitle').textContent = `${coin.toUpperCase()} — Futures Basis`;
-  document.getElementById('modalStatus').textContent = 'refreshes every 5s while open';
+  document.getElementById('modalStatus').textContent = 'refreshes every 3s while open';
   document.getElementById('modalBody').innerHTML = `<div class="modal-note">Loading…</div>`;
   refreshFuturesModal();
   futModalTimer = setInterval(refreshFuturesModal, 5000);
@@ -2964,7 +3047,7 @@ function renderDirectModal(entry) {
   }
   document.getElementById('modalTitle').textContent = `${entry.coin.toUpperCase()} — Direct Arbitrage`;
   document.getElementById('modalStatus').innerHTML = modalVolumeToggleHtml() + (withVolume
-    ? `refreshes every 15s while open · <a href="#" onclick="refreshDirectModalLive(); return false;" style="color:var(--primary);">refresh now</a>`
+    ? `refreshes every 3s while open · <a href="#" onclick="refreshDirectModalLive(); return false;" style="color:var(--primary);">refresh now</a>`
     : 'Volume is OFF — showing top-of-book only');
 
   // Volume OFF (or the walk not loaded yet): show the rough spread box but
@@ -3378,7 +3461,7 @@ function loopObSectionHtml(entry) {
          </div>`
       : `<div class="note-box" style="margin-top:14px;">Overall arbitrage is negative right now — the trade has slipped, so the plain order book is shown (no consumption bars).</div>`;
     return `${header}
-         <div class="ob-section-title">Order Book <span style="font-weight:500; font-size:11px; color:var(--gray-500);">· live · updates every 5s</span></div>
+         <div class="ob-section-title">Order Book <span style="font-weight:500; font-size:11px; color:var(--gray-500);">· live · updates every 3s</span></div>
          ${loopOrderBookTable(entry.liveBooks.legs, { showBars, levels: entry.levels })}`;
   }
   return loopLiveError
@@ -3390,13 +3473,13 @@ function renderLoopModal() {
   const entry = loopLiveEntry || findOpportunity(openCard);
   if (!entry) {
     document.getElementById('modalBody').innerHTML = loopLiveError
-      ? `<div class="banner-error">Couldn't load this loop (${loopLiveError}). Retrying every 5s.</div>`
+      ? `<div class="banner-error">Couldn't load this loop (${loopLiveError}). Retrying every 3s.</div>`
       : `<div class="modal-note">Loading…</div>`;
     return;
   }
   const c1 = entry.coin1.toUpperCase(), c2 = entry.coin2.toUpperCase();
   document.getElementById('modalTitle').textContent = `${c1} → ${c2} — Loop Arbitrage`;
-  document.getElementById('modalStatus').innerHTML = modalVolumeToggleHtml() + `order book updates live every 5s · <a href="#" onclick="refreshLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
+  document.getElementById('modalStatus').innerHTML = modalVolumeToggleHtml() + `order book updates live every 3s · <a href="#" onclick="refreshLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
 
   if (!withVolume || !entry.walked) {
     const legsEarly = entry.liveBooks && entry.liveBooks.legs;
@@ -3525,7 +3608,7 @@ async function fetchIntraLoopLive(coin) {
 function renderIntraLoopModal() {
   const coin = (openCard.coin || '').toUpperCase();
   document.getElementById('modalTitle').textContent = `${coin} — Intra Loop (${cardVenueName()} triangle)`;
-  document.getElementById('modalStatus').innerHTML = `refreshes every 15s while open · <a href="#" onclick="refreshIntraLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
+  document.getElementById('modalStatus').innerHTML = `refreshes every 3s while open · <a href="#" onclick="refreshIntraLoopModalLive(); return false;" style="color:var(--accent);">refresh now</a>`;
   const entry = intraLoopLiveEntry;
   if (!entry) {
     document.getElementById('modalBody').innerHTML = intraLoopLiveError
@@ -4058,19 +4141,19 @@ function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVe
     liveBookError = null; liveFailStreak = 0;
     renderDirectModal(directLiveEntry || findOpportunity(openCard));
     refreshDirectModalLive();
-    modalTimer = setInterval(refreshDirectModalLive, 15000);
+    modalTimer = setInterval(refreshDirectModalLive, 3000);
   } else if (type === 'intraloop') {
     intraLoopLiveEntry = liveCache[`${cachePfx()}intraloop:${coin}`] || null;
     intraLoopLiveError = null;
     renderIntraLoopModal();
     refreshIntraLoopModalLive();
-    modalTimer = setInterval(refreshIntraLoopModalLive, 15000);
+    modalTimer = setInterval(refreshIntraLoopModalLive, 3000);
   } else {
     loopLiveEntry = liveCache[`${cachePfx()}loop:${coin1}:${coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] || null;
     loopLiveError = null;
     renderLoopModal();
     refreshLoopModalLive();
-    modalTimer = setInterval(refreshLoopModalLive, 5000); // live order book
+    modalTimer = setInterval(refreshLoopModalLive, 3000); // live order book
   }
 }
 function closeModal() {
