@@ -2830,7 +2830,14 @@ function cardNodes(html) {
 // `currentPage`. `sortBy` decides the wording of the cap note. If any of these
 // move, every memo is invalidated at once.
 function paintEpoch() {
-  return `${currentPage}|${withVolume}|${sortBy}|${CARD_CAP}`;
+  // vTab added 6 Aug: it wasn't here even though it's exactly the kind of
+  // page-state this comment already warns about — a venue page's Direct/Loop/
+  // Intra Loop sub-tabs all share one currentPage value, so the epoch alone
+  // couldn't tell them apart. The paint-cache is now ALSO reset on any view
+  // change by paintCappedCards itself (viewSig check, which includes vTab),
+  // so this is belt-and-suspenders, not the primary fix — but it costs
+  // nothing and matches what the comment above always promised.
+  return `${currentPage}|${typeof vTab !== 'undefined' ? vTab : ''}|${withVolume}|${sortBy}|${CARD_CAP}`;
 }
 
 // The memo below is checked against reality on a rolling basis rather than
@@ -2852,6 +2859,22 @@ function paintCappedCards(el, fullList, renderFn) {
   const note = hidden > 0
     ? `<div class="cap-note">Showing the top ${CARD_CAP} by ${sortBy === 'profit' ? 'rupee profit' : 'percentage'} · ${hidden} more not shown — add a coin filter to narrow.</div>`
     : '';
+
+  // Nikhil, 6 Aug — hard close on "a Direct card under the Intra Loop tab".
+  // The keyed diff below is content-safe (it fingerprints the actual
+  // opportunity object, so it can never show one coin's data under another's
+  // card) — but #cardList is the SAME element for every tab of every venue,
+  // and its el.__cards Map was never invalidated on a TAB SWITCH specifically,
+  // only on content change. viewSig() (page|tab|volume) already existed for
+  // the poll-skip check elsewhere; it's used here for the first time to also
+  // gate the paint cache. A view change just drops the Map — the existing
+  // "prev has nothing for this key" path below already rebuilds every card
+  // from scratch (cheap: it's the same one-time cost as a tab click already
+  // pays) AND repopulates el.__cards properly, so the NEXT repaint on this
+  // same tab still gets the fast path. This removes any possibility of a
+  // stale node surviving a tab boundary, full stop.
+  const curViewSig = viewSig();
+  if (el.__cardsViewSig !== curViewSig) { el.__cardsViewSig = curViewSig; el.__cards = null; }
 
   // Same arguments the old `shown.map(renderFn)` passed, so a renderFn that
   // looks at its index still behaves identically.
