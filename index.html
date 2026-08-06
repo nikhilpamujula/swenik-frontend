@@ -520,10 +520,29 @@
   .g-ov-age.warn { background:#3c3212; color:#e4c95e; }
   .g-ov-age.bad { background:#3c1212; color:#e87676; }
   .g-ov-body { padding:12px 12px 28px; }
-  .g-ov-body .g-books { flex-direction:column; overflow-x:visible; background:transparent; border-top:none; padding:0; }
-  .g-ov-body .g-book { flex:none; width:100%; }
-  .g-ov-body .g-book table { width:100%; font-size:13px; }
-  .g-ov-body .g-book td { padding:7px 12px; }
+  /* Books side-by-side in TRADE ORDER (his call: "parallel and aligned works") —
+     one aligned column per leg, wrapping to 2-up on narrow screens. */
+  .g-ov-body .g-books { display:grid; grid-template-columns:repeat(auto-fit,minmax(235px,1fr)); align-items:start; gap:10px; overflow-x:visible; background:transparent; border-top:none; padding:0; }
+  .g-ov-body .g-book { width:100%; }
+  .g-ov-body .g-book table { width:100%; font-size:12.5px; }
+  .g-ov-body .g-book td { padding:6px 9px; }
+  /* Consumption bar per taken row — red for asks (you buy), green for bids (you sell) */
+  .g-tbar { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .g-tbar .bar { width:44px; height:7px; border-radius:999px; background:var(--gray-200); overflow:hidden; display:inline-block; }
+  .g-tbar .bar i { display:block; height:100%; border-radius:999px; }
+  tr.ask .g-tbar .bar i { background:#e5484d; }
+  tr.bid .g-tbar .bar i { background:#1fa15e; }
+  .g-tbar .pv { font-size:10px; font-weight:800; }
+  tr.ask .g-tbar .pv { color:#c02a40; } tr.bid .g-tbar .pv { color:#137a48; }
+  .g-tbar .tq { font-size:10.5px; color:var(--gray-700); font-weight:700; }
+  /* Per-leg summary strip above the books: the trade at a glance */
+  .g-ov-sum { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin-bottom:10px; }
+  .g-sum-cell { background:#fff; border:1px solid var(--border); border-radius:var(--radius-xs); padding:8px 10px; }
+  .g-sum-cell .k { font-size:10.5px; font-weight:700; color:var(--gray-700); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .g-sum-cell .sb { font-size:9px; font-weight:800; padding:2px 6px; border-radius:4px; letter-spacing:.05em; }
+  .g-sum-cell .sb.buy { background:#fdecec; color:#c02a40; } .g-sum-cell .sb.sell { background:#e6f6ec; color:#137a48; }
+  .g-sum-cell .v { font-size:12.5px; font-weight:800; margin-top:3px; }
+  .g-sum-cell .s { font-size:10.5px; color:var(--gray-500); margin-top:1px; }
   .g-ov-body .g-live-note { border-top:none; border-radius:var(--radius-xs); margin-bottom:10px; padding:9px 12px; }
   .g-ack { font-size:11.5px; font-weight:600; padding:7px 10px; border-radius:6px; line-height:1.45; }
   .g-ack.ok { background:var(--success-soft, #e6f6ec); color:#137a48; }
@@ -4865,17 +4884,50 @@ function gRouteChips(label) {
     `<span class="g-chip ${s === 'INR' ? 'inr' : ''}">${s}</span>${i < arr.length - 1 ? '<span class="g-arrow">▸</span>' : ''}`).join('');
 }
 
+// ---- shared book-row + summary builders (overlay) ----
+// A taken row gets a red/green bar sized to the % of that LEVEL consumed,
+// the % itself, and the qty you take — the Track Live visual language.
+function gBookRows(cls, lv, used) {
+  return lv.map((l, i) => {
+    const t = (used && used[i]) || 0;
+    if (!(t > 1e-9)) return `<tr class="${cls}"><td>${l.p}</td><td>${l.q}</td><td class="take"></td></tr>`;
+    const pct = l.q > 0 ? Math.min(100, t / l.q * 100) : 0;
+    return `<tr class="${cls} used"><td>${l.p}</td><td>${l.q}</td><td class="take"><span class="g-tbar"><span class="bar"><i style="width:${Math.max(3, Math.round(pct))}%"></i></span><span class="pv">${pct < 1 ? '<1' : pct.toFixed(0)}%</span><span class="tq">${+t.toPrecision(4)}</span></span></td></tr>`;
+  }).join('');
+}
+// Volume-weighted average fill price over the levels the walk takes.
+function gLegAvg(lv, used) {
+  let q = 0, v = 0;
+  for (let i = 0; i < lv.length; i++) { const u = (used && used[i]) || 0; if (u > 1e-9) { q += u; v += u * lv[i].p; } }
+  return q > 1e-9 ? v / q : null;
+}
+// Per-leg summary strip: side, market, avg fill, order value — the whole trade
+// at a glance before reading any table. meta: [{L,{lv,used,title,value}}]
+function gLegSummary(meta) {
+  return '<div class="g-ov-sum">' + meta.map((m, j) => {
+    const avg = gLegAvg(m.lv, m.used);
+    const q = (m.L.quote || '').toUpperCase();
+    const val = m.value == null ? '' : (m.L.quote === 'inr' ? gInrFmt(m.value) : (+m.value).toFixed(2) + ' ' + q);
+    return `<div class="g-sum-cell">
+      <div class="k"><span class="sb ${m.L.side}">${m.L.side === 'buy' ? 'BUY' : 'SELL'}</span> ${j + 1}. ${m.title}</div>
+      <div class="v">${avg != null ? 'avg fill ' + (+avg.toPrecision(6)) : 'avg fill —'}</div>
+      <div class="s">${val}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
 function gBooksHtml(c) {
-  return '<div class="g-books">' + c.legsSpec.map((L, j) => {
+  const meta = c.legsSpec.map((L, j) => {
     const d = gDepth[L.market];
-    if (!d) return `<div class="g-book"><div class="bt">${L.label}</div><table><tr><td class="h">no depth</td></tr></table></div>`;
-    const side = L.side === 'buy' ? gLv(d.asks).slice(0, 8) : gLv(d.bids).slice(0, 8);
-    const cls = L.side === 'buy' ? 'ask' : 'bid';
-    const usedArr = (c.walkUsed && c.walkUsed[j]) || [];
-    const rows = side.map((l, i) =>
-      `<tr class="${cls} ${usedArr[i] > 1e-9 ? 'used' : ''}"><td>${l.p}</td><td>${l.q}</td><td class="take">${usedArr[i] > 1e-9 ? '← ' + (+usedArr[i].toPrecision(4)) : ''}</td></tr>`).join('');
-    return `<div class="g-book"><div class="bt">${L.label} — ${L.side === 'buy' ? 'asks' : 'bids'}</div>
-      <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${rows}</table></div>`;
+    const lv = d ? gLv(L.side === 'buy' ? d.asks : d.bids).slice(0, 8) : [];
+    return { L, lv, used: (c.walkUsed && c.walkUsed[j]) || [], title: L.label,
+             value: c.walk && c.walk.notion ? c.walk.notion[j] : null };
+  });
+  return gLegSummary(meta) + '<div class="g-books">' + meta.map(m => {
+    if (!m.lv.length) return `<div class="g-book"><div class="bt">${m.title}</div><table><tr><td class="h">no depth</td></tr></table></div>`;
+    const cls = m.L.side === 'buy' ? 'ask' : 'bid';
+    return `<div class="g-book"><div class="bt">${m.title} — ${m.L.side === 'buy' ? 'asks' : 'bids'}</div>
+      <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${gBookRows(cls, m.lv, m.used)}</table></div>`;
   }).join('') + '</div>';
 }
 
@@ -4924,31 +4976,32 @@ function gSrvBooksHtml(t) {
       liveVerdict = `<div class="g-live-note dead">⚠ Arb gone at live prices — no profitable size on this book right now. The card above updates from the 24/7 engine (~15s behind).</div>`;
     }
   }
-  return liveVerdict + '<div class="g-books">' + legs.map((L, j) => {
-    const title = `${gLegTitle(L)} — ${L.side === 'buy' ? 'asks' : 'bids'}`;
-    const cls = L.side === 'buy' ? 'ask' : 'bid';
+  // One aligned column per leg, in trade order; live depth preferred, engine
+  // snapshot as the per-leg fallback (labelled so it's never mistaken for
+  // live). Summary values come from the ENGINE walk (L.value) so the strip
+  // always agrees with the card; the bars/avg-fill reflect the live re-walk.
+  const meta = legs.map((L, j) => {
     const d = gDepth[L.market];
     if (d) {
-      // Live depth for this market.
       const u = (liveUsed && liveUsed[j]) || [];
       // Same rule as obCut(): 13 rows normally, stretched only as far as the
-      // deepest level this walk actually takes, so a "← you take" mark can never
-      // fall off the bottom of the table.
+      // deepest level this walk actually takes, so a taken row can never fall
+      // off the bottom of the table.
       let uLast = -1;
       for (let k = 0; k < u.length; k++) if (u[k] > 1e-9) uLast = k;
       const lv = gLv(L.side === 'buy' ? d.asks : d.bids)
         .slice(0, Math.min(OB_MAX_ROWS, Math.max(OB_MIN_ROWS, uLast + 1)));
-      const rows = lv.map((l, i) =>
-        `<tr class="${cls} ${u[i] > 1e-9 ? 'used' : ''}"><td>${l.p}</td><td>${l.q}</td><td class="take">${u[i] > 1e-9 ? '← ' + (+u[i].toPrecision(4)) : ''}</td></tr>`).join('');
-      return `<div class="g-book"><div class="bt">${title}</div>
-        <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${rows}</table></div>`;
+      return { L, lv, used: u, live: true, title: gLegTitle(L), value: L.value != null ? L.value : null };
     }
-    // Snapshot fallback for this leg.
-    if (!L.levels || !L.levels.length) return `<div class="g-book"><div class="bt">${title}</div><table><tr><td class="h">no depth yet</td></tr></table></div>`;
-    const rows = L.levels.map((lv, i) =>
-      `<tr class="${cls} ${L.used && L.used[i] > 1e-9 ? 'used' : ''}"><td>${lv[0]}</td><td>${lv[1]}</td><td class="take">${L.used && L.used[i] > 1e-9 ? '← ' + (+L.used[i].toPrecision(4)) : ''}</td></tr>`).join('');
+    return { L, lv: (L.levels || []).map(x => ({ p: +x[0], q: +x[1] })), used: L.used || [],
+             live: false, title: gLegTitle(L), value: L.value != null ? L.value : null };
+  });
+  return liveVerdict + gLegSummary(meta) + '<div class="g-books">' + meta.map(m => {
+    const cls = m.L.side === 'buy' ? 'ask' : 'bid';
+    const title = `${m.title} — ${m.L.side === 'buy' ? 'asks' : 'bids'}${m.live ? '' : ' · engine snapshot'}`;
+    if (!m.lv.length) return `<div class="g-book"><div class="bt">${title}</div><table><tr><td class="h">no depth yet</td></tr></table></div>`;
     return `<div class="g-book"><div class="bt">${title}</div>
-      <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${rows}</table></div>`;
+      <table><tr><td class="h">price</td><td class="h">qty</td><td class="h">you take</td></tr>${gBookRows(cls, m.lv, m.used)}</table></div>`;
   }).join('') + '</div>';
 }
 
