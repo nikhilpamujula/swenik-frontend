@@ -548,6 +548,55 @@
   .g-ack.ok { background:var(--success-soft, #e6f6ec); color:#137a48; }
   .g-ack.bad { background:var(--danger-soft, #fdecec); color:#b3261e; }
 
+  /* ---------------- OTHERS tab — Strategy Trader dark-teal theme (scoped) ---------------- */
+  .oth-wrap { --obg:#0b0d10; --ocard:#14181d; --oline:#1f242b; --otxt:#eef1f4; --odim:#9aa3ad; --odimmer:#6b7480;
+    --oteal:#2dd4bf; --ogreen:#34d399; --ored:#f87171; --oamber:#d9b96c;
+    background:var(--obg); color:var(--otxt); border-radius:16px; padding:18px 14px 30px; margin:0 -2px;
+    font-variant-numeric:tabular-nums; }
+  .oth-live { display:inline-flex; align-items:center; gap:8px; padding:7px 16px; border-radius:999px; border:1px solid rgba(45,212,191,.35); background:rgba(45,212,191,.06); color:var(--oteal); font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
+  .oth-live::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--oteal); box-shadow:0 0 8px var(--oteal); }
+  .oth-h1 { font-size:clamp(24px,4.5vw,36px); font-weight:800; margin:12px 0 2px; line-height:1.15; color:var(--otxt); }
+  .oth-h1 .accent { background:linear-gradient(90deg,#2dd4bf 0%,#7ee0cf 55%,#e8d9a8 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .oth-sub { color:var(--odim); font-size:12.5px; margin-bottom:18px; }
+  .oth-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:18px; }
+  .oth-tile { background:var(--ocard); border:1px solid var(--oline); border-radius:14px; padding:12px 14px; }
+  .oth-tile .k { color:var(--odim); font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+  .oth-tile .v { font-size:19px; font-weight:800; margin-top:3px; color:var(--otxt); }
+  .oth-tile .v.good { color:var(--ogreen); } .oth-tile .v.bad { color:var(--ored); } .oth-tile .v.teal { color:var(--oteal); }
+  .oth-tile .s { color:var(--odimmer); font-size:10.5px; margin-top:2px; }
+  .oth-sec { margin:22px 0 8px; font-size:11.5px; color:var(--odim); text-transform:uppercase; letter-spacing:.14em; font-weight:700; }
+  .oth-wrap table { width:100%; border-collapse:collapse; background:var(--ocard); border:1px solid var(--oline); border-radius:14px; overflow:hidden; }
+  .oth-wrap th, .oth-wrap td { padding:10px 10px; text-align:right; border-bottom:1px solid var(--oline); font-size:13px; color:var(--otxt); }
+  .oth-wrap th { color:var(--odim); font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+  .oth-wrap td:first-child, .oth-wrap th:first-child { text-align:left; }
+  .oth-wrap tr:last-child td { border-bottom:none; }
+  .oth-pos { color:var(--ogreen); font-weight:700; } .oth-neg { color:var(--ored); font-weight:700; } .oth-breach { color:var(--oamber); font-weight:800; }
+  .oth-pill { display:inline-block; padding:2px 10px; border-radius:8px; font-size:11px; font-weight:800; letter-spacing:.04em; }
+  .oth-pill.long { color:var(--ogreen); border:1px solid rgba(52,211,153,.4); background:rgba(52,211,153,.07); }
+  .oth-pill.short { color:var(--ored); border:1px solid rgba(248,113,113,.4); background:rgba(248,113,113,.07); }
+  .oth-pill.gold { color:var(--oamber); border:1px solid rgba(217,185,108,.4); background:rgba(217,185,108,.06); }
+  .oth-pill.silver { color:var(--odim); border:1px solid var(--oline); background:rgba(255,255,255,.03); }
+  .oth-pill.hi { color:var(--oamber); border:1px solid rgba(217,185,108,.5); background:rgba(217,185,108,.08); }
+  .oth-pill.med { color:var(--odim); border:1px solid var(--oline); }
+  .oth-pill.ok { color:var(--ogreen); border:1px solid rgba(52,211,153,.4); }
+  .oth-pill.warn { color:var(--oamber); border:1px solid rgba(217,185,108,.5); }
+  .oth-pill.stop { color:var(--ored); border:1px solid rgba(248,113,113,.5); }
+  .oth-card { background:var(--ocard); border:1px solid var(--oline); border-radius:14px; padding:13px 14px; margin-bottom:10px; }
+  .oth-card .row1 { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .oth-card .sym { font-size:16px; font-weight:800; }
+  .oth-card .nums { display:flex; gap:16px; flex-wrap:wrap; margin:9px 0 4px; }
+  .oth-card .nums .n .k { color:var(--odim); font-size:10px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
+  .oth-card .nums .n .v { font-size:14px; font-weight:700; }
+  .oth-card .why { color:var(--odimmer); font-size:11.5px; margin-bottom:9px; }
+  .oth-btn { border:0; border-radius:9px; padding:8px 16px; font-weight:800; font-size:12.5px; cursor:pointer; font-family:inherit; }
+  .oth-btn.exec { background:linear-gradient(90deg,#2dd4bf,#14b8a6); color:#04302b; }
+  .oth-btn.dim { background:rgba(255,255,255,.06); color:var(--odim); border:1px solid var(--oline); }
+  .oth-btn.close { background:rgba(248,113,113,.12); color:var(--ored); border:1px solid rgba(248,113,113,.4); }
+  .oth-err { color:var(--ored); font-size:12px; margin-top:12px; white-space:pre-wrap; }
+  .oth-note { color:var(--odimmer); font-size:11.5px; margin-top:14px; line-height:1.5; }
+  .oth-name { color:var(--odimmer); font-size:10.5px; }
+  .oth-wrap details { margin-top:14px; } .oth-wrap summary { cursor:pointer; color:var(--odim); font-size:12.5px; }
+
   /* ---------------- Track Live modal ---------------- */
   .modal-overlay { position: fixed; inset: 0; background: rgba(15,28,51,0.56); backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; z-index: 100; }
   .modal-overlay.hidden { display: none; }
@@ -777,6 +826,10 @@
     </div>
     <div class="sidebar-item" id="nav-alerts" onclick="selectPage('alerts')">Alerts</div>
     <div class="sidebar-item" id="nav-notifications" onclick="selectPage('notifications')">Notifications</div>
+    <div class="sidebar-group-label" style="padding-top:14px;">Others</div>
+    <div class="sidebar-item" id="nav-others" onclick="selectPage('others')">
+      Others <span class="new-badge" style="background:#14b8a6;">New</span>
+    </div>
   </div>
 
   <div class="main-area">
@@ -871,7 +924,8 @@ const PAGES = {
   coinswitch:{ label: 'CoinSwitch', navId: 'nav-coinswitch' },
   orderbook: { label: 'Orderbook',  navId: 'nav-orderbook' },
   alerts:    { label: 'Alerts',     navId: 'nav-alerts' },
-  notifications: { label: 'Notifications', navId: 'nav-notifications' }
+  notifications: { label: 'Notifications', navId: 'nav-notifications' },
+  others:    { label: 'Others',     navId: 'nav-others' }
 };
 
 // ================================================================
@@ -1229,7 +1283,7 @@ function selectPage(page) {
   const nb = document.getElementById('noteBox'), bs = document.getElementById('bannerSlot');
   // Keep the scanner note/banner on WazirX (native) — it's about that scanner;
   // hide it only on the external-engine pages (Zebpay/CoinDCX/Giottus/CoinSwitch).
-  const hideScanner = (page === 'giottus' || page === 'coinswitch' || page === 'futures' || (isVenue && !isNativeVenue));
+  const hideScanner = (page === 'giottus' || page === 'coinswitch' || page === 'futures' || page === 'others' || (isVenue && !isNativeVenue));
   if (nb) nb.style.display = hideScanner ? 'none' : '';
   if (bs) bs.style.display = hideScanner ? 'none' : '';
   // Futures page polls its own engine while open.
@@ -1255,6 +1309,9 @@ function selectPage(page) {
     if (gTimer) { clearInterval(gTimer); gTimer = null; }
     if (gBookTimer) { clearInterval(gBookTimer); gBookTimer = null; }
   }
+  // Others tab (equity Signals + Metal Arb) — polls only while open, same
+  // page-open-only discipline as every other non-native page.
+  if (page === 'others') othEnter(); else othLeave();
   // CoinSwitch tab: poll the server engine's snapshot while open. The GET
   // itself is the keepalive that wakes the engine (pageSeen pattern).
   if (page === 'coinswitch') {
@@ -1622,6 +1679,22 @@ function renderToolbar() {
         : s.configured === false ? '⏸ needs CoinSwitch API keys on the server'
         : cswErr ? `error: ${cswErr}` : 'waking engine…'}</span>
       <label style="font-size:11.5px; color:var(--gray-500);">min % <input type="number" step="0.1" value="${cswMin}" style="width:64px; padding:4px 6px; border:1px solid var(--border); border-radius:6px;" onchange="cswMin=parseFloat(this.value)||-100; renderCards();"></label>
+    `;
+    return;
+  }
+
+  if (currentPage === 'others') {
+    el.innerHTML = `
+      <div class="g-seg">
+        <button class="${othTab==='signals'?'on':''}" onclick="othSetTab('signals')">Signals</button>
+        <button class="${othTab==='metal'?'on':''}" onclick="othSetTab('metal')">Metal Arb</button>
+      </div>
+      <span class="g-status" style="margin:0;">${othTab==='signals'
+        ? 'NSE cash equities · PAPER desk · breakout + pullback · refreshes 20s'
+        : 'ETF premium vs iNAV · landed price · hedge carry · refreshes 5 min'}</span>
+      ${othTab==='signals'
+        ? `<button class="apply-filter-btn" onclick="eqScanNow()">⟳ Scan now</button>`
+        : `<button class="apply-filter-btn" onclick="metalRefresh(true).then(()=>renderOthersPage())">⟳ Refresh</button>`}
     `;
     return;
   }
@@ -2978,6 +3051,7 @@ function renderCards() {
   if (currentPage === 'futures') { renderFuturesPage(); return; }
   if (currentPage === 'alerts') { renderAlertsPage(); return; }
   if (currentPage === 'orderbook') { renderOrderbookPage(); return; }
+  if (currentPage === 'others') { renderOthersPage(); return; }
   if (currentPage === 'giottus') { renderGiottusPage(); return; }
   if (currentPage === 'coinswitch') { renderCoinswitchPage(); return; }
   if (currentPage === 'notifications') { renderNotificationsPage(); return; }
@@ -5428,6 +5502,204 @@ function renderGiottusPage() {
     ${cards}
     ${status}
     ${missCard}`;
+}
+
+// ================================================================
+// OTHERS TAB — two non-crypto desks under one page, Strategy Trader theme.
+//   • Signals   — NSE cash-equity PAPER desk (backend /api/eq/*: breakout +
+//                 pullback signals, risk-gated paper fills, TP/SL monitor).
+//                 Execute/Dismiss/Close here move PAPER money only — the
+//                 backend has no live equity broker at all.
+//   • Metal Arb — ETF premium vs iNAV / landed-price / hedge-carry tracker,
+//                 served by this site's own Vercel function /api/metal/check.
+// Both poll ONLY while this page is open (othEnter/othLeave), same discipline
+// as Giottus/Futures — zero background bandwidth from the browser.
+// ================================================================
+let othTab = 'signals';
+let othTimer = null;
+let eqData = null, eqErr = null, eqBusy = false, eqActionBusy = false;
+let metalData = null, metalErr = null, metalBusy = false, metalLastTs = 0;
+
+function othEnter() {
+  if (!othTimer) othTimer = setInterval(othTickFn, 20000);
+  othRefresh(true);
+}
+function othLeave() { if (othTimer) { clearInterval(othTimer); othTimer = null; } }
+function othTickFn() {
+  if (currentPage !== 'others' || document.visibilityState === 'hidden') return;
+  othRefresh(false);
+}
+function othSetTab(t) { othTab = t; renderToolbar(); renderOthersPage(); othRefresh(false); }
+
+async function othRefresh(force) {
+  if (currentPage !== 'others') return;
+  if (othTab === 'signals') await eqRefresh(); else await metalRefresh(force);
+  if (currentPage === 'others') { renderToolbar(); renderOthersPage(); }
+}
+
+// ---- Signals (equity paper desk) ----
+async function eqRefresh() {
+  if (eqBusy) return;
+  eqBusy = true;
+  try {
+    const j = async r => { if (!r.ok) throw new Error('API ' + r.status); return r.json(); };
+    const [health, stats, signals, open, closed] = await Promise.all([
+      fetch(`${API_BASE}/api/eq/health`).then(j),
+      fetch(`${API_BASE}/api/eq/stats`).then(j),
+      fetch(`${API_BASE}/api/eq/signals?limit=30`).then(j),
+      fetch(`${API_BASE}/api/eq/positions?status=OPEN`).then(j),
+      fetch(`${API_BASE}/api/eq/positions?status=CLOSED`).then(j),
+    ]);
+    eqData = { health, stats, signals, open, closed: closed.slice(0, 12) };
+    eqErr = null;
+  } catch (e) { eqErr = e.message; }
+  finally { eqBusy = false; }
+}
+
+async function eqAction(path, confirmMsg) {
+  if (eqActionBusy) return;
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  eqActionBusy = true;
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { method: 'POST' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.ok === false) alert('Rejected: ' + (j.error || ('API ' + res.status)));
+  } catch (e) { alert('Failed: ' + e.message); }
+  finally {
+    eqActionBusy = false;
+    await eqRefresh();
+    if (currentPage === 'others') renderOthersPage();
+  }
+}
+function eqExecute(id, sym) { eqAction(`/api/eq/signals/${id}/execute`, `Execute ${sym} as a PAPER trade? (No real money — simulated fill.)`); }
+function eqDismiss(id) { eqAction(`/api/eq/signals/${id}/dismiss`); }
+function eqClose(id, sym) { eqAction(`/api/eq/positions/${id}/close`, `Close PAPER position ${sym} at market?`); }
+async function eqScanNow() {
+  try { await fetch(`${API_BASE}/api/eq/scan`, { method: 'POST' }); } catch (e) {}
+  await eqRefresh();
+  if (currentPage === 'others') renderOthersPage();
+}
+
+const othInr = n => (n === null || n === undefined || !isFinite(n)) ? '—' : '₹' + Math.round(n).toLocaleString('en-IN');
+const othFmt = (n, d = 2) => (n === null || n === undefined || !isFinite(Number(n))) ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: d });
+const othSigned = (n, suffix = '') => n === null || n === undefined ? '—'
+  : `<span class="${n >= 0 ? 'oth-pos' : 'oth-neg'}">${(n > 0 ? '+' : '') + othFmt(n)}${suffix}</span>`;
+
+function renderEqView() {
+  if (!eqData) return `<div class="oth-sub">${eqErr ? 'Backend unreachable: ' + eqErr + ' — retrying every 20s. (Deploy the scanner backend with the equity desk first.)' : 'Connecting to the paper desk…'}</div>`;
+  const st = eqData.stats || {}, h = eqData.health || {};
+  const breakerCls = st.breaker === 'OK' ? 'ok' : (st.breaker === 'HALF' ? 'warn' : 'stop');
+  const tiles = `
+    <div class="oth-tiles">
+      <div class="oth-tile"><div class="k">Equity</div><div class="v">${othInr(st.equity)}</div><div class="s">start ${othInr(st.starting_capital)}</div></div>
+      <div class="oth-tile"><div class="k">Return</div><div class="v ${st.return_pct >= 0 ? 'good' : 'bad'}">${othFmt(st.return_pct)}%</div><div class="s">drawdown ${othFmt(st.drawdown_pct)}%</div></div>
+      <div class="oth-tile"><div class="k">Trades</div><div class="v">${st.trades ?? 0}</div><div class="s">win rate ${othFmt(st.win_rate, 1)}%</div></div>
+      <div class="oth-tile"><div class="k">Profit factor</div><div class="v teal">${st.profit_factor ?? '—'}</div><div class="s">avg ${othFmt(st.avg_r)}R</div></div>
+      <div class="oth-tile"><div class="k">Heat</div><div class="v">${othFmt(st.portfolio_heat_pct)}%</div><div class="s">${st.open_positions ?? 0} open · cap 3%</div></div>
+      <div class="oth-tile"><div class="k">Breaker</div><div class="v"><span class="oth-pill ${breakerCls}">${st.breaker || '—'}</span></div><div class="s">${h.market_open ? 'market open' : 'market closed'} · ${h.auto_execute ? 'auto-exec ON' : 'manual only'}</div></div>
+    </div>`;
+  const fresh = (eqData.signals || []).filter(s => s.status === 'NEW');
+  const sigCards = fresh.length ? fresh.map(s => `
+    <div class="oth-card">
+      <div class="row1">
+        <span class="sym">${s.symbol}</span>
+        <span class="oth-pill ${s.side === 'LONG' ? 'long' : 'short'}">${s.side}</span>
+        <span class="oth-pill ${s.confidence === 'HIGH' ? 'hi' : 'med'}">${s.confidence}</span>
+        <span class="oth-name">${s.setup} · ${s.timeframe}</span>
+      </div>
+      <div class="nums">
+        <div class="n"><div class="k">Entry</div><div class="v">${othFmt(s.entry)}</div></div>
+        <div class="n"><div class="k">Stop</div><div class="v oth-neg">${othFmt(s.sl)}</div></div>
+        <div class="n"><div class="k">TP1</div><div class="v oth-pos">${othFmt(s.tp1)}</div></div>
+        ${s.tp2 ? `<div class="n"><div class="k">TP2</div><div class="v oth-pos">${othFmt(s.tp2)}</div></div>` : ''}
+      </div>
+      <div class="why">${s.rationale || ''}</div>
+      <button class="oth-btn exec" onclick="eqExecute(${s.id},'${s.symbol}')">Execute · paper</button>
+      <button class="oth-btn dim" onclick="eqDismiss(${s.id})">Dismiss</button>
+    </div>`).join('') : `<div class="oth-sub">No NEW signals right now — the scanner sweeps the watchlist every 5 minutes during market hours (Telegram pings on every new one).</div>`;
+  const openRows = (eqData.open || []).map(p => `
+    <tr><td>${p.symbol}<br><span class="oth-name">${p.qty} qty</span></td>
+      <td>${othFmt(p.entry)}</td><td>${othFmt(p.ltp)}</td>
+      <td>${othFmt(p.sl)}</td><td>${othFmt(p.tp)}</td>
+      <td>${othSigned(p.open_pnl)}</td>
+      <td><button class="oth-btn close" onclick="eqClose(${p.id},'${p.symbol}')">Close</button></td></tr>`).join('');
+  const closedRows = (eqData.closed || []).map(p => `
+    <tr><td>${p.symbol}<br><span class="oth-name">${p.exit_reason || ''}</span></td>
+      <td>${othFmt(p.entry)}</td><td>${othFmt(p.exit_price)}</td>
+      <td>${othSigned(p.pnl)}</td><td>${p.r != null ? othFmt(p.r) + 'R' : '—'}</td></tr>`).join('');
+  return `
+    <span class="oth-live">Paper Desk</span>
+    <div class="oth-h1">Signals, sized and <span class="accent">risk-gated.</span></div>
+    <div class="oth-sub">0.75% risk/trade · 3% heat cap · max 4 positions · breakers −8/−12/−16% · delayed data, daily timeframe — paper only${eqErr ? ` · <span class="oth-neg">last refresh failed: ${eqErr}</span>` : ''}</div>
+    ${tiles}
+    <div class="oth-sec">New signals</div>
+    ${sigCards}
+    <div class="oth-sec">Open positions (paper)</div>
+    ${openRows ? `<table><tr><th>Symbol</th><th>Entry</th><th>LTP</th><th>SL</th><th>TP</th><th>Open P&L</th><th></th></tr>${openRows}</table>` : `<div class="oth-sub">No open paper positions.</div>`}
+    <div class="oth-sec">Recent closed</div>
+    ${closedRows ? `<table><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>P&L</th><th>R</th></tr>${closedRows}</table>` : `<div class="oth-sub">No closed trades yet — the stats gates (60 trades, PF ≥ 1.5) start counting here.</div>`}
+    <div class="oth-note">Every fill is simulated (5 bps slippage + costs). Going live is a separate decision with its own gates — this desk cannot place a real order.</div>`;
+}
+
+// ---- Metal Arb (same-origin Vercel function) ----
+async function metalRefresh(force) {
+  if (metalBusy) return;
+  if (!force && metalData && Date.now() - metalLastTs < 5 * 60 * 1000) return; // 5-min cadence
+  metalBusy = true;
+  try {
+    const r = await fetch('/api/metal/check');
+    if (!r.ok) throw new Error('API ' + r.status);
+    metalData = await r.json(); metalErr = null; metalLastTs = Date.now();
+  } catch (e) { metalErr = e.message; }
+  finally { metalBusy = false; }
+}
+
+function othPremCell(p, thr) {
+  if (p === null || p === undefined) return '<td>—</td>';
+  const c = Math.abs(p) >= (thr ?? 2) ? 'oth-breach' : p > 0 ? 'oth-pos' : 'oth-neg';
+  return `<td class="${c}">${(p > 0 ? '+' : '') + p}%</td>`;
+}
+
+function renderMetalView() {
+  if (!metalData) return `<div class="oth-sub">${metalErr ? 'Tracker unreachable: ' + metalErr + ' — is /api/metal/check deployed on this site?' : 'Loading spreads…'}</div>`;
+  const d = metalData;
+  const tiles = [
+    ['Silver spot', '$' + othFmt(d.spot.xagUsdOz), d.spot.sources.xag || ''],
+    ['Gold spot', '$' + othFmt(d.spot.xauUsdOz), d.spot.sources.xau || ''],
+    ['USD / INR', othFmt(d.spot.usdInr), d.spot.sources.usdInr || ''],
+    ['Silver landed', '₹' + othFmt(d.landed.silverInrPerKg, 0) + '/kg', 'incl. duty + GST'],
+    ['Gold landed', '₹' + othFmt(d.landed.goldInrPer10g, 0) + '/10g', 'incl. duty + GST'],
+  ].map(x => `<div class="oth-tile"><div class="k">${x[0]}</div><div class="v">${x[1]}</div><div class="s">${x[2]}</div></div>`).join('');
+  const rows = (d.etfs || []).map(e => `
+    <tr><td>${e.symbol}<br><span class="oth-name">${(e.name || '').slice(0, 40)}</span></td>
+      <td><span class="oth-pill ${e.metal}">${e.metal === 'gold' ? 'GOLD' : 'SILVER'}</span></td>
+      <td>${othFmt(e.ltp)}</td><td>${othFmt(e.inav)}</td>
+      ${othPremCell(e.premiumPct, e.thresholdPct)}
+      <td>${e.indiaVsGlobalPct === null ? '—' : (e.indiaVsGlobalPct > 0 ? '+' : '') + e.indiaVsGlobalPct + '%' + (e.approxIndiaComparison ? ' ~' : '')}</td>
+      <td><span class="oth-pill hi">${othFmt(e.thresholdPct, 1)}%</span></td></tr>`).join('');
+  const brows = (d.binance || []).map(b => `
+    <tr><td>${b.symbol}</td><td>${othFmt(b.markPrice)}</td><td>${othFmt(b.indexPrice)}</td>
+      ${othPremCell(b.basisPct, 0.5)}<td>${othFmt(b.fundingRatePct, 4)}%</td><td>${othFmt(b.fundingDailyPct, 3)}%/day</td></tr>`).join('');
+  const mrows = (d.mfNavs || []).slice(0, 80).map(m => `
+    <tr><td>${m.name.slice(0, 60)}</td><td>${othFmt(m.nav, 4)}</td><td>${m.date}</td></tr>`).join('');
+  return `
+    <span class="oth-live">Live Spreads</span>
+    <div class="oth-h1">Priced while you <span class="accent">were scrolling.</span></div>
+    <div class="oth-sub">ETF premium vs iNAV · India vs global landed price · hedge carry cost · as of ${new Date(d.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</div>
+    <div class="oth-tiles">${tiles}</div>
+    <div class="oth-sec">ETF premium / discount vs iNAV — live NSE</div>
+    ${rows ? `<table><tr><th>ETF</th><th>Metal</th><th>Price ₹</th><th>iNAV ₹</th><th>Premium</th><th>India vs global</th><th>Alert</th></tr>${rows}</table>` : `<div class="oth-sub">NSE feed unavailable right now${(d.errors || []).some(e => String(e).startsWith('nse-etf')) ? ' (blocked from this region — see errors below)' : ''}.</div>`}
+    <div class="oth-sec">Hedge leg — Binance perpetuals</div>
+    ${brows ? `<table><tr><th>Perp</th><th>Mark $</th><th>Index $</th><th>Basis</th><th>Funding/8h</th><th>Carry</th></tr>${brows}</table>` : `<div class="oth-sub">Binance feed unavailable (US-region Vercel functions get 451 — pin bom1 in vercel.json).</div>`}
+    <details><summary>Mutual fund / FoF daily NAVs (AMFI, end-of-day)</summary>${mrows ? `<table><tr><th>Scheme</th><th>NAV</th><th>Date</th></tr>${mrows}</table>` : '<div class="oth-sub">No AMFI data.</div>'}</details>
+    ${(d.errors || []).length ? `<div class="oth-err">Source issues: ${d.errors.join(' · ')}</div>` : ''}
+    <div class="oth-note">Spread/convergence trading, not true arbitrage — the structural India premium is duty + GST; only deviations from it are tradeable. Ranked by dislocation. It doesn't sleep, you can.</div>`;
+}
+
+function renderOthersPage() {
+  const el = document.getElementById('cardList');
+  if (!el || currentPage !== 'others') return;
+  el.innerHTML = `<div class="oth-wrap">${othTab === 'signals' ? renderEqView() : renderMetalView()}</div>`;
 }
 
 // Restore the page + filters the user last had, so a full page reload
