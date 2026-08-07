@@ -1,0 +1,26 @@
+{
+  "secret": "nkh-arb-7g2x",
+  "telegram": {
+    "botToken": "",
+    "chatId": ""
+  },
+  "importDutyPct": 6.0,
+  "gstPct": 3.0,
+  "defaultThresholdPct": 2.0,
+  "fundingAlertDailyPct": 0.3,
+  "autoDiscoverEtfs": true,
+  "etfOverrides": {
+    "SILVERBEES": { "thresholdPct": 2.0, "gramsPerUnit": 1.0 },
+    "GOLDBEES": { "thresholdPct": 2.0, "gramsPerUnit": 0.01 }
+  },
+  "mfKeywords": ["silver", "gold"],
+  "mfExclude": ["goldman", "marigold"],
+  "binanceSymbols": ["XAUUSDT", "XAGUSDT"],
+  "notes": {
+    "thresholdPct": "Alert when |ETF price vs iNAV premium| >= this percent. Per-symbol override in etfOverrides, else defaultThresholdPct.",
+    "gramsPerUnit": "Approximate metal grams per ETF unit, used only for India-vs-global landed price comparison. Drifts over time due to expenses.",
+    "fundingAlertDailyPct": "Alert when Binance perp funding exceeds this percent per day (cost of holding the hedge).",
+    "importDutyPct": "Customs duty on gold/silver imports. Update if budget changes it.",
+    "secret": "Required as ?secret= to trigger alert sending. Reads are open."
+  }
+}
