@@ -1,4 +1,5 @@
-{"rewrites":[
+{"regions":["bom1"],
+"rewrites":[
   {"source":"/trader-api/:path*","destination":"https://walrus-app-b5qke.ondigitalocean.app/api/:path*"},
   {"source":"/api/:path*","destination":"https://swenik-ldokv.ondigitalocean.app/api/:path*"}
 ]}
