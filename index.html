@@ -5816,7 +5816,7 @@ function renderMetalView() {
       <td><span class="oth-pill ${e.metal}">${e.metal === 'gold' ? 'GOLD' : 'SILVER'}</span></td>
       <td>${othFmt(e.ltp)}</td><td>${othFmt(e.inav)}</td>
       ${othPremCell(e.premiumPct, e.thresholdPct)}
-      <td>${e.indiaVsGlobalPct === null ? '—' : (e.indiaVsGlobalPct > 0 ? '+' : '') + e.indiaVsGlobalPct + '%' + (e.approxIndiaComparison ? ' ~' : '')}</td>
+      <td>${e.vsBinancePct === null || e.vsBinancePct === undefined ? '—' : (e.vsBinancePct > 0 ? '+' : '') + e.vsBinancePct + '%'}</td>
       <td><span class="oth-pill hi">${othFmt(e.thresholdPct, 1)}%</span></td></tr>`).join('');
   const brows = (d.binance || []).map(b => `
     <tr><td>${b.symbol}</td><td>${othFmt(b.markPrice)}</td><td>${othFmt(b.indexPrice)}</td>
@@ -5832,7 +5832,7 @@ function renderMetalView() {
         <span class="oth-pill ${c.action === 'BUY_ETF' ? 'long' : 'short'}">${c.action === 'BUY_ETF' ? 'BUY' : 'SHORT'}</span>
         <span class="sym">${c.symbol}</span>
         <span class="oth-pill ${c.metal}">${c.metal === 'gold' ? 'GOLD' : 'SILVER'}</span>
-        ${c.inavSource === 'amfi-eod' ? '<span class="oth-pill med">~ EOD NAV</span>' : ''}
+        ${c.basis === 'Binance parity' ? '<span class="oth-pill med">vs BINANCE</span>' : ''}
       </div>
       <div class="why" style="margin-top:7px;">${c.why}</div>
       <div class="why" style="color:var(--oteal);">${c.hedge}</div>
@@ -5843,11 +5843,11 @@ function renderMetalView() {
   return `
     <span class="oth-live">Live Spreads</span>
     <div class="oth-h1">Priced while you <span class="accent">were scrolling.</span></div>
-    <div class="oth-sub">ETF premium vs iNAV · India vs global landed price · hedge carry cost · as of ${new Date(d.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</div>
+    <div class="oth-sub">ETF premium vs live iNAV · Binance XAU/XAG parity · hedge carry · as of ${new Date(d.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</div>
     <div class="oth-tiles">${tiles}</div>
     ${concBlock}
     <div class="oth-sec">ETF premium / discount vs iNAV — live NSE</div>
-    ${rows ? `<div class="oth-scroll"><table><tr><th>ETF</th><th>Metal</th><th>Price ₹</th><th>iNAV ₹</th><th>Premium</th><th>India vs global</th><th>Alert</th></tr>${rows}</table></div>` : `<div class="oth-sub">NSE feed unavailable right now${(d.errors || []).some(e => String(e).startsWith('nse-etf')) ? ' (blocked from this region — see errors below)' : ''}.</div>`}
+    ${rows ? `<div class="oth-scroll"><table><tr><th>ETF</th><th>Metal</th><th>Price ₹</th><th>iNAV ₹</th><th>Premium</th><th>vs Binance</th><th>Alert</th></tr>${rows}</table></div>` : `<div class="oth-sub">NSE feed unavailable right now${(d.errors || []).some(e => String(e).startsWith('nse-etf')) ? ' (blocked from this region — see errors below)' : ''}.</div>`}
     <div class="oth-sec">Hedge leg — Binance perpetuals</div>
     ${brows ? `<div class="oth-scroll"><table><tr><th>Perp</th><th>Mark $</th><th>Index $</th><th>Basis</th><th>Funding/8h</th><th>Carry</th></tr>${brows}</table></div>` : `<div class="oth-sub">Binance feed unavailable (US-region Vercel functions get 451 — pin bom1 in vercel.json).</div>`}
     <details><summary>Mutual fund / FoF daily NAVs (AMFI, end-of-day)</summary>${mrows ? `<div class="oth-scroll"><table><tr><th>Scheme</th><th>NAV</th><th>Date</th></tr>${mrows}</table></div>` : '<div class="oth-sub">No AMFI data.</div>'}</details>
