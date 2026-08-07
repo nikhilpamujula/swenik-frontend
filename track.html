@@ -551,8 +551,14 @@
   /* ---------------- OTHERS tab — Strategy Trader dark-teal theme (scoped) ---------------- */
   .oth-wrap { --obg:#0b0d10; --ocard:#14181d; --oline:#1f242b; --otxt:#eef1f4; --odim:#9aa3ad; --odimmer:#6b7480;
     --oteal:#2dd4bf; --ogreen:#34d399; --ored:#f87171; --oamber:#d9b96c;
-    background:var(--obg); color:var(--otxt); border-radius:16px; padding:18px 14px 30px; margin:0 -2px;
+    background:var(--obg); color:var(--otxt); border-radius:16px; padding:18px 14px 30px;
+    /* #cardList is a GRID — without this the whole desk collapses into one
+       narrow grid cell (the broken half-width page on the Fold). Span all
+       columns, then center at a readable width on big screens. */
+    grid-column:1/-1; width:100%; max-width:1150px; margin:0 auto; box-sizing:border-box;
     font-variant-numeric:tabular-nums; }
+  .oth-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; border-radius:14px; }
+  .oth-scroll table { min-width:620px; }
   .oth-live { display:inline-flex; align-items:center; gap:8px; padding:7px 16px; border-radius:999px; border:1px solid rgba(45,212,191,.35); background:rgba(45,212,191,.06); color:var(--oteal); font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
   .oth-live::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--oteal); box-shadow:0 0 8px var(--oteal); }
   .oth-h1 { font-size:clamp(24px,4.5vw,36px); font-weight:800; margin:12px 0 2px; line-height:1.15; color:var(--otxt); }
@@ -596,6 +602,18 @@
   .oth-note { color:var(--odimmer); font-size:11.5px; margin-top:14px; line-height:1.5; }
   .oth-name { color:var(--odimmer); font-size:10.5px; }
   .oth-wrap details { margin-top:14px; } .oth-wrap summary { cursor:pointer; color:var(--odim); font-size:12.5px; }
+  .oth-subnav { display:flex; gap:6px; flex-wrap:wrap; margin:14px 0 16px; }
+  .oth-subnav button { border:1px solid var(--oline); background:var(--ocard); color:var(--odim); font-family:inherit; font-size:12.5px; font-weight:700; padding:8px 16px; border-radius:999px; cursor:pointer; }
+  .oth-subnav button.on { color:#04302b; background:linear-gradient(90deg,#2dd4bf,#14b8a6); border-color:transparent; }
+  .oth-set { background:var(--ocard); border:1px solid var(--oline); border-radius:14px; padding:12px 14px; margin-bottom:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px 12px; }
+  .oth-set label { font-size:10.5px; font-weight:700; color:var(--odim); text-transform:uppercase; letter-spacing:.05em; display:block; }
+  .oth-set input[type=number], .oth-set input[type=text] { width:100%; margin-top:4px; padding:8px 9px; border:1px solid var(--oline); background:#0f1318; color:var(--otxt); border-radius:8px; font-size:13px; font-family:inherit; box-sizing:border-box; }
+  .oth-set .full { grid-column:1/-1; }
+  .oth-gate { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:12px; }
+  .oth-gate .lbl { flex:0 0 150px; color:var(--odim); font-weight:700; }
+  .oth-gate .bar { flex:1; height:8px; background:#0f1318; border:1px solid var(--oline); border-radius:999px; overflow:hidden; }
+  .oth-gate .bar i { display:block; height:100%; border-radius:999px; }
+  .oth-gate .val { flex:0 0 auto; font-weight:800; }
 
   /* ---------------- Track Live modal ---------------- */
   .modal-overlay { position: fixed; inset: 0; background: rgba(15,28,51,0.56); backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; z-index: 100; }
@@ -5518,6 +5536,8 @@ function renderGiottusPage() {
 let othTab = 'signals';
 let othTimer = null;
 let eqData = null, eqErr = null, eqBusy = false, eqActionBusy = false;
+let eqView = 'signals';            // signals | positions | portfolio | analysis
+let eqSettingsOpen = false, eqSettings = null, eqSaveAck2 = null;
 let metalData = null, metalErr = null, metalBusy = false, metalLastTs = 0;
 
 function othEnter() {
@@ -5543,14 +5563,18 @@ async function eqRefresh() {
   eqBusy = true;
   try {
     const j = async r => { if (!r.ok) throw new Error('API ' + r.status); return r.json(); };
-    const [health, stats, signals, open, closed] = await Promise.all([
+    const [health, stats, signals, open, closed, settings, curve, mgrlog] = await Promise.all([
       fetch(`${API_BASE}/api/eq/health`).then(j),
       fetch(`${API_BASE}/api/eq/stats`).then(j),
       fetch(`${API_BASE}/api/eq/signals?limit=30`).then(j),
       fetch(`${API_BASE}/api/eq/positions?status=OPEN`).then(j),
       fetch(`${API_BASE}/api/eq/positions?status=CLOSED`).then(j),
+      fetch(`${API_BASE}/api/eq/settings`).then(j).catch(() => null),
+      fetch(`${API_BASE}/api/eq/equity?limit=150`).then(j).catch(() => []),
+      fetch(`${API_BASE}/api/eq/manager/log`).then(j).catch(() => []),
     ]);
-    eqData = { health, stats, signals, open, closed: closed.slice(0, 12) };
+    eqData = { health, stats, signals, open, closed: closed.slice(0, 12), curve, mgrlog };
+    if (!eqSettingsOpen && settings) eqSettings = settings; // never clobber the form mid-edit
     eqErr = null;
   } catch (e) { eqErr = e.message; }
   finally { eqBusy = false; }
@@ -5579,25 +5603,69 @@ async function eqScanNow() {
   await eqRefresh();
   if (currentPage === 'others') renderOthersPage();
 }
+function eqSetView(v) { eqView = v; renderOthersPage(); }
+function eqToggleSettings() { eqSettingsOpen = !eqSettingsOpen; renderOthersPage(); }
+async function eqSaveSettings() {
+  const g = id => document.getElementById(id);
+  const body = {
+    risk_per_trade_pct: parseFloat(g('eqRisk') && g('eqRisk').value),
+    min_rr: parseFloat(g('eqRR') && g('eqRR').value),
+    max_open_positions: parseInt(g('eqMaxPos') && g('eqMaxPos').value, 10),
+    max_heat_pct: parseFloat(g('eqHeat') && g('eqHeat').value),
+    auto_execute: !!(g('eqAuto') && g('eqAuto').checked),
+    watchlist: (g('eqWatch') && g('eqWatch').value) || '',
+  };
+  const at = new Date().toLocaleTimeString('en-US', { hour12: false });
+  try {
+    const res = await fetch(`${API_BASE}/api/eq/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    eqSaveAck2 = res.ok ? { ok: true, cfg: await res.json(), at } : { ok: false, at };
+    if (eqSaveAck2.ok) { eqSettings = eqSaveAck2.cfg; eqSettingsOpen = false; }
+  } catch (e) { eqSaveAck2 = { ok: false, at }; }
+  renderOthersPage();
+}
 
 const othInr = n => (n === null || n === undefined || !isFinite(n)) ? '—' : '₹' + Math.round(n).toLocaleString('en-IN');
 const othFmt = (n, d = 2) => (n === null || n === undefined || !isFinite(Number(n))) ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: d });
 const othSigned = (n, suffix = '') => n === null || n === undefined ? '—'
   : `<span class="${n >= 0 ? 'oth-pos' : 'oth-neg'}">${(n > 0 ? '+' : '') + othFmt(n)}${suffix}</span>`;
 
-function renderEqView() {
-  if (!eqData) return `<div class="oth-sub">${eqErr ? 'Backend unreachable: ' + eqErr + ' — retrying every 20s. (Deploy the scanner backend with the equity desk first.)' : 'Connecting to the paper desk…'}</div>`;
+// ---- Signals desk: four sub-views ----
+function eqTiles() {
   const st = eqData.stats || {}, h = eqData.health || {};
   const breakerCls = st.breaker === 'OK' ? 'ok' : (st.breaker === 'HALF' ? 'warn' : 'stop');
-  const tiles = `
+  return `
     <div class="oth-tiles">
       <div class="oth-tile"><div class="k">Equity</div><div class="v">${othInr(st.equity)}</div><div class="s">start ${othInr(st.starting_capital)}</div></div>
       <div class="oth-tile"><div class="k">Return</div><div class="v ${st.return_pct >= 0 ? 'good' : 'bad'}">${othFmt(st.return_pct)}%</div><div class="s">drawdown ${othFmt(st.drawdown_pct)}%</div></div>
       <div class="oth-tile"><div class="k">Trades</div><div class="v">${st.trades ?? 0}</div><div class="s">win rate ${othFmt(st.win_rate, 1)}%</div></div>
       <div class="oth-tile"><div class="k">Profit factor</div><div class="v teal">${st.profit_factor ?? '—'}</div><div class="s">avg ${othFmt(st.avg_r)}R</div></div>
-      <div class="oth-tile"><div class="k">Heat</div><div class="v">${othFmt(st.portfolio_heat_pct)}%</div><div class="s">${st.open_positions ?? 0} open · cap 3%</div></div>
-      <div class="oth-tile"><div class="k">Breaker</div><div class="v"><span class="oth-pill ${breakerCls}">${st.breaker || '—'}</span></div><div class="s">${h.market_open ? 'market open' : 'market closed'} · ${h.auto_execute ? 'auto-exec ON' : 'manual only'}</div></div>
+      <div class="oth-tile"><div class="k">Heat</div><div class="v">${othFmt(st.portfolio_heat_pct)}%</div><div class="s">${st.open_positions ?? 0} open · cap ${eqSettings ? othFmt(eqSettings.max_heat_pct, 1) : '3'}%</div></div>
+      <div class="oth-tile"><div class="k">Breaker</div><div class="v"><span class="oth-pill ${breakerCls}">${st.breaker || '—'}</span></div><div class="s">${h.market_open ? 'market open' : 'market closed'} · ${(eqSettings && eqSettings.auto_execute) ? 'auto-exec ON' : 'manual + Claude AM review'}</div></div>
     </div>`;
+}
+
+function eqSettingsPanel() {
+  const s = eqSettings || { risk_per_trade_pct: 0.75, min_rr: 2, max_open_positions: 4, max_heat_pct: 3, auto_execute: false, watchlist: [] };
+  const ack = !eqSaveAck2 ? '' : eqSaveAck2.ok
+    ? `<div class="full" style="color:var(--ogreen); font-size:11.5px; font-weight:700;">✓ Engine confirmed at ${eqSaveAck2.at} — risk ${eqSaveAck2.cfg.risk_per_trade_pct}% · min R:R ${eqSaveAck2.cfg.min_rr} · max pos ${eqSaveAck2.cfg.max_open_positions} · heat ${eqSaveAck2.cfg.max_heat_pct}% · ${eqSaveAck2.cfg.watchlist.length} symbols</div>`
+    : `<div class="full" style="color:var(--ored); font-size:11.5px; font-weight:700;">✗ Engine did NOT confirm the save (${eqSaveAck2.at}) — backend unreachable.</div>`;
+  if (!eqSettingsOpen) return ack;
+  return `
+    <div class="oth-set" id="eqSettingsCard">
+      <div class="full" style="color:var(--odimmer); font-size:11px; font-weight:400; text-transform:none; letter-spacing:0;">Runtime risk targets — saved on the server, applied to every new signal and sizing decision immediately. Hard safety clamps: risk ≤ 2%, heat ≤ 10%, positions ≤ 10. Signals below your min R:R are discarded, not shown. (Breakout setups are built ~2R — a min above 2 mostly leaves pullbacks.)</div>
+      ${ack}
+      <label>Risk per trade %<input id="eqRisk" type="number" step="0.05" min="0.05" max="2" value="${s.risk_per_trade_pct}"></label>
+      <label>Min risk:reward<input id="eqRR" type="number" step="0.1" min="1" max="10" value="${s.min_rr}"></label>
+      <label>Max open positions<input id="eqMaxPos" type="number" step="1" min="1" max="10" value="${s.max_open_positions}"></label>
+      <label>Heat cap %<input id="eqHeat" type="number" step="0.5" min="0.5" max="10" value="${s.max_heat_pct}"></label>
+      <label>Engine auto-exec (HIGH conf)<br><input id="eqAuto" type="checkbox" ${s.auto_execute ? 'checked' : ''} style="width:auto; margin-top:8px; transform:scale(1.3);"></label>
+      <label class="full">Watchlist (comma separated NSE symbols)<input id="eqWatch" type="text" value="${(s.watchlist || []).join(',')}"></label>
+      <div class="full"><button class="oth-btn exec" onclick="eqSaveSettings()">Save to engine</button>
+      <button class="oth-btn dim" onclick="eqToggleSettings()">Cancel</button></div>
+    </div>`;
+}
+
+function eqViewSignals() {
   const fresh = (eqData.signals || []).filter(s => s.status === 'NEW');
   const sigCards = fresh.length ? fresh.map(s => `
     <div class="oth-card">
@@ -5605,7 +5673,7 @@ function renderEqView() {
         <span class="sym">${s.symbol}</span>
         <span class="oth-pill ${s.side === 'LONG' ? 'long' : 'short'}">${s.side}</span>
         <span class="oth-pill ${s.confidence === 'HIGH' ? 'hi' : 'med'}">${s.confidence}</span>
-        <span class="oth-name">${s.setup} · ${s.timeframe}</span>
+        <span class="oth-name">${s.setup} · ${s.timeframe} · R:R ${othFmt((s.tp1 - s.entry) / Math.max(s.entry - s.sl, 1e-9), 1)}</span>
       </div>
       <div class="nums">
         <div class="n"><div class="k">Entry</div><div class="v">${othFmt(s.entry)}</div></div>
@@ -5616,9 +5684,18 @@ function renderEqView() {
       <div class="why">${s.rationale || ''}</div>
       <button class="oth-btn exec" onclick="eqExecute(${s.id},'${s.symbol}')">Execute · paper</button>
       <button class="oth-btn dim" onclick="eqDismiss(${s.id})">Dismiss</button>
-    </div>`).join('') : `<div class="oth-sub">No NEW signals right now — the scanner sweeps the watchlist every 5 minutes during market hours (Telegram pings on every new one).</div>`;
+    </div>`).join('') : `<div class="oth-sub">No NEW signals right now — the scanner sweeps the watchlist every 5 minutes during market hours, filtered to your min R:R. Telegram pings on every new one; Claude reviews the desk each market morning.</div>`;
+  return `
+    ${eqTiles()}
+    <div class="oth-sec">New signals <button class="oth-btn dim" style="margin-left:8px; padding:4px 12px;" onclick="eqToggleSettings()">${eqSettingsOpen ? '✕ close' : '⚙ risk targets'}</button></div>
+    ${eqSettingsPanel()}
+    ${sigCards}
+    <div class="oth-note">Every fill is simulated (5 bps slippage + costs). This desk cannot place a real order.</div>`;
+}
+
+function eqViewPositions() {
   const openRows = (eqData.open || []).map(p => `
-    <tr><td>${p.symbol}<br><span class="oth-name">${p.qty} qty</span></td>
+    <tr><td>${p.symbol}<br><span class="oth-name">${p.qty} qty · risk ${othInr(p.risk)}</span></td>
       <td>${othFmt(p.entry)}</td><td>${othFmt(p.ltp)}</td>
       <td>${othFmt(p.sl)}</td><td>${othFmt(p.tp)}</td>
       <td>${othSigned(p.open_pnl)}</td>
@@ -5628,17 +5705,81 @@ function renderEqView() {
       <td>${othFmt(p.entry)}</td><td>${othFmt(p.exit_price)}</td>
       <td>${othSigned(p.pnl)}</td><td>${p.r != null ? othFmt(p.r) + 'R' : '—'}</td></tr>`).join('');
   return `
+    ${eqTiles()}
+    <div class="oth-sec">Open positions (paper)</div>
+    ${openRows ? `<div class="oth-scroll"><table><tr><th>Symbol</th><th>Entry</th><th>LTP</th><th>SL</th><th>TP</th><th>Open P&L</th><th></th></tr>${openRows}</table></div>` : `<div class="oth-sub">No open paper positions.</div>`}
+    <div class="oth-sec">Recent closed</div>
+    ${closedRows ? `<div class="oth-scroll"><table><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>P&L</th><th>R</th></tr>${closedRows}</table></div>` : `<div class="oth-sub">No closed trades yet.</div>`}`;
+}
+
+function eqViewPortfolio() {
+  const st = eqData.stats || {};
+  const open = eqData.open || [];
+  const eq = st.equity || 1;
+  const alloc = open.map(p => {
+    const val = (p.ltp || p.entry) * p.qty;
+    return `<tr><td>${p.symbol}</td><td>${p.qty}</td><td>${othInr(val)}</td><td>${othFmt(val / eq * 100, 1)}%</td><td>${othSigned(p.open_pnl)}</td></tr>`;
+  }).join('');
+  const cashPct = 100 - open.reduce((s, p) => s + ((p.ltp || p.entry) * p.qty), 0) / eq * 100;
+  const log = (eqData.mgrlog && eqData.mgrlog[0]) || null;
+  return `
+    ${eqTiles()}
+    <div class="oth-sec">Allocation</div>
+    ${alloc ? `<div class="oth-scroll"><table><tr><th>Symbol</th><th>Qty</th><th>Value</th><th>% of equity</th><th>Open P&L</th></tr>${alloc}
+      <tr><td>CASH</td><td>—</td><td>—</td><td>${othFmt(cashPct, 1)}%</td><td>—</td></tr></table></div>`
+      : `<div class="oth-sub">100% cash — no open positions.</div>`}
+    <div class="oth-sec">Claude's last review</div>
+    ${log ? `<div class="oth-card"><div class="row1"><span class="oth-pill hi">🤖 ${log.source}</span><span class="oth-name">${new Date(log.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</span></div>
+      <div class="why" style="white-space:pre-wrap; margin-top:8px; color:var(--otxt); font-size:12.5px;">${String(log.note).replace(/</g, '&lt;')}</div></div>`
+      : `<div class="oth-sub">No review yet — Claude reads this desk every market morning (09:20 IST), acts on the paper book, and reports here + Telegram.</div>`}`;
+}
+
+function eqSparkline(curve) {
+  if (!curve || curve.length < 2) return '<div class="oth-sub">Equity curve appears after the first monitor snapshots.</div>';
+  const w = 640, h = 130, vals = curve.map(p => Number(p.equity));
+  const mn = Math.min(...vals), mx = Math.max(...vals), rng = (mx - mn) || 1;
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1) * w).toFixed(1)},${(h - 10 - (v - mn) / rng * (h - 20)).toFixed(1)}`).join(' ');
+  const up = vals[vals.length - 1] >= vals[0];
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; display:block; background:var(--ocard); border:1px solid var(--oline); border-radius:14px;" role="img" aria-label="Equity curve">
+    <polyline fill="none" stroke="${up ? '#34d399' : '#f87171'}" stroke-width="2" points="${pts}"/></svg>`;
+}
+
+function eqGate(label, val, target, pass, text) {
+  const pct = Math.max(0, Math.min(100, val / target * 100));
+  return `<div class="oth-gate"><div class="lbl">${label}</div>
+    <div class="bar"><i style="width:${pct.toFixed(0)}%; background:${pass ? 'var(--ogreen)' : 'var(--oamber)'};"></i></div>
+    <div class="val ${pass ? 'oth-pos' : ''}" style="${pass ? '' : 'color:var(--oamber);'}">${text}</div></div>`;
+}
+
+function eqViewAnalysis() {
+  const st = eqData.stats || {};
+  const trades = st.trades || 0, pf = st.profit_factor, dd = Math.abs(st.drawdown_pct || 0);
+  return `
+    ${eqTiles()}
+    <div class="oth-sec">Equity curve</div>
+    ${eqSparkline(eqData.curve)}
+    <div class="oth-sec">Go-live gates — paper must earn it</div>
+    <div class="oth-card">
+      ${eqGate('Trades ≥ 60', trades, 60, trades >= 60, `${trades} / 60`)}
+      ${eqGate('Profit factor ≥ 1.5', pf || 0, 1.5, (pf || 0) >= 1.5, pf == null ? 'pending' : String(pf))}
+      ${eqGate('Max drawdown < 10%', Math.max(0, 10 - dd), 10, dd < 10 && trades > 0, `${othFmt(dd, 1)}%`)}
+      <div class="oth-note" style="margin-top:10px;">All three must hold before live execution is even a conversation. Until then: paper, discipline, data.</div>
+    </div>`;
+}
+
+function renderEqView() {
+  if (!eqData) return `<div class="oth-sub">${eqErr ? 'Backend unreachable: ' + eqErr + ' — retrying every 20s. (Deploy the scanner backend with the equity desk first.)' : 'Connecting to the paper desk…'}</div>`;
+  const nav = `<div class="oth-subnav">${['signals', 'positions', 'portfolio', 'analysis'].map(v =>
+    `<button class="${eqView === v ? 'on' : ''}" onclick="eqSetView('${v}')">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</div>`;
+  const body = eqView === 'signals' ? eqViewSignals()
+    : eqView === 'positions' ? eqViewPositions()
+    : eqView === 'portfolio' ? eqViewPortfolio()
+    : eqViewAnalysis();
+  return `
     <span class="oth-live">Paper Desk</span>
     <div class="oth-h1">Signals, sized and <span class="accent">risk-gated.</span></div>
-    <div class="oth-sub">0.75% risk/trade · 3% heat cap · max 4 positions · breakers −8/−12/−16% · delayed data, daily timeframe — paper only${eqErr ? ` · <span class="oth-neg">last refresh failed: ${eqErr}</span>` : ''}</div>
-    ${tiles}
-    <div class="oth-sec">New signals</div>
-    ${sigCards}
-    <div class="oth-sec">Open positions (paper)</div>
-    ${openRows ? `<table><tr><th>Symbol</th><th>Entry</th><th>LTP</th><th>SL</th><th>TP</th><th>Open P&L</th><th></th></tr>${openRows}</table>` : `<div class="oth-sub">No open paper positions.</div>`}
-    <div class="oth-sec">Recent closed</div>
-    ${closedRows ? `<table><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>P&L</th><th>R</th></tr>${closedRows}</table>` : `<div class="oth-sub">No closed trades yet — the stats gates (60 trades, PF ≥ 1.5) start counting here.</div>`}
-    <div class="oth-note">Every fill is simulated (5 bps slippage + costs). Going live is a separate decision with its own gates — this desk cannot place a real order.</div>`;
+    <div class="oth-sub">${eqSettings ? `${eqSettings.risk_per_trade_pct}% risk/trade · min R:R ${eqSettings.min_rr} · heat cap ${eqSettings.max_heat_pct}% · max ${eqSettings.max_open_positions} positions` : '0.75% risk/trade · 3% heat cap · max 4 positions'} · breakers −8/−12/−16% · delayed data, daily timeframe — paper only${eqErr ? ` · <span class="oth-neg">last refresh failed: ${eqErr}</span>` : ''}</div>
+    ${nav}${body}`;
 }
 
 // ---- Metal Arb (same-origin Vercel function) ----
@@ -5682,16 +5823,34 @@ function renderMetalView() {
       ${othPremCell(b.basisPct, 0.5)}<td>${othFmt(b.fundingRatePct, 4)}%</td><td>${othFmt(b.fundingDailyPct, 3)}%/day</td></tr>`).join('');
   const mrows = (d.mfNavs || []).slice(0, 80).map(m => `
     <tr><td>${m.name.slice(0, 60)}</td><td>${othFmt(m.nav, 4)}</td><td>${m.date}</td></tr>`).join('');
+  // THE CONCLUSION LAYER — his ask: "it should be giving proper conclusion,
+  // buy that hedge that". Actionable verdicts as cards up top; quiet market =
+  // an explicit all-clear instead of silence.
+  const conc = (d.conclusions || []).map(c => `
+    <div class="oth-card" style="border-left:3px solid ${c.action === 'BUY_ETF' ? 'var(--ogreen)' : 'var(--ored)'};">
+      <div class="row1">
+        <span class="oth-pill ${c.action === 'BUY_ETF' ? 'long' : 'short'}">${c.action === 'BUY_ETF' ? 'BUY' : 'SHORT'}</span>
+        <span class="sym">${c.symbol}</span>
+        <span class="oth-pill ${c.metal}">${c.metal === 'gold' ? 'GOLD' : 'SILVER'}</span>
+        ${c.inavSource === 'amfi-eod' ? '<span class="oth-pill med">~ EOD NAV</span>' : ''}
+      </div>
+      <div class="why" style="margin-top:7px;">${c.why}</div>
+      <div class="why" style="color:var(--oteal);">${c.hedge}</div>
+    </div>`).join('');
+  const concBlock = (d.conclusions && d.conclusions.length)
+    ? `<div class="oth-sec">Conclusions — trade the convergence</div>${conc}`
+    : `<div class="oth-sec">Conclusions</div><div class="oth-sub">No actionable dislocation right now — every premium is inside its normal duty+GST band. The edge appears when this section doesn't say that.</div>`;
   return `
     <span class="oth-live">Live Spreads</span>
     <div class="oth-h1">Priced while you <span class="accent">were scrolling.</span></div>
     <div class="oth-sub">ETF premium vs iNAV · India vs global landed price · hedge carry cost · as of ${new Date(d.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</div>
     <div class="oth-tiles">${tiles}</div>
+    ${concBlock}
     <div class="oth-sec">ETF premium / discount vs iNAV — live NSE</div>
-    ${rows ? `<table><tr><th>ETF</th><th>Metal</th><th>Price ₹</th><th>iNAV ₹</th><th>Premium</th><th>India vs global</th><th>Alert</th></tr>${rows}</table>` : `<div class="oth-sub">NSE feed unavailable right now${(d.errors || []).some(e => String(e).startsWith('nse-etf')) ? ' (blocked from this region — see errors below)' : ''}.</div>`}
+    ${rows ? `<div class="oth-scroll"><table><tr><th>ETF</th><th>Metal</th><th>Price ₹</th><th>iNAV ₹</th><th>Premium</th><th>India vs global</th><th>Alert</th></tr>${rows}</table></div>` : `<div class="oth-sub">NSE feed unavailable right now${(d.errors || []).some(e => String(e).startsWith('nse-etf')) ? ' (blocked from this region — see errors below)' : ''}.</div>`}
     <div class="oth-sec">Hedge leg — Binance perpetuals</div>
-    ${brows ? `<table><tr><th>Perp</th><th>Mark $</th><th>Index $</th><th>Basis</th><th>Funding/8h</th><th>Carry</th></tr>${brows}</table>` : `<div class="oth-sub">Binance feed unavailable (US-region Vercel functions get 451 — pin bom1 in vercel.json).</div>`}
-    <details><summary>Mutual fund / FoF daily NAVs (AMFI, end-of-day)</summary>${mrows ? `<table><tr><th>Scheme</th><th>NAV</th><th>Date</th></tr>${mrows}</table>` : '<div class="oth-sub">No AMFI data.</div>'}</details>
+    ${brows ? `<div class="oth-scroll"><table><tr><th>Perp</th><th>Mark $</th><th>Index $</th><th>Basis</th><th>Funding/8h</th><th>Carry</th></tr>${brows}</table></div>` : `<div class="oth-sub">Binance feed unavailable (US-region Vercel functions get 451 — pin bom1 in vercel.json).</div>`}
+    <details><summary>Mutual fund / FoF daily NAVs (AMFI, end-of-day)</summary>${mrows ? `<div class="oth-scroll"><table><tr><th>Scheme</th><th>NAV</th><th>Date</th></tr>${mrows}</table></div>` : '<div class="oth-sub">No AMFI data.</div>'}</details>
     ${(d.errors || []).length ? `<div class="oth-err">Source issues: ${d.errors.join(' · ')}</div>` : ''}
     <div class="oth-note">Spread/convergence trading, not true arbitrage — the structural India premium is duty + GST; only deviations from it are tradeable. Ranked by dislocation. It doesn't sleep, you can.</div>`;
 }
