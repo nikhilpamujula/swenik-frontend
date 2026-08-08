@@ -5536,9 +5536,10 @@ function renderGiottusPage() {
 let othTab = 'signals';
 let othTimer = null;
 let eqData = null, eqErr = null, eqBusy = false, eqActionBusy = false;
-let eqView = 'signals';            // signals | positions | portfolio | analysis
+let eqView = 'signals';            // signals | radar | positions | portfolio | analysis
 let eqSettingsOpen = false, eqSettings = null, eqSaveAck2 = null;
 let metalData = null, metalErr = null, metalBusy = false, metalLastTs = 0;
+let metalHist = null, metalHistErr = null; // 2-day premium series from the scanner
 
 function othEnter() {
   if (!othTimer) othTimer = setInterval(othTickFn, 20000);
@@ -5563,7 +5564,7 @@ async function eqRefresh() {
   eqBusy = true;
   try {
     const j = async r => { if (!r.ok) throw new Error('API ' + r.status); return r.json(); };
-    const [health, stats, signals, open, closed, settings, curve, mgrlog] = await Promise.all([
+    const [health, stats, signals, open, closed, settings, curve, mgrlog, radar] = await Promise.all([
       fetch(`${API_BASE}/api/eq/health`).then(j),
       fetch(`${API_BASE}/api/eq/stats`).then(j),
       fetch(`${API_BASE}/api/eq/signals?limit=30`).then(j),
@@ -5572,8 +5573,9 @@ async function eqRefresh() {
       fetch(`${API_BASE}/api/eq/settings`).then(j).catch(() => null),
       fetch(`${API_BASE}/api/eq/equity?limit=150`).then(j).catch(() => []),
       fetch(`${API_BASE}/api/eq/manager/log`).then(j).catch(() => []),
+      fetch(`${API_BASE}/api/eq/scan-report`).then(j).catch(() => null),
     ]);
-    eqData = { health, stats, signals, open, closed: closed.slice(0, 12), curve, mgrlog };
+    eqData = { health, stats, signals, open, closed: closed.slice(0, 12), curve, mgrlog, radar };
     if (!eqSettingsOpen && settings) eqSettings = settings; // never clobber the form mid-edit
     eqErr = null;
   } catch (e) { eqErr = e.message; }
@@ -5767,11 +5769,44 @@ function eqViewAnalysis() {
     </div>`;
 }
 
+// Radar (8 Aug) — the "why is it quiet" answer, live on the page. Every
+// watchlist symbol, its distance from a signal, and the exact checks that
+// failed. NEAR MISS = one condition away (or fired but under his min R:R).
+function eqBar(pct) {
+  const col = pct >= 99 ? 'var(--ogreen)' : pct >= 66 ? 'var(--oamber)' : 'var(--oline)';
+  return `<span style="display:inline-flex; align-items:center; gap:6px;"><span style="display:inline-block; width:64px; height:6px; background:rgba(255,255,255,.06); border-radius:3px; overflow:hidden;"><i style="display:block; height:100%; width:${pct}%; background:${col};"></i></span><span class="oth-name">${pct}%</span></span>`;
+}
+function eqViewRadar() {
+  const r = eqData.radar;
+  const head = `${eqTiles()}<div class="oth-sec">Watchlist radar — distance to a signal</div>`;
+  if (!r || !r.at) return `${head}
+    <div class="oth-sub">${r && r.note ? r.note : 'Radar endpoint not answering — redeploy the scanner backend with the radar pack, then hit ⟳ Scan now.'} Every scan (5-min auto during market hours, or Scan now) rebuilds this table: each symbol, how many setup checks it passes, and exactly which check is blocking it.</div>`;
+  const rows = (r.results || []).map(s => {
+    const cls = s.status === 'SIGNAL' ? 'ok' : s.status === 'NEAR_MISS' ? 'warn' : s.status === 'NO_DATA' ? 'stop' : 'med';
+    const near = (s.detectors || []).filter(d => d.nearMiss && d.gate).map(d => `${d.setup}: ${d.gate}`);
+    const best = (s.detectors || []).slice().sort((a, b) => (b.passed / (b.total || 1)) - (a.passed / (a.total || 1)))[0];
+    const why = s.status === 'SIGNAL' ? 'setup live — Signals tab has the card'
+      : s.status === 'NO_DATA' ? 'no OHLCV from Yahoo this pass'
+      : near.length ? near.join(' · ')
+      : best ? `${best.setup} closest — blocking: ` + (best.checks || []).filter(c => !c.pass).map(c => `${c.name} (${c.detail})`).join('; ')
+      : '—';
+    return `<tr><td>${s.symbol}</td><td>${othFmt(s.ltp)}</td>
+      <td><span class="oth-pill ${cls}">${String(s.status).replace('_', ' ')}</span></td>
+      <td>${eqBar(Math.round((s.score || 0) * 100))}</td>
+      <td class="oth-name" style="white-space:normal; min-width:230px;">${why}</td></tr>`;
+  }).join('');
+  return `${head}
+    <div class="oth-sub">as of ${new Date(r.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST · ${r.marketOpen ? 'market open' : 'market closed — frozen at last scan'} · min R:R ${r.minRR}</div>
+    <div class="oth-scroll"><table><tr><th>Symbol</th><th>Close</th><th>Status</th><th>Checks passed</th><th>What's blocking it</th></tr>${rows}</table></div>
+    <div class="oth-note">A quiet Signals tab plus a full radar is the system saying "nothing worth your risk today" — with receipts. NEAR MISS names the one failing condition; it resolves or it doesn't, no signal is forced.</div>`;
+}
+
 function renderEqView() {
   if (!eqData) return `<div class="oth-sub">${eqErr ? 'Backend unreachable: ' + eqErr + ' — retrying every 20s. (Deploy the scanner backend with the equity desk first.)' : 'Connecting to the paper desk…'}</div>`;
-  const nav = `<div class="oth-subnav">${['signals', 'positions', 'portfolio', 'analysis'].map(v =>
+  const nav = `<div class="oth-subnav">${['signals', 'radar', 'positions', 'portfolio', 'analysis'].map(v =>
     `<button class="${eqView === v ? 'on' : ''}" onclick="eqSetView('${v}')">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</div>`;
   const body = eqView === 'signals' ? eqViewSignals()
+    : eqView === 'radar' ? eqViewRadar()
     : eqView === 'positions' ? eqViewPositions()
     : eqView === 'portfolio' ? eqViewPortfolio()
     : eqViewAnalysis();
@@ -5791,8 +5826,43 @@ async function metalRefresh(force) {
     const r = await fetch('/api/metal/check');
     if (!r.ok) throw new Error('API ' + r.status);
     metalData = await r.json(); metalErr = null; metalLastTs = Date.now();
+    metalPushHistory(); // fire-and-forget — sparklines land on the repaint
   } catch (e) { metalErr = e.message; }
   finally { metalBusy = false; }
+}
+
+// History courier: after each check, POST the picker's live-iNAV rows to the
+// scanner's 2-day store and pull the series back for sparklines. The scanner
+// dedupes 2-min repeats, so two open devices can't double-write. 404 =
+// scanner not redeployed with the metal-history pack yet — degrade to no
+// sparklines, never to an error banner.
+async function metalPushHistory() {
+  try {
+    const rows = Object.values((metalData && metalData.picker) || {}).flatMap(p => p.rows || []);
+    if (rows.length) {
+      await fetch(`${API_BASE}/api/metal/snapshot`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) }).catch(() => {});
+    }
+    const h = await fetch(`${API_BASE}/api/metal/history`);
+    metalHist = h.ok ? await h.json() : null;
+    metalHistErr = h.ok ? null : (h.status === 404 ? 'scanner deploy pending' : 'API ' + h.status);
+  } catch (e) { metalHist = null; metalHistErr = e.message; }
+  if (currentPage === 'others' && othTab === 'metal') renderOthersPage();
+}
+
+// Tiny premium sparkline. GREEN when the premium is FALLING — for a buyer,
+// a cheapening premium is the good direction; red means it's running away.
+function metalSpark(sym) {
+  const s = metalHist && metalHist.series && metalHist.series[sym];
+  if (!s || s.length < 2) return '<span class="oth-name">—</span>';
+  const w = 120, h = 30;
+  const t0 = s[0][0], tr = (s[s.length - 1][0] - t0) || 1;
+  const vals = s.map(p => p[1]);
+  const mn = Math.min(...vals), mx = Math.max(...vals), rng = (mx - mn) || 1;
+  const pts = s.map(p => `${(((p[0] - t0) / tr) * w).toFixed(1)},${(h - 4 - ((p[1] - mn) / rng) * (h - 8)).toFixed(1)}`).join(' ');
+  const falling = vals[vals.length - 1] <= vals[0];
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:${w}px; height:${h}px; display:block;" role="img" aria-label="${sym} premium trend">
+    <polyline fill="none" stroke="${falling ? '#34d399' : '#f87171'}" stroke-width="1.5" points="${pts}"/></svg>`;
 }
 
 function othPremCell(p, thr) {
@@ -5837,14 +5907,42 @@ function renderMetalView() {
       <div class="why" style="margin-top:7px;">${c.why}</div>
       <div class="why" style="color:var(--oteal);">${c.hedge}</div>
     </div>`).join('');
+  // PICKER — the default lens (8 Aug). Indian retail can't hold an ETF short
+  // overnight (SLB is dead for ETFs), so the daily-use question is "which ETF,
+  // and is now a good time to add" — every picker call is a plain demat order.
+  const pk = d.picker || {};
+  const pkCards = ['silver', 'gold'].filter(m => pk[m]).map(m => {
+    const p = pk[m];
+    const bandCls = p.band === 'CHEAP' ? 'ok' : p.band === 'RICH' ? 'stop' : 'med';
+    const rws = (p.rows || []).map((r, i) => `
+      <tr><td>${i === 0 ? '★ ' : ''}${r.symbol}</td><td>${othFmt(r.ltp)}</td><td>${othFmt(r.inav)}</td>
+        ${othPremCell(r.premiumPct, 999)}<td>${metalSpark(r.symbol)}</td></tr>`).join('');
+    return `
+      <div class="oth-card" style="border-left:3px solid ${p.band === 'RICH' ? 'var(--ored)' : p.band === 'CHEAP' ? 'var(--ogreen)' : 'var(--oteal)'};">
+        <div class="row1">
+          <span class="oth-pill ${m}">${m === 'gold' ? 'GOLD' : 'SILVER'}</span>
+          <span class="sym">${p.best.symbol}</span>
+          <span class="oth-pill ${bandCls}">${p.band}</span>
+          <span class="oth-name">cheapest at ${(p.best.premiumPct > 0 ? '+' : '') + p.best.premiumPct}% vs iNAV${p.saveBps > 0 ? ` · saves ${p.saveBps} bps vs ${p.worst.symbol}` : ''}</span>
+        </div>
+        <div class="why" style="margin-top:7px;">${p.note} · bands: cheap ≤ ${p.bands.cheapPct}% / rich ≥ ${p.bands.richPct}%</div>
+        <div class="oth-scroll" style="margin-top:8px;"><table><tr><th>ETF</th><th>Price ₹</th><th>iNAV ₹</th><th>Premium</th><th>48h premium</th></tr>${rws}</table></div>
+      </div>`;
+  }).join('');
+  const pkBlock = pkCards
+    ? `<div class="oth-sec">Buy picker — which door, and is it open</div>${pkCards}
+       ${metalHistErr === 'scanner deploy pending' ? '<div class="oth-sub">48h premium sparklines appear after the next scanner deploy (metal-history pack).</div>' : ''}`
+    : `<div class="oth-sec">Buy picker</div><div class="oth-sub">No live-iNAV rows this pass — the picker only ranks ETFs whose iNAV came from NSE live feeds (see source issues below).</div>`;
   const concBlock = (d.conclusions && d.conclusions.length)
-    ? `<div class="oth-sec">Conclusions — trade the convergence</div>${conc}`
-    : `<div class="oth-sec">Conclusions</div><div class="oth-sub">No actionable dislocation right now — every premium is inside its normal duty+GST band. The edge appears when this section doesn't say that.</div>`;
+    ? `<div class="oth-sec">Convergence (pro) — trade the spread</div>
+       <div class="oth-sub">SHORT verdicts here are spread calls, executable intraday or via SLB only — retail can't hold an ETF short overnight. The picker above is their buy-side translation.</div>${conc}`
+    : `<div class="oth-sec">Convergence (pro)</div><div class="oth-sub">No actionable dislocation right now — every premium is inside its normal duty+GST band. The edge appears when this section doesn't say that.</div>`;
   return `
     <span class="oth-live">Live Spreads</span>
     <div class="oth-h1">Priced while you <span class="accent">were scrolling.</span></div>
     <div class="oth-sub">ETF premium vs live iNAV · Binance XAU/XAG parity · hedge carry · as of ${new Date(d.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</div>
     <div class="oth-tiles">${tiles}</div>
+    ${pkBlock}
     ${concBlock}
     <div class="oth-sec">ETF premium / discount vs iNAV — live NSE</div>
     ${rows ? `<div class="oth-scroll"><table><tr><th>ETF</th><th>Metal</th><th>Price ₹</th><th>iNAV ₹</th><th>Premium</th><th>vs Binance</th><th>Alert</th></tr>${rows}</table></div>` : `<div class="oth-sub">NSE feed unavailable right now${(d.errors || []).some(e => String(e).startsWith('nse-etf')) ? ' (blocked from this region — see errors below)' : ''}.</div>`}
