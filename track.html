@@ -557,7 +557,12 @@
        columns, then center at a readable width on big screens. */
     grid-column:1/-1; width:100%; max-width:1150px; margin:0 auto; box-sizing:border-box;
     font-variant-numeric:tabular-nums; }
-  .oth-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; border-radius:14px; }
+  .oth-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; border-radius:14px; width:0; min-width:100%; }
+  /* ^ width:0 + min-width:100% (8 Aug): overflow:auto contains the SCROLLING but
+     not the INTRINSIC width — the 620px table min-width was propagating up into
+     the #cardList grid track, inflating the layout viewport to ~692px on phones
+     (banner looked ⅔-width, page zoomed out). This zeroes the wrapper's
+     intrinsic contribution while min-width:100% restores its real size. */
   .oth-scroll table { min-width:620px; }
   .oth-live { display:inline-flex; align-items:center; gap:8px; padding:7px 16px; border-radius:999px; border:1px solid rgba(45,212,191,.35); background:rgba(45,212,191,.06); color:var(--oteal); font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
   .oth-live::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--oteal); box-shadow:0 0 8px var(--oteal); }
