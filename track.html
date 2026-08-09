@@ -8923,7 +8923,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       return { score: v, notes: notes };
     }
     function rsSeries(kl) { // kl: binance kline rows
-      var o = { t: [], c: [], h: [], l: [], vol: [] };
+      // ACCURACY FIX (9 Aug): drop the still-FORMING candle before scoring.
+      // Binance returns the in-progress bar as the last kline row; every rs*
+      // function reads i = length-1, so RSI/MACD/trend/volume were all being
+      // computed on a half-built candle whose values swing until it closes —
+      // the root cause of unstable, wrong-looking reads. kl[i][6] is the bar's
+      // close time (ms); if it's in the future the bar is still open, so we
+      // score only CLOSED bars. o.live keeps the true last price for display.
+      var liveClose = kl && kl.length ? +kl[kl.length - 1][4] : null;
+      var liveOpen = false;
+      if (kl && kl.length > 1) {
+        var lastCloseMs = +kl[kl.length - 1][6];
+        if (lastCloseMs && lastCloseMs > Date.now()) { kl = kl.slice(0, -1); liveOpen = true; }
+      }
+      var o = { t: [], c: [], h: [], l: [], vol: [], live: liveClose, liveOpen: liveOpen };
       for (var i = 0; i < kl.length; i++) {
         o.t.push(+kl[i][0]); o.c.push(+kl[i][4]); o.h.push(+kl[i][2]); o.l.push(+kl[i][3]); o.vol.push(+kl[i][5]);
       }
