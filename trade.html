@@ -896,6 +896,7 @@
             </select>
           </div>
           <div class="f"><label>Min net profit %</label><input id="rf_minpct" type="number" step="0.05" value="0.5"><div class="sub">re-checked at live depth at the moment of execution</div></div>
+          <div class="f"><label>Min net % — USDT pairs (Direct, PAPER)</label><input id="rf_minpct_usdt" type="number" step="0.05" min="0" value="0"><div class="sub">separate bar for the {coin}/USDT book (e.g. XRP/USDT) — an independent trade from the INR pair, judged against THIS %. 0 = USDT pairs off. Paper-only, Direct arb only.</div></div>
           <div class="f"><label>Min profit ₹ (at your size)</label><input id="rf_mininr" type="number" step="10" value="50"></div>
           <div class="f"><label>Sanity ceiling % (too-good-to-be-true)</label><input id="rf_maxpct" type="number" step="1" min="1" value="8"><div class="sub">refuse anything ABOVE this — a 797% "arb" is a dead order book, not money. Raise it only if you truly expect bigger.</div></div>
           <div class="f"><label>Coins (blank = any)</label><input id="rf_coins" placeholder="trx, xrp, shib"></div>
@@ -1273,6 +1274,7 @@ function renderRules() {
       '</div>' +
       '<div class="facts num">' +
         '<span class="fact">≥ <b>' + Number(r.min_net_pct) + '%</b> net</span>' +
+        (r.strategy === 'direct_hedge' && Number(cfg.minNetPctUsdt) > 0 ? '<span class="fact">USDT ✓ ≥ <b>' + Number(cfg.minNetPctUsdt) + '%</b></span>' : '') +
         '<span class="fact">≥ <b>' + inr(r.min_profit_inr) + '</b></span>' +
         '<span class="fact">ceiling <b>' + (cfg.maxNetPct || 8) + '%</b></span>' +
         '<span class="fact depth">depth <b>' + (cfg.maxLevels || 3) + ' lvls</b> · level ≥<b>' + (cfg.depthStopPct != null ? cfg.depthStopPct : 0.1) + '%</b> · ≤<b>' + (cfg.maxLevelSharePct || 50) + '%</b>/level</span>' +
@@ -1751,6 +1753,7 @@ function openRuleForm(id) {
   $('rf_volwarn').value = cfg.volWarnPct != null ? cfg.volWarnPct : 3;
   drawExclChips();
   $('rf_minpct').value = r ? Number(r.min_net_pct) : 0.5;
+  $('rf_minpct_usdt').value = cfg.minNetPctUsdt != null ? cfg.minNetPctUsdt : 0;
   $('rf_mininr').value = r ? Number(r.min_profit_inr) : 50;
   $('rf_maxpct').value = cfg.maxNetPct || 8;
   $('rf_persist').value = cfg.persistMs != null ? cfg.persistMs : (cfg.persistTicks ? (cfg.persistTicks - 1) * 2500 : 250);
@@ -1829,6 +1832,7 @@ async function saveRule() {
       maxOpenPositions: Number($('rf_maxpos').value),
       maxAdverseFunding: Number($('rf_fund').value),
       sizePct: Number($('rf_sizepct').value) || 100,
+      minNetPctUsdt: Number($('rf_minpct_usdt').value) || 0,
       maxNetPct: Number($('rf_maxpct').value) || 8,
       skipWalletDisabled: $('rf_skipwal').checked,
       preferPct: $('rf_preferpct').checked,
