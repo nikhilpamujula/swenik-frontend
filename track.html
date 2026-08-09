@@ -2414,29 +2414,46 @@ function loopCard(o) {
 function intraLoopCard(o) {
   const pct = pctOf(o);
   const l = o.walked;
+  const coin = (o.coin || '').toUpperCase();
+  const venue = exLabel(o.exchange || 'wazirx');
   const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
-  const rows = (l && Array.isArray(l.legs) ? l.legs : []).map(leg => `
-    <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:76px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
-      <div class="kk-tag ${leg.action === 'Buy' ? 'buy' : leg.action === 'Sell' ? 'sell' : 'convert'}">${leg.action}<span class="kk-coin">${leg.action === 'Convert' ? '' : leg.asset.toUpperCase()}</span></div>
-      <div class="kk-mid">
-        <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtAdaptive(leg.qty) + ' ' + leg.asset.toUpperCase()}</div>
-        <div class="kk-price">${fmtInr(leg.valueInr, 0)} · @ ${fmtAdaptive(leg.price)}</div>
-      </div>
-      <div class="kk-ex">${exIcon(o.exchange || 'wazirx')}<div class="ex-name">${exLabel(o.exchange || 'wazirx')}</div><div class="ex-market">${marketLabel(leg.market)}</div></div>
-    </div>`).join('');
+
+  // Build the three hop rows from the route itself (INR → SOL → USDT → INR),
+  // so the card reads like the Direct/Loop cards even on the slim list where
+  // per-leg prices aren't sent. Live prices + book depth live in Track Live.
+  // 9 Aug: replaces the old l.legs path (which was blank on slim and made the
+  // card look broken) with a route the card always has.
+  const hops = (o.pathLabel || `INR → ${coin} → USDT → INR`).split('→').map(s => s.trim().toUpperCase()).filter(Boolean);
+  const hopRows = hops.slice(0, -1).map((A, i) => {
+    const B = hops[i + 1];
+    const action = B === coin ? 'Buy' : A === coin ? 'Sell' : 'Convert';
+    const tagCoin = action === 'Buy' ? B : action === 'Sell' ? A : '';
+    // WazirX market for this hop: the coin leg pairs coin↔quote; the pure
+    // stable hop is usdt↔inr.
+    const base = (A === coin || B === coin) ? coin : (A === 'USDT' || B === 'USDT' ? 'USDT' : A);
+    const quote = base === A ? B : A;
+    const market = (base + quote).toLowerCase();
+    return `
+    <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:88px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
+      <div class="kk-tag ${action === 'Buy' ? 'buy' : action === 'Sell' ? 'sell' : 'convert'}">${action}${tagCoin ? `<span class="kk-coin">${tagCoin}</span>` : ''}</div>
+      <div class="kk-mid"><div class="kk-price">${A} ▸ ${B}</div></div>
+      <div class="kk-ex">${exIcon(o.exchange || 'wazirx')}<div class="ex-name">${venue}</div><div class="ex-market">${market}</div></div>
+    </div>`;
+  }).join('');
+
   return `
     <div class="card">
       <div class="card-top">
-        <span class="coin-pair">${o.pathLabel || o.coin.toUpperCase()}</span>
-        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${exLabel(o.exchange || 'wazirx')}</span></div>
+        <span class="coin-pair">${o.pathLabel || `INR → ${coin} → USDT → INR`}</span>
+        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${venue}</span></div>
       </div>
-      ${rows || `<div class="kk-row" style="padding:12px 14px;"><div class="kk-mid"><div class="kk-price">${o.pathLabel || ''}</div></div></div>`}
-      ${arbFold(barClass, `${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}`, l ? 'instant · no transfer' : 'top-of-book',
-        ln('Route', o.pathLabel || o.coin.toUpperCase()) +
-        ln('Exchange', exLabel(o.exchange || 'wazirx')) +
-        (l ? ln('Max size', `${fmtAdaptive(l.qty)} ${o.coin.toUpperCase()} at top-of-book`) : '') +
+      ${hopRows}
+      ${arbFold(barClass, `${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}`, 'instant · no transfer',
+        ln('Basis', l ? 'depth-walked · real order book' : 'top-of-book only') +
         (l ? ln('Net profit', fmtInr(l.profit,2)) : '') +
-        ln('Transfers', 'none · all trades on one exchange'),
+        (l && l.qty ? ln('Max size', `${fmtCoin(l.qty,2)} ${coin} at top-of-book`) : '') +
+        ln('Route', o.pathLabel || `INR → ${coin} → USDT → INR`) +
+        ln('Transfers', `none · all three legs on ${venue}`),
         `openCardModal('intraloop','${o.coin}','','','','')`)}
     </div>`;
 }
@@ -3778,14 +3795,21 @@ function renderIntraLoopModal() {
   // Same rule as Loop: if no triangle direction is positive, the trade has
   // slipped — show the plain book without the red/green consumption bars.
   const intraShowBars = opps.some(op => (op.walked ? op.walked.profit : op.roughPct) > 0);
-  const pathHtml = opps.length ? opps.map(op => {
+  // 9 Aug (his call): show ONLY the profitable direction, never the negative
+  // mirror. The reverse leg is always the arithmetic negative of the same
+  // books and only adds noise — the card already committed to one direction.
+  const positive = opps.filter(op => (op.walked ? op.walked.profit : op.roughPct) > 0);
+  const pathHtml = positive.length ? positive.map(op => {
     const l = op.walked;
     const p = l ? l.profitPct : op.roughPct;
-    return `<div class="profit-box ${(p ?? 0) < 0 ? 'negative' : ''}" style="flex-direction:column; align-items:flex-start; gap:2px;">
+    return `<div class="profit-box" style="flex-direction:column; align-items:flex-start; gap:2px;">
       <div class="profit-pct">${p != null ? p.toFixed(2) + '%' : '—'}${l ? ` (${fmtInr(l.profit,2)})` : ''}</div>
       <div class="profit-sub">${op.pathLabel || ''}${l ? ` · max ${fmtCoin(l.qty,2)} ${coin} at top-of-book` : ''}</div>
     </div>`;
-  }).join('') : `<div class="modal-note">No computable triangle right now (thin ${cardVenueName()} book).</div>`;
+  }).join('')
+    : (opps.length
+        ? `<div class="profit-box negative" style="flex-direction:column; align-items:flex-start; gap:2px;"><div class="profit-pct">No positive direction right now</div><div class="profit-sub">Both triangle directions are negative — the edge has slipped.</div></div>`
+        : `<div class="modal-note">No computable triangle right now (thin ${cardVenueName()} book).</div>`);
   document.getElementById('modalBody').innerHTML = `
     <div class="note-box">Same-exchange ${cardVenueName()} triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
     ${pathHtml}
