@@ -2415,7 +2415,7 @@ function intraLoopCard(o) {
   const pct = pctOf(o);
   const l = o.walked;
   const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
-  const rows = (l ? l.legs : []).map(leg => `
+  const rows = (l && Array.isArray(l.legs) ? l.legs : []).map(leg => `
     <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:76px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
       <div class="kk-tag ${leg.action === 'Buy' ? 'buy' : leg.action === 'Sell' ? 'sell' : 'convert'}">${leg.action}<span class="kk-coin">${leg.action === 'Convert' ? '' : leg.asset.toUpperCase()}</span></div>
       <div class="kk-mid">
