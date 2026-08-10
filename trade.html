@@ -939,6 +939,7 @@
           <div class="f"><label>Take % of the arb's size</label><input id="rf_sizepct" type="number" min="1" max="100" step="5" value="100"><div class="sub">execute only this % of the arb's walkable volume — with the ₹ cap this gives "₹10k arb → ₹5k trade"</div></div>
           <div class="f"><label>Prefer % over size</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_preferpct" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--primary);"> low volume · high %</label><div class="sub">tries every stop point inside the arb's own span and picks the HIGHEST net % that still clears your min ₹ profit — instead of walking as deep as the cutoff allows</div></div>
           <div class="f" id="walWrap"><label>Skip wallet-disabled coins</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_skipwal" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--primary);"> never auto-trade a shut wallet</label><div class="sub">uses the scanner's own wallet status — a coin whose WazirX deposits AND withdrawals are blocked in both directions is refused. Coins the scanner hasn't reported stay tradeable, so a scanner outage can't freeze the engine. <b>Does not apply to intra-loop</b>: that strategy never leaves WazirX, so there is no transfer a shut wallet could block.</div></div>
+          <div class="f"><label>Reverse direction (sell WazirX + long perp)</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_reverse" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--primary);"> allow bin→waz (sell-side) trades</label><div class="sub">ON = trade BOTH directions — buy WazirX/short perp AND sell WazirX/long perp. OFF = buy-side only. The sell side reads your real WazirX balance first, sells min(planned, held), and skips anything under ₹50. Applies to INR and USDT pairs.</div></div>
           <div class="f"><label>Max ₹ per trade</label><input id="rf_max" type="number" step="100" value="1000"></div>
           <div class="f"><label>Max % of free INR balance</label><input id="rf_balpct" type="number" step="5" value="25"><div class="sub">live mode checks your real balance first</div></div>
           <div class="f"><label>Daily ₹ cap</label><input id="rf_daily" type="number" step="500" value="10000"></div>
@@ -1778,6 +1779,7 @@ function openRuleForm(id) {
   $('rf_sizepct').value = cfg.sizePct || 100;
   $('rf_preferpct').checked = !!cfg.preferPct;
   $('rf_skipwal').checked = cfg.skipWalletDisabled !== false; // default ON, incl. rules made before this existed
+  $('rf_reverse').checked = cfg.reverseEnabled !== false;     // default ON (both directions), incl. older rules
   $('rf_fund').value = cfg.maxAdverseFunding != null ? cfg.maxAdverseFunding : 0.03;
   $('rf_losscap').value = cfg.dailyLossCapInr != null ? cfg.dailyLossCapInr : 0;
   $('rf_missbackoff').checked = !!cfg.missBackoff;
@@ -1835,6 +1837,7 @@ async function saveRule() {
       minNetPctUsdt: Number($('rf_minpct_usdt').value) || 0,
       maxNetPct: Number($('rf_maxpct').value) || 8,
       skipWalletDisabled: $('rf_skipwal').checked,
+      reverseEnabled: $('rf_reverse').checked,
       preferPct: $('rf_preferpct').checked,
       dailyLossCapInr: Number($('rf_losscap').value) || 0,
       missBackoff: $('rf_missbackoff').checked,
