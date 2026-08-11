@@ -2414,46 +2414,29 @@ function loopCard(o) {
 function intraLoopCard(o) {
   const pct = pctOf(o);
   const l = o.walked;
-  const coin = (o.coin || '').toUpperCase();
-  const venue = exLabel(o.exchange || 'wazirx');
   const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
-
-  // Build the three hop rows from the route itself (INR → SOL → USDT → INR),
-  // so the card reads like the Direct/Loop cards even on the slim list where
-  // per-leg prices aren't sent. Live prices + book depth live in Track Live.
-  // 9 Aug: replaces the old l.legs path (which was blank on slim and made the
-  // card look broken) with a route the card always has.
-  const hops = (o.pathLabel || `INR → ${coin} → USDT → INR`).split('→').map(s => s.trim().toUpperCase()).filter(Boolean);
-  const hopRows = hops.slice(0, -1).map((A, i) => {
-    const B = hops[i + 1];
-    const action = B === coin ? 'Buy' : A === coin ? 'Sell' : 'Convert';
-    const tagCoin = action === 'Buy' ? B : action === 'Sell' ? A : '';
-    // WazirX market for this hop: the coin leg pairs coin↔quote; the pure
-    // stable hop is usdt↔inr.
-    const base = (A === coin || B === coin) ? coin : (A === 'USDT' || B === 'USDT' ? 'USDT' : A);
-    const quote = base === A ? B : A;
-    const market = (base + quote).toLowerCase();
-    return `
-    <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:88px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
-      <div class="kk-tag ${action === 'Buy' ? 'buy' : action === 'Sell' ? 'sell' : 'convert'}">${action}${tagCoin ? `<span class="kk-coin">${tagCoin}</span>` : ''}</div>
-      <div class="kk-mid"><div class="kk-price">${A} ▸ ${B}</div></div>
-      <div class="kk-ex">${exIcon(o.exchange || 'wazirx')}<div class="ex-name">${venue}</div><div class="ex-market">${market}</div></div>
-    </div>`;
-  }).join('');
-
+  const rows = (l ? l.legs : []).map(leg => `
+    <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:76px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
+      <div class="kk-tag ${leg.action === 'Buy' ? 'buy' : leg.action === 'Sell' ? 'sell' : 'convert'}">${leg.action}<span class="kk-coin">${leg.action === 'Convert' ? '' : leg.asset.toUpperCase()}</span></div>
+      <div class="kk-mid">
+        <div class="kk-qty">${leg.action === 'Convert' ? leg.asset : fmtAdaptive(leg.qty) + ' ' + leg.asset.toUpperCase()}</div>
+        <div class="kk-price">${fmtInr(leg.valueInr, 0)} · @ ${fmtAdaptive(leg.price)}</div>
+      </div>
+      <div class="kk-ex">${exIcon(o.exchange || 'wazirx')}<div class="ex-name">${exLabel(o.exchange || 'wazirx')}</div><div class="ex-market">${marketLabel(leg.market)}</div></div>
+    </div>`).join('');
   return `
     <div class="card">
       <div class="card-top">
-        <span class="coin-pair">${o.pathLabel || `INR → ${coin} → USDT → INR`}</span>
-        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${venue}</span></div>
+        <span class="coin-pair">${o.pathLabel || o.coin.toUpperCase()}</span>
+        <div class="badge-row"><span class="badge" style="background:#e0edf9; color:#2b6ea3;">Intra Loop</span><span class="badge" style="background:#eef1f6; color:#4a5568;">${exLabel(o.exchange || 'wazirx')}</span></div>
       </div>
-      ${hopRows}
-      ${arbFold(barClass, `${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}`, 'instant · no transfer',
-        ln('Basis', l ? 'depth-walked · real order book' : 'top-of-book only') +
+      ${rows || `<div class="kk-row" style="padding:12px 14px;"><div class="kk-mid"><div class="kk-price">${o.pathLabel || ''}</div></div></div>`}
+      ${arbFold(barClass, `${pct.toFixed(2)}%${l ? ` (${fmtInr(l.profit,3)})` : ''}`, l ? 'instant · no transfer' : 'top-of-book',
+        ln('Route', o.pathLabel || o.coin.toUpperCase()) +
+        ln('Exchange', exLabel(o.exchange || 'wazirx')) +
+        (l ? ln('Max size', `${fmtAdaptive(l.qty)} ${o.coin.toUpperCase()} at top-of-book`) : '') +
         (l ? ln('Net profit', fmtInr(l.profit,2)) : '') +
-        (l && l.qty ? ln('Max size', `${fmtCoin(l.qty,2)} ${coin} at top-of-book`) : '') +
-        ln('Route', o.pathLabel || `INR → ${coin} → USDT → INR`) +
-        ln('Transfers', `none · all three legs on ${venue}`),
+        ln('Transfers', 'none · all trades on one exchange'),
         `openCardModal('intraloop','${o.coin}','','','','')`)}
     </div>`;
 }
@@ -3795,21 +3778,14 @@ function renderIntraLoopModal() {
   // Same rule as Loop: if no triangle direction is positive, the trade has
   // slipped — show the plain book without the red/green consumption bars.
   const intraShowBars = opps.some(op => (op.walked ? op.walked.profit : op.roughPct) > 0);
-  // 9 Aug (his call): show ONLY the profitable direction, never the negative
-  // mirror. The reverse leg is always the arithmetic negative of the same
-  // books and only adds noise — the card already committed to one direction.
-  const positive = opps.filter(op => (op.walked ? op.walked.profit : op.roughPct) > 0);
-  const pathHtml = positive.length ? positive.map(op => {
+  const pathHtml = opps.length ? opps.map(op => {
     const l = op.walked;
     const p = l ? l.profitPct : op.roughPct;
-    return `<div class="profit-box" style="flex-direction:column; align-items:flex-start; gap:2px;">
+    return `<div class="profit-box ${(p ?? 0) < 0 ? 'negative' : ''}" style="flex-direction:column; align-items:flex-start; gap:2px;">
       <div class="profit-pct">${p != null ? p.toFixed(2) + '%' : '—'}${l ? ` (${fmtInr(l.profit,2)})` : ''}</div>
       <div class="profit-sub">${op.pathLabel || ''}${l ? ` · max ${fmtCoin(l.qty,2)} ${coin} at top-of-book` : ''}</div>
     </div>`;
-  }).join('')
-    : (opps.length
-        ? `<div class="profit-box negative" style="flex-direction:column; align-items:flex-start; gap:2px;"><div class="profit-pct">No positive direction right now</div><div class="profit-sub">Both triangle directions are negative — the edge has slipped.</div></div>`
-        : `<div class="modal-note">No computable triangle right now (thin ${cardVenueName()} book).</div>`);
+  }).join('') : `<div class="modal-note">No computable triangle right now (thin ${cardVenueName()} book).</div>`;
   document.getElementById('modalBody').innerHTML = `
     <div class="note-box">Same-exchange ${cardVenueName()} triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
     ${pathHtml}
@@ -4101,7 +4077,10 @@ function openAlertModal(id, presetKind, presetVenue) {
           <label class="field-label">Threshold ≥ * <span style="font-weight:400; color:var(--gray-500);">(negatives allowed)</span></label>
           <input type="number" id="afThreshold" value="${a.threshold_pct ?? a.threshold_inr ?? 0.7}" step="any">
         </div>
-        <div></div>
+        <div>
+          <label class="field-label">Min profit ₹ <span style="font-weight:400; color:var(--gray-500);">(optional — also required)</span></label>
+          <input type="number" id="afMinProfitInr" value="${(a.threshold_pct != null && a.threshold_inr != null) ? a.threshold_inr : ''}" step="any" min="0" placeholder="blank = % only">
+        </div>
       </div>
       ${editingAlert ? `<label class="af-radio" style="margin-top:12px; display:block;"><input type="checkbox" id="afEnabled" ${a.enabled !== false ? 'checked' : ''}> Enabled</label>` : ''}
       <div class="drawer-actions">
@@ -4159,6 +4138,11 @@ async function saveAlert() {
   const trig = document.querySelector('input[name=afTrig]:checked').value;
   const threshold = parseFloat(document.getElementById('afThreshold').value);
   if (isNaN(threshold)) { document.getElementById('afError').textContent = 'Threshold must be a number (negative is fine).'; return; }
+  // Optional min profit ₹ that ALSO must be met (only meaningful alongside a % trigger).
+  const minProfitRaw = (document.getElementById('afMinProfitInr') || {}).value;
+  const hasMinProfit = minProfitRaw != null && String(minProfitRaw).trim() !== '';
+  const afMinProfitInr = hasMinProfit ? parseFloat(minProfitRaw) : null;
+  if (hasMinProfit && isNaN(afMinProfitInr)) { document.getElementById('afError').textContent = 'Min profit ₹ must be a number (or blank).'; return; }
   const enabledEl = document.getElementById('afEnabled');
   const body = {
     name,
@@ -4180,7 +4164,9 @@ async function saveAlert() {
     coin: null, // superseded by config.coins (multi); kept for API compatibility
     cooldown_min: parseInt(document.getElementById('afCooldown').value) || 5,
     threshold_pct: trig === 'percentage' ? threshold : null,
-    threshold_inr: trig === 'profit' ? threshold : null,
+    // % trigger + optional ₹ floor (both stored → backend ANDs them, same as Giottus).
+    // Profit trigger: the ₹ IS the threshold, so the extra field doesn't apply.
+    threshold_inr: trig === 'profit' ? threshold : (trig === 'percentage' ? afMinProfitInr : null),
     enabled: enabledEl ? enabledEl.checked : true,
     config: {
       venue: creatingVenue, // routes this alert to the matching engine (wazirx / zebpay)
@@ -8947,20 +8933,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       return { score: v, notes: notes };
     }
     function rsSeries(kl) { // kl: binance kline rows
-      // ACCURACY FIX (9 Aug): drop the still-FORMING candle before scoring.
-      // Binance returns the in-progress bar as the last kline row; every rs*
-      // function reads i = length-1, so RSI/MACD/trend/volume were all being
-      // computed on a half-built candle whose values swing until it closes —
-      // the root cause of unstable, wrong-looking reads. kl[i][6] is the bar's
-      // close time (ms); if it's in the future the bar is still open, so we
-      // score only CLOSED bars. o.live keeps the true last price for display.
-      var liveClose = kl && kl.length ? +kl[kl.length - 1][4] : null;
-      var liveOpen = false;
-      if (kl && kl.length > 1) {
-        var lastCloseMs = +kl[kl.length - 1][6];
-        if (lastCloseMs && lastCloseMs > Date.now()) { kl = kl.slice(0, -1); liveOpen = true; }
-      }
-      var o = { t: [], c: [], h: [], l: [], vol: [], live: liveClose, liveOpen: liveOpen };
+      var o = { t: [], c: [], h: [], l: [], vol: [] };
       for (var i = 0; i < kl.length; i++) {
         o.t.push(+kl[i][0]); o.c.push(+kl[i][4]); o.h.push(+kl[i][2]); o.l.push(+kl[i][3]); o.vol.push(+kl[i][5]);
       }
