@@ -647,6 +647,25 @@
   .del{background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:4px 6px;line-height:1}
   .del:active{color:var(--down)}
   .empty{padding:16px 10px;color:#A7B1C4;font-size:13px;line-height:1.6}
+  /* LEDGER orders panel (option C) — column headers printed ONCE, values aligned
+     beneath them, reasoning collapsed under each row. Built for scanning many
+     trades and comparing them down a column rather than reading each as a card. */
+  .ldg{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+  .ldg-h{display:grid;grid-template-columns:74px 1fr 1fr 1fr 62px;gap:8px;padding:7px 10px;
+    background:var(--panel2,#151A24);font-size:9px;letter-spacing:.09em;font-weight:800;color:var(--dim)}
+  .ldg-h .r{text-align:right}
+  .ldg-row{display:grid;grid-template-columns:74px 1fr 1fr 1fr 62px;gap:8px;padding:9px 10px;
+    border-top:1px solid var(--line);align-items:center}
+  .ldg-row.live{background:rgba(45,212,160,.035)}
+  .ldg-s{font-size:11.5px;font-weight:800;line-height:1.2}
+  .ldg-s small{display:block;font-size:9px;color:var(--dim);font-weight:700;margin-top:2px}
+  .ldg-c{font-size:12.5px;font-weight:700;font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;line-height:1.2}
+  .ldg-c small{display:block;font-size:9px;color:var(--dim);font-weight:700;margin-top:2px;font-family:inherit}
+  .ldg-r{font-size:12.5px;font-weight:800;text-align:right;font-family:ui-monospace,Menlo,monospace}
+  .ldg-x{padding:0 10px 9px;font-size:10.5px;color:var(--dim);line-height:1.55}
+  .ldg-x i{color:var(--text);opacity:.75}
+  .ldg-a{padding:0 10px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .ldg-a .grp{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--dim);font-weight:700}
   /* OPEN-COIN STRIP — switching pairs parks the old chart instead of discarding
      it (parkSymbol already keeps its levels + verdicts), so every pair you have
      touched stays one tap away. NOTE: no overflow-y here and children are not
@@ -1225,14 +1244,17 @@ function render(){
       if(y<0||y>priceH()) continue;
       const hot=L.touches>=2;
       const col = hot? C_N1 : C_N3;
-      ctx.strokeStyle=hexA(col, hot?0.55:0.16);
-      ctx.setLineDash(L.kind==="ext"?[2,4]:[6,5]);
-      ctx.lineWidth=1;
+      ctx.strokeStyle=hexA(col, hot?0.42:0.12);
+      if(L.kind==="ext") ctx.setLineDash([5,5]);   /* an extension is a projection */
+      ctx.lineWidth=hot?1.1:1;
       ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
       ctx.setLineDash([]); ctx.lineWidth=1;
       if(hot||L.kind==="ext"){
-        const tag="fib "+(L.r*100).toFixed(1)+"%"+(L.kind==="ext"?" ext":"")+(hot?" ·"+L.touches:"");
-        tryLabel(tag, 6, y-2, hexA(col,0.95), "rgba(11,14,20,.7)");
+        const tag=(L.r*100).toFixed(1)+"%"+(L.kind==="ext"?"e":"");
+        ctx.font="10.5px ui-monospace,Menlo,monospace";
+        const tw=ctx.measureText(tag).width+8;
+        tryLabel(tag, chartW()-tw-4, y-2, hexA(col,0.9), "rgba(11,14,20,.62)");
+        ctx.font="11px ui-monospace,Menlo,monospace";
       }
     }
     /* the impulse leg it was measured from */
@@ -1568,8 +1590,8 @@ function drawHLevel(lvl){
   const yUp=yOf(lvl.price*(1+z.up)), yDn=yOf(lvl.price*(1-z.dn));
   /* zone shown as two hairline edges; fill only when it carries meaning */
   if(sty.a>0){ ctx.fillStyle=hexA(lvl.color, sty.a); ctx.fillRect(0, yUp, chartW(), yDn-yUp); }
-  ctx.strokeStyle=hexA(lvl.color, sty.edge); ctx.lineWidth=1;
-  ctx.setLineDash([2,3]);
+  ctx.strokeStyle=hexA(lvl.color, sty.edge*0.55); ctx.lineWidth=1;
+  ctx.setLineDash([1,4]);
   ctx.beginPath(); ctx.moveTo(0,yUp+.5); ctx.lineTo(chartW(),yUp+.5);
   ctx.moveTo(0,yDn+.5); ctx.lineTo(chartW(),yDn+.5); ctx.stroke();
   ctx.setLineDash([]);
@@ -1585,8 +1607,8 @@ function drawHLevel(lvl){
   /* crisp core line at the exact price */
   /* a hand-drawn line is a decision and stays solid; an auto-detected one is a
      suggestion and is dashed — weight carries confidence, colour carries identity */
-  ctx.strokeStyle=hexA(lvl.color, lvl.auto?0.80:1); ctx.lineWidth=lvl.auto?1.1:1.5;
-  if(sty.dash) ctx.setLineDash(sty.dash); else if(lvl.auto) ctx.setLineDash([7,5]);
+  ctx.strokeStyle=hexA(lvl.color, lvl.auto?0.72:1); ctx.lineWidth=lvl.auto?1.2:1.7;
+  if(sty.dash) ctx.setLineDash(sty.dash);          /* only 'untested'/'weak-break' dash */
   ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
   ctx.setLineDash([]); ctx.lineWidth=1;
   ctx.font="12px ui-monospace,Menlo,monospace";
@@ -1616,8 +1638,7 @@ function drawDiag(lvl){
   ctx.beginPath(); ctx.moveTo(a.x,a.y-dzU); ctx.lineTo(xe,ye-dzU);
   ctx.moveTo(a.x,a.y+dzD); ctx.lineTo(xe,ye+dzD); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.strokeStyle=hexA(lvl.color, lvl.auto?0.80:1); ctx.lineWidth=lvl.auto?1.1:1.5;
-  if(lvl.auto && !(STATE_STYLE[lineState(lvl).code]||{}).dash) ctx.setLineDash([7,5]);
+  ctx.strokeStyle=hexA(lvl.color, lvl.auto?0.72:1); ctx.lineWidth=lvl.auto?1.2:1.7;
   if(sty.dash) ctx.setLineDash(sty.dash);
   ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(xe,ye); ctx.stroke();
   ctx.setLineDash([]); ctx.lineWidth=1;
@@ -1648,11 +1669,11 @@ function labelPill(text,x,y,color){
   const w=ctx.measureText(text).width+12;
   if(!labelFits(x,y-9,w,15)) return;
   labelBoxes.push({x,y:y-9,w,h:15});
-  ctx.fillStyle="rgba(11,14,20,.85)";
+  ctx.fillStyle="rgba(11,14,20,.78)";
   ctx.fillRect(x,y-9,w,15);
-  ctx.strokeStyle=color; ctx.strokeRect(x+.5,y-8.5,w-1,14);
-  ctx.fillStyle=color;
-  ctx.fillText(text, x+6, y-1);
+  ctx.fillStyle=hexA(color,0.95);            /* coloured spine, no full border */
+  ctx.fillRect(x,y-9,2,15);
+  ctx.fillText(text, x+7, y-1);
 }
 function niceSteps(lo,hi,n){
   const span=hi-lo, raw=span/n, mag=Math.pow(10,Math.floor(Math.log10(raw)));
@@ -2131,18 +2152,23 @@ function renderTrades(){
     const icon = t.status==="pending"?"\u23f3": t.status==="open"? (t.side==="long"?"\u25b2":"\u25bc")
       : t.status==="target"?"\ud83c\udfaf": t.status==="stopped"?"\ud83d\uded1"
       : t.status==="breakeven"?"\u2696\ufe0f": t.status==="cancelled"?"\u2716":"\u270b";
-    let x='<div class="pos '+(live?"live":"")+'">'+
-      '<div class="pTop"><span class="side '+(t.side==="long"?"up":"down")+'">'+icon+' '+t.side.toUpperCase()+'</span>'+
-      '<span class="tag">'+t.tf+'</span>'+
-      (t.status==="pending"?'<span class="tag y">PENDING FILL</span>':"")+
-      (t.trail?'<span class="tag y">TRAILING</span>':"")+
-      (t.beMoved?'<span class="tag g">BE</span>':"")+
-      '<span class="pl '+(pl.cash>=0?"up":"down")+'">'+(t.status==="pending"?"—":money(pl.cash)+" · "+(pl.rMul>=0?"+":"")+pl.rMul.toFixed(2)+"R")+'</span></div>'+
-      '<div class="pMeta">entry <b>'+fmt(t.entry)+'</b> · stop <b>'+fmt(t.stop)+'</b> · target <b>'+fmt(t.target)+'</b> · R:R 1:'+rr.toFixed(2)+' · '+t.units.toFixed(4)+' '+baseOf(t.symbol||state.symbol)+
-      (t.exit!=null? ' · exit '+fmt(t.exit)+' ('+t.reason+')' : (t.reason? ' · '+t.reason : ''))+'<br>'+t.note+
-      (t.why? '<br><i>“'+t.why+'”</i>':'')+'</div>';
+    const sideCls = t.side==="long"?"up":"down";
+    const stTxt = t.status==="pending"?"pending" : t.status==="open"?"open" : t.status;
+    const sym = baseOf(t.symbol||state.symbol);
+    let x='<div class="ldg-row '+(live?"live":"")+'">'+
+      '<div class="ldg-s '+sideCls+'">'+icon+' '+t.side.toUpperCase()+
+        '<small>'+sym+' '+t.tf+'</small></div>'+
+      '<div class="ldg-c">'+fmt(t.entry)+'<small>'+stTxt+'</small></div>'+
+      '<div class="ldg-c down">'+fmt(t.stop)+'<small>'+(t.exit!=null&&/stop/.test(t.reason||"")?"hit":(t.beMoved?"at BE":(t.trail?"trailing":"—")))+'</small></div>'+
+      '<div class="ldg-c up">'+fmt(t.target)+'<small>1:'+rr.toFixed(2)+'</small></div>'+
+      '<div class="ldg-r '+(t.status==="pending"?"":(pl.cash>=0?"up":"down"))+'">'+
+        (t.status==="pending"?"—":(pl.rMul>=0?"+":"")+pl.rMul.toFixed(2))+'</div>'+
+      '</div>'+
+      '<div class="ldg-x">'+t.units.toFixed(4)+' '+sym+
+      (t.exit!=null? ' · exit '+fmt(t.exit)+' ('+t.reason+')' : (t.reason? ' · '+t.reason : ''))+
+      ' · '+t.note+(t.why? ' · <i>“'+t.why+'”</i>':'')+'</div>';
     if(live){
-      x+='<div class="pAct">'+
+      x+='<div class="ldg-a">'+
         '<span class="grp">stop <button data-a="stop" data-d="-1" data-id="'+t.id+'">–</button><button data-a="stop" data-d="1" data-id="'+t.id+'">+</button></span>'+
         '<span class="grp">target <button data-a="target" data-d="-1" data-id="'+t.id+'">–</button><button data-a="target" data-d="1" data-id="'+t.id+'">+</button></span>'+
         (t.status==="pending"? '<span class="grp">entry <button data-a="entry" data-d="-1" data-id="'+t.id+'">–</button><button data-a="entry" data-d="1" data-id="'+t.id+'">+</button></span>' :
@@ -2150,14 +2176,17 @@ function renderTrades(){
         '<button class="danger" data-a="cancel" data-id="'+t.id+'">'+(t.status==="pending"?"cancel order":"close now")+'</button>'+
         '</div>';
     } else {
-      x+='<div class="pAct"><button data-a="del" data-id="'+t.id+'">remove from log</button></div>';
+      x+='<div class="ldg-a"><button data-a="del" data-id="'+t.id+'">remove from log</button></div>';
     }
-    return x+'</div>';
+    return x;
   };
   const live=state.papers.filter(t=>t.status==="open"||t.status==="pending");
   const done=state.papers.filter(t=>!(t.status==="open"||t.status==="pending"));
-  if(live.length){ h+='<div class="cardT" style="padding:6px 2px">WORKING ORDERS & POSITIONS</div>'+live.map(row).join(""); }
-  if(done.length){ h+='<div class="cardT" style="padding:6px 2px">HISTORY</div>'+done.slice(-12).reverse().map(row).join(""); }
+  const HEAD='<div class="ldg-h"><div>SIDE</div><div>ENTRY</div><div>STOP</div><div>TARGET</div><div class="r">R</div></div>';
+  if(live.length){ h+='<div class="cardT" style="padding:6px 2px">WORKING ORDERS &amp; POSITIONS</div>'+
+    '<div class="ldg">'+HEAD+live.map(row).join("")+'</div>'; }
+  if(done.length){ h+='<div class="cardT" style="padding:6px 2px">HISTORY</div>'+
+    '<div class="ldg">'+HEAD+done.slice(-12).reverse().map(row).join("")+'</div>'; }
   el.innerHTML=h;
   el.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{
     const a=b.dataset.a, id=b.dataset.id;
