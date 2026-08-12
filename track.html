@@ -2771,15 +2771,63 @@ function futuresCard(o) {
         <div class="arb-sub">gross ${(o.grossPct ?? 0).toFixed(3)}% − fees ${o.feesPct.toFixed(2)}% · close both when implied returns to baseline${o.bookFresh === false ? ' · indicative (mark-based)' : ''}</div>
       </div>
       <button class="track-live-btn" onclick="openFuturesModal('${o.coin}')">◉ Track Live</button>
+      <button class="track-live-btn" style="background:#0f1c33; margin-left:8px;" onclick="openWorkbench('${o.coin}')">📈 S/R Workbench</button>
+    </div>
+  </div>`;
+}
+
+// S/R Workbench — standalone TA app in an isolated full-screen iframe, deep-linked
+// to this coin's Binance USDT pair. Sandboxed from the scanner (own data + storage).
+function openWorkbench(coin) {
+  let sym = String(coin || '').toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+  if (!sym) sym = 'BTC';
+  if (!sym.endsWith('USDT')) sym += 'USDT';
+  let ov = document.getElementById('wbOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'wbOverlay';
+    ov.style.cssText = 'position:fixed; inset:0; z-index:9999; background:#0b1220; display:flex; flex-direction:column;';
+    ov.innerHTML =
+      '<div style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background:#0f1c33; color:#fff; font-size:13px; font-weight:600;">' +
+        '<span id="wbTitle">S/R Workbench</span>' +
+        '<button onclick="closeWorkbench()" style="background:#e23d54; color:#fff; border:0; border-radius:8px; padding:6px 14px; font-weight:700; cursor:pointer;">✕ Close</button>' +
+      '</div>' +
+      '<iframe id="wbFrame" style="flex:1; width:100%; border:0;" title="S/R Workbench"></iframe>';
+    document.body.appendChild(ov);
+  }
+  document.getElementById('wbTitle').textContent = `S/R Workbench — ${sym}`;
+  document.getElementById('wbFrame').src = `sr-workbench.html?symbol=${encodeURIComponent(sym)}&apibase=${encodeURIComponent(API_BASE)}`;
+  ov.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closeWorkbench() {
+  const ov = document.getElementById('wbOverlay');
+  if (ov) { document.getElementById('wbFrame').src = 'about:blank'; ov.style.display = 'none'; }
+  document.body.style.overflow = '';
+}
+
+function workbenchBanner() {
+  return `<div style="grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:linear-gradient(135deg,#0f1c33,#22375f); color:#fff; border-radius:14px; padding:14px 16px; margin-bottom:8px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span style="font-size:22px;">📈</span>
+      <div>
+        <div style="font-weight:800; font-size:15px;">S/R Workbench</div>
+        <div style="font-size:12px; opacity:.85;">Support/resistance with evidence-weighted level reads &amp; paper trades. Levels persist across devices.</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <input id="wbSymInput" placeholder="e.g. BTC" style="width:120px; padding:9px 11px; border-radius:9px; border:0; font-weight:700; text-transform:uppercase;" onkeydown="if(event.key==='Enter'){openWorkbench(this.value);}">
+      <button class="track-live-btn" style="background:#3b5bdb;" onclick="openWorkbench((document.getElementById('wbSymInput')||{}).value)">Open Workbench →</button>
     </div>
   </div>`;
 }
 
 function renderFuturesPage() {
   const el = document.getElementById('cardList');
-  if (!futSnap) { el.innerHTML = `<div class="empty-state">${futErr ? `Couldn't reach the futures engine (${futErr}).` : '⏳ Connecting…'}</div>`; return; }
+  const wb = workbenchBanner();   // pinned first, every state
+  if (!futSnap) { el.innerHTML = wb + `<div class="empty-state">${futErr ? `Couldn't reach the futures engine (${futErr}).` : '⏳ Connecting…'}</div>`; return; }
   const running = futSnap.running !== false; // older backend without the flag => treat as running
-  const controlBar = futuresControlBar(running);
+  const controlBar = wb + futuresControlBar(running);
   if (!running) {
     el.innerHTML = controlBar + `<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">⏸️</span>Futures scanning is stopped — the WazirX &amp; Binance perp feeds aren't running, so nothing is polling in the background. Press <b>Start scanning</b> above whenever you want it back.</div>`;
     return;
