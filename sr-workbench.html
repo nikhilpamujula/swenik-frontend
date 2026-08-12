@@ -4115,11 +4115,142 @@ function touchOutcomes(lvl){
   return { tests:bounce+brk, bounce, brk, avgMove: bounce? moveSum/bounce : 0 };
 }
 
+/* ══ MEASURED WEIGHTS ══════════════════════════════════════════════════════
+   The factor weights shipped with this app are PRIORS — someone's guess about
+   how much each input should count. This turns the verdict log into evidence
+   and refits them to how they have actually performed on YOUR levels.
+
+   The statistics matter more than the feature, because the failure mode is
+   confidently refitting to noise:
+     · Wilson score intervals, not raw percentages — at n=8 a "67% factor" has a
+       CI of roughly 35–88%, i.e. it tells you nothing, and the interval says so.
+     · Compared against the MAJORITY-CLASS benchmark, not 50%. If levels respect
+       62% of the time, always guessing "respect" scores 62% — a factor at 58%
+       is WORSE than guessing while looking like a winner against a coin flip.
+     · Šidák-corrected for multiple comparisons: test twelve factors and one
+       looks significant by luck. The correction is applied, not mentioned.
+     · Shrinkage toward the prior by sample size, so nothing swings on n=6.
+     · Hard refusal below a sample floor — consistent with the rest of the app,
+       which would rather say nothing than manufacture a number.                */
+const REFIT_MIN_TOTAL  = 30;   /* fewer resolved verdicts than this: say nothing */
+const REFIT_MIN_FACTOR = 20;   /* per-factor floor before it gets its own weight */
+const REFIT_SHRINK_K   = 25;   /* n/(n+K) — weight placed on measurement vs prior */
+let MEASURED_W = null;         /* {factorName: weight} once applied, else null   */
+const PRIOR_W = {};            /* shipped priors, harvested the first time each   */
+function priorWeights(){ return PRIOR_W; }   /* factor is declared in factorVotes */
+
+function wilson(hits, n, z) {
+  if (!n) return [0, 1];
+  const p = hits / n, z2 = z * z;
+  const d = 1 + z2 / n;
+  const c = p + z2 / (2 * n);
+  const m = z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n));
+  return [Math.max(0, (c - m) / d), Math.min(1, (c + m) / d)];
+}
+/* two-sided z for a Šidák-corrected family-wise alpha across k tests */
+function zFor(alpha, k) {
+  const a = 1 - Math.pow(1 - alpha, 1 / Math.max(1, k));   /* per-test alpha */
+  const p = 1 - a / 2;
+  /* Acklam-style inverse normal, plenty accurate for a CI bound */
+  const A=[-3.969683028665376e+01,2.209460984245205e+02,-2.759285104469687e+02,1.383577518672690e+02,-3.066479806614716e+01,2.506628277459239e+00];
+  const B=[-5.447609879822406e+01,1.615858368580409e+02,-1.556989798598866e+02,6.680131188771972e+01,-1.328068155288572e+01];
+  const C=[-7.784894002430293e-03,-3.223964580411365e-01,-2.400758277161838e+00,-2.549732539343734e+00,4.374664141464968e+00,2.938163982698783e+00];
+  const D=[7.784695709041462e-03,3.224671290700398e-01,2.445134137142996e+00,3.754408661907416e+00];
+  const pl=0.02425;
+  let q,r;
+  if(p<pl){ q=Math.sqrt(-2*Math.log(p)); return (((((C[0]*q+C[1])*q+C[2])*q+C[3])*q+C[4])*q+C[5])/((((D[0]*q+D[1])*q+D[2])*q+D[3])*q+1); }
+  if(p<=1-pl){ q=p-0.5; r=q*q; return (((((A[0]*r+A[1])*r+A[2])*r+A[3])*r+A[4])*r+A[5])*q/(((((B[0]*r+B[1])*r+B[2])*r+B[3])*r+B[4])*r+1); }
+  q=Math.sqrt(-2*Math.log(1-p)); return -(((((C[0]*q+C[1])*q+C[2])*q+C[3])*q+C[4])*q+C[5])/((((D[0]*q+D[1])*q+D[2])*q+D[3])*q+1);
+}
+function refitWeights(verdicts, priors) {
+  const done = (verdicts||[]).filter(v => v && v.result && v.result !== 'unclear' && Array.isArray(v.factors));
+  const respected = v => v.result === 'held' || v.result === 'false-break';
+  const N = done.length;
+  if (N < REFIT_MIN_TOTAL)
+    return { ok:false, n:N, need:REFIT_MIN_TOTAL,
+      reason:'Only '+N+' resolved prediction'+(N===1?'':'s')+'. Refitting on this little data would fit noise, not skill — '+(REFIT_MIN_TOTAL-N)+' more needed.' };
+
+  const respects = done.filter(respected).length;
+  const baseRate = respects / N;
+  const benchmark = Math.max(baseRate, 1 - baseRate);   /* always-guess-majority */
+
+  /* probabilistic accuracy, not just direction */
+  let brier = 0, brierBase = 0;
+  for (const v of done) {
+    const o = respected(v) ? 1 : 0;
+    brier     += Math.pow((v.lean ?? 0.5) - o, 2);
+    brierBase += Math.pow(baseRate - o, 2);
+  }
+  brier /= N; brierBase /= N;
+  const skill = brierBase > 0 ? 1 - brier / brierBase : 0;
+
+  /* per-factor directional accuracy */
+  const fm = {};
+  for (const v of done) {
+    for (const fr of v.factors) {
+      if (!fr || !fr.name || Math.abs(fr.pp || 0) < 1) continue;   /* no opinion */
+      const f = fm[fr.name] || (fm[fr.name] = { n:0, hits:0 });
+      f.n++;
+      if ((fr.pp > 0) === respected(v)) f.hits++;
+    }
+  }
+  const names = Object.keys(fm);
+  const z = zFor(0.05, names.length);            /* family-wise corrected */
+  const factors = names.map(name => {
+    const f = fm[name], rate = f.n ? f.hits / f.n : 0;
+    const [lo, hi] = wilson(f.hits, f.n, z);
+    const prior = priors && priors[name] != null ? priors[name] : null;
+    const enough = f.n >= REFIT_MIN_FACTOR;
+    const better = enough && lo > benchmark;     /* beats guessing, after correction */
+    const worse  = enough && hi < benchmark;     /* measurably worse than guessing */
+    const shrink = enough ? f.n / (f.n + REFIT_SHRINK_K) : 0;
+    const rel = benchmark > 0 ? rate / benchmark : 1;
+    const relC = Math.max(0.2, Math.min(2.0, rel));
+    const newWeight = prior == null ? null
+      : +(prior * ((1 - shrink) + shrink * relC)).toFixed(4);
+    return { name, n:f.n, hits:f.hits, rate, ci:[lo,hi], prior, newWeight,
+      enough, better, worse,
+      verdict: !enough ? 'not enough data'
+             : better  ? 'earns its weight'
+             : worse   ? 'hurting — shrunk'
+             : 'indistinguishable from guessing' };
+  }).sort((a,b) => b.rate - a.rate);
+
+  /* calibration error, weighted by bucket size */
+  const buckets=[[0,.4],[.4,.5],[.5,.6],[.6,.7],[.7,1]];
+  let calErr=0, calN=0;
+  for(const [lo,hi] of buckets){
+    const set=done.filter(v=>(v.lean??0.5)>=lo && (v.lean??0.5)<hi);
+    if(!set.length) continue;
+    const act=set.filter(respected).length/set.length;
+    const exp=set.reduce((s,v)=>s+(v.lean??0.5),0)/set.length;
+    calErr += Math.abs(act-exp)*set.length; calN += set.length;
+  }
+  return { ok:true, n:N, baseRate, benchmark, brier, brierBase, skill,
+           calibrationError: calN ? calErr/calN : null,
+           factors, alpha:0.05, z,
+           usable: factors.filter(f=>f.enough).length };
+}
+function applyMeasuredWeights(map){
+  MEASURED_W = map && Object.keys(map).length ? map : null;
+  try{ if(hasStorage) window.storage.set('weights:refit', JSON.stringify(MEASURED_W||{})); }catch(e){}
+}
+async function loadMeasuredWeights(){
+  if(!hasStorage) return;
+  try{
+    const r=await window.storage.get('weights:refit');
+    if(r&&r.value){ const m=JSON.parse(r.value); if(m&&Object.keys(m).length) MEASURED_W=m; }
+  }catch(e){}
+}
+
 function factorVotes(lvl, isSupport, touches, mom, volRatio, takerRatio, histo){
   /* vote: +1 = respect the line (bounce/reject), -1 = break through */
   const rows=[];
   function add(name, reading, vote, weight){
-    rows.push({name, reading, vote, weight});
+    if (PRIOR_W[name] == null) PRIOR_W[name] = weight;   /* remember the shipped value */
+    /* a measured weight, once earned, replaces the shipped prior */
+    const w = (MEASURED_W && MEASURED_W[name] != null) ? MEASURED_W[name] : weight;
+    rows.push({name, reading, vote, weight:w, prior:weight, measured:(MEASURED_W&&MEASURED_W[name]!=null)});
   }
   /* touches: 2-4 = proven but fresh; 8+ = worn out, each test eats resting orders */
   if(touches<=1)      add("Line history", touches+" touch"+(touches===1?"":"es")+" — untested", 0, .12);
@@ -5518,19 +5649,46 @@ function renderRecord(){
   }
   h+='</div>';
 
-  const fk=Object.keys(st.fmap).filter(k=>st.fmap[k].n>=3);
-  if(fk.length){
-    h+='<div class="card"><div class="cardT">WHICH FACTORS EARN THEIR WEIGHT</div>'+
-       '<div class="cardNote">How often each input pointed the right way when it had an opinion. Under 50% means it is currently hurting.</div>';
-    for(const k of fk.sort((a,b)=>st.fmap[b].hit/st.fmap[b].n-st.fmap[a].hit/st.fmap[a].n)){
-      const f=st.fmap[k], r=f.hit/f.n;
-      h+='<div class="calRow2"><span class="cLab wide">'+k+'</span>'+
-         '<span class="calBar"><i class="'+(r>=0.6?"":"amber")+'" style="width:'+Math.round(r*100)+'%"></i><u style="left:50%"></u></span>'+
-         '<span class="cNum '+(r>=0.6?"g":r<=0.4?"r":"y")+'">'+Math.round(r*100)+'%</span>'+
-         '<span class="cN">n='+f.n+'</span></div>';
+  /* ── MEASURED WEIGHTS ───────────────────────────────────────────────────
+     Replaces a raw hit-rate list that reported any factor with n>=3 against a
+     50% line. Both were misleading: n=3 carries no information, and 50% is the
+     wrong benchmark when levels do not respect half the time. */
+  const RF = refitWeights(state.verdicts, priorWeights());
+  h+='<div class="card"><div class="cardT">DO THE FACTORS EARN THEIR WEIGHT?</div>';
+  if(!RF.ok){
+    h+='<div class="cardNote">'+RF.reason+'</div>'+
+       '<div class="calRow2"><span class="cLab wide">progress</span>'+
+       '<span class="calBar"><i style="width:'+Math.round(RF.n/RF.need*100)+'%"></i></span>'+
+       '<span class="cNum y">'+RF.n+'/'+RF.need+'</span></div>';
+  } else {
+    const pc=v=>Math.round(v*100);
+    h+='<div class="cardNote">Measured on <b>'+RF.n+'</b> resolved predictions. Your levels respect <b>'+pc(RF.baseRate)+'%</b> of the time, so always guessing the majority scores <b>'+pc(RF.benchmark)+'%</b> — that, not 50%, is the bar. Ranges are 95% confidence intervals corrected for testing '+RF.factors.length+' factors at once.</div>';
+    h+='<div class="calRow2"><span class="cLab wide">skill vs base rate</span>'+
+       '<span class="cNum '+(RF.skill>0.05?"g":RF.skill>-0.02?"y":"r")+'">'+(RF.skill>=0?"+":"")+(RF.skill*100).toFixed(1)+'%</span>'+
+       '<span class="cN">Brier '+RF.brier.toFixed(3)+' vs '+RF.brierBase.toFixed(3)+'</span></div>';
+    if(RF.calibrationError!=null)
+      h+='<div class="calRow2"><span class="cLab wide">calibration error</span>'+
+         '<span class="cNum '+(RF.calibrationError<0.08?"g":RF.calibrationError<0.15?"y":"r")+'">'+pc(RF.calibrationError)+'pp</span>'+
+         '<span class="cN">avg |said − happened|</span></div>';
+    for(const fr of RF.factors){
+      const cls = fr.better?"g" : fr.worse?"r" : "y";
+      h+='<div class="calRow2"><span class="cLab wide">'+fr.name+'</span>'+
+         '<span class="calBar"><i class="'+(fr.better?"":"amber")+'" style="width:'+pc(fr.rate)+'%"></i>'+
+         '<u style="left:'+pc(RF.benchmark)+'%"></u></span>'+
+         '<span class="cNum '+cls+'">'+pc(fr.rate)+'%</span>'+
+         '<span class="cN">n='+fr.n+' · '+pc(fr.ci[0])+'–'+pc(fr.ci[1])+'%</span></div>'+
+         '<div class="fine" style="padding:0 0 6px 2px">'+fr.verdict+
+           (fr.newWeight!=null&&fr.enough? ' · weight '+fr.prior+' → <b>'+fr.newWeight+'</b>':'')+'</div>';
     }
-    h+='</div>';
+    if(RF.usable>0)
+      h+='<button class="sigBtn" id="rfApply" style="margin-top:8px">Apply measured weights ('+RF.usable+' factor'+(RF.usable===1?'':'s')+')</button>'+
+         '<button class="sigBtn" id="rfReset" style="margin-top:8px;margin-left:6px">Back to shipped priors</button>'+
+         '<div class="fine" style="margin-top:6px">Applying replaces the shipped guesses with what your own log measured, shrunk toward the prior by sample size. Reversible.</div>';
+    else
+      h+='<div class="fine" style="margin-top:6px">No factor has reached n='+20+' yet, so nothing is safe to refit. Keep collecting.</div>';
+    if(MEASURED_W) h+='<div class="flag good" style="margin-top:6px">Measured weights are ACTIVE for '+Object.keys(MEASURED_W).length+' factor(s).</div>';
   }
+  h+='</div>';
 
   h+='<div class="card"><div class="cardT">RECENT CALLS</div>';
   for(const v of st.done.slice(-10).reverse()){
@@ -5548,6 +5706,16 @@ function renderRecord(){
     '<div id="btOut"></div></div>'+
     '<div class="fine">Session log — clears on reload until the database backend is wired in.</div>';
   el.innerHTML=h;
+  const rfA=$("rfApply");
+  if(rfA) rfA.onclick=()=>{
+    const RF2=refitWeights(state.verdicts, priorWeights());
+    const map={};
+    for(const fr of (RF2.factors||[])) if(fr.enough && fr.newWeight!=null) map[fr.name]=fr.newWeight;
+    applyMeasuredWeights(map);
+    state.analysis=null; renderRecord(); render();
+  };
+  const rfR=$("rfReset");
+  if(rfR) rfR.onclick=()=>{ applyMeasuredWeights(null); state.analysis=null; renderRecord(); render(); };
   const btn=$("btRun");
   if(btn) btn.onclick=()=>{
     btn.textContent="Running… (also testing shuffled data)"; btn.disabled=true;
@@ -6122,7 +6290,7 @@ async function boot(){
   try{
     await loadCandles();
     await loadLevels();
-    await loadPapers(); await loadVerdicts();
+    await loadPapers(); await loadVerdicts(); await loadMeasuredWeights();
     try{
       if(hasStorage){
         const tr=await window.storage.get("tabs:open");
