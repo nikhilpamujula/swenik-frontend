@@ -5938,7 +5938,18 @@ $("riskIn").onchange=e=>{
 /* ---------- boot ---------- */
 async function boot(){
   /* deep-link: ?symbol=ALPINEUSDT opens the workbench on that pair (Swenik Futures button) */
-  try{ const _q=new URLSearchParams(location.search).get('symbol'); if(_q){ SYMBOL=_q.toUpperCase(); state.symbol=SYMBOL; if(Array.isArray(state.watch)&&!state.watch.includes(SYMBOL)) state.watch.unshift(SYMBOL); } }catch(e){}
+  /* E2E caught this: setting SYMBOL alone left the header reading "BTC / USDT"
+     while ETH candles loaded underneath. The label is only ever written by
+     switchSymbol(), which boot() never calls — so write it here too. */
+  try{
+    const _q=new URLSearchParams(location.search).get('symbol');
+    if(_q && /^[A-Z0-9]{4,20}$/i.test(_q)){
+      SYMBOL=_q.toUpperCase(); state.symbol=SYMBOL;
+      if(Array.isArray(state.watch)&&!state.watch.includes(SYMBOL)) state.watch.unshift(SYMBOL);
+      const pn=document.getElementById("pairName");
+      if(pn) pn.textContent=SYMBOL.replace("USDT","")+" / USDT";
+    }
+  }catch(e){}
   $("loadMsg").textContent="Probing Binance endpoints…";
   $("loadSub").textContent="Checking which market-data host is reachable from here.";
   $("retryBtn").style.display="none";
