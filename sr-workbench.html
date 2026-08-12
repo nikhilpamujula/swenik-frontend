@@ -1853,6 +1853,44 @@ function stopFor(entry, isLong){
   return { stop: isLong? entry*(1-a*2) : entry*(1+a*2),
            note: "no level nearby — 2×ATR stop", anchored:false, atr:a };
 }
+/* ── LEVEL-AWARE TARGET (Swenik, 12 Aug) ────────────────────────────────────
+   The stop has always respected structure; the target did not — it was a flat
+   risk×2, which is the ONLY reason every trade read exactly 1:2.00. An exit
+   that ignores the wall price will actually react at is arithmetic, not a plan.
+   This mirrors stopFor(): walk YOUR levels (drawn + auto) in the PROFIT
+   direction, nearest first, and aim just SHORT of the first one that sits in a
+   sane R:R band — you want to be filled before the crowd defending that level,
+   not queued behind it. Nothing usable in range → fall back to 2R and SAY SO.
+   Deliberately NOT applied to the backtest (see note at its 2R line): scoring
+   history against lines drawn today would be lookahead bias.                  */
+const TGT_MIN_RR = 1.2;   /* closer than this and the level isn't worth aiming at */
+const TGT_MAX_RR = 6;     /* further than this and it's a wish, not a target      */
+function targetFor(entry, stop, isLong){
+  const a = atrPct();
+  const risk = Math.abs(entry - stop);
+  const fallback = isLong ? entry + risk*2 : entry - risk*2;
+  if(!(risk > 0)) return { target: fallback, note: "2R target", anchored:false, rr:2 };
+  const cands = [];
+  for(const l of state.levels){
+    if(l.kind === "v") continue;
+    const q = l.kind === "h" ? l.price : diagPriceAt(l, state.candles.length-1);
+    if(!isFinite(q)) continue;
+    if(isLong ? q > entry : q < entry) cands.push({ l, p:q, d:Math.abs(q-entry) });
+  }
+  cands.sort((x,y) => x.d - y.d);
+  for(const c of cands){
+    const t = isLong ? c.p*(1 - a*0.25) : c.p*(1 + a*0.25);   /* stop just short of the wall */
+    const rr = Math.abs(t - entry) / risk;
+    if(rr >= TGT_MIN_RR && rr <= TGT_MAX_RR){
+      return { target:t, rr, anchored:true,
+               note: "target just short of " + (c.l.label || lineTitle(c.l)) + " (" + rr.toFixed(2) + "R)" };
+    }
+  }
+  const why = cands.length
+    ? "no level in the profit direction lands between " + TGT_MIN_RR + "R and " + TGT_MAX_RR + "R"
+    : "no level above/below to aim at";
+  return { target: fallback, rr:2, anchored:false, note: why + " — 2R target" };
+}
 function sizeFor(entry,stop){
   const risk=Math.abs(entry-stop);
   return risk>0 ? (state.risk.account*(state.risk.pct/100))/risk : 0;
@@ -1864,7 +1902,8 @@ function openPaper(isLong, price, kind, meta){
   const SF=stopFor(px,isLong);
   const stop=SF.stop;
   const risk=Math.abs(px-stop);
-  const target = isLong? px+risk*2 : px-risk*2;
+  const TF=targetFor(px,stop,isLong);
+  const target=TF.target;
   const isLimit = kind==="limit" || (price && Math.abs(px-mkt)/mkt > 0.0015);
   state.papers.push({
     id:uid(), symbol:state.symbol, side:isLong?"long":"short", entry:px, stop, target,
@@ -1873,10 +1912,11 @@ function openPaper(isLong, price, kind, meta){
     filledTime:null, tf:state.tf, symbol:SYMBOL,
     status: isLimit? "pending":"open",
     exit:null, exitTime:null, reason:"", beMoved:false, trail:false,
-    note: SF.note,
+    note: SF.note + " · " + TF.note,
     checks: meta? meta.checks : null, why: meta? meta.why : "",
     replay: state.replay.on
   });
+  savePapers();
   showTrades(); render(); beep();
 }
 function showTrades(){
@@ -1912,7 +1952,7 @@ function updatePapers(){
                  t.exit=t.stop; t.exitTime=c.time; t.reason= t.status==="breakeven"?"stopped at break-even":"stop hit"; changed=true; beep(); }
     else if(hitTarget){ t.status="target"; t.exit=t.target; t.exitTime=c.time; t.reason="target hit"; changed=true; beep(); }
   }
-  if(changed && state.tab==="trades") renderTrades();
+  if(changed){ savePapers(); if(state.tab==="trades") renderTrades(); }
 }
 function paperPL(t){
   const mkt = state.candles.length? state.candles[state.candles.length-1].close : t.entry;
@@ -1931,16 +1971,16 @@ function amend(id, what, dir){
   if(what==="target") t.target += dir*step;
   if(what==="entry" && t.status==="pending") t.entry += dir*step;
   t.units=sizeFor(t.entry,t.stop);
-  renderTrades(); render();
+  savePapers(); renderTrades(); render();
 }
 function toBreakEven(id){
   const t=state.papers.find(x=>x.id===id); if(!t||t.status!=="open") return;
   t.stop=t.entry; t.beMoved=true; t.units=sizeFor(t.entry,t.initialStop);
-  renderTrades(); render();
+  savePapers(); renderTrades(); render();
 }
 function toggleTrail(id){
   const t=state.papers.find(x=>x.id===id); if(!t||t.status!=="open") return;
-  t.trail=!t.trail; renderTrades(); render();
+  t.trail=!t.trail; savePapers(); renderTrades(); render();
 }
 function cancelPaper(id){
   const t=state.papers.find(x=>x.id===id); if(!t) return;
@@ -1949,11 +1989,11 @@ function cancelPaper(id){
     t.status="closed"; t.exit=state.candles[state.candles.length-1].close;
     t.exitTime=state.candles[state.candles.length-1].time; t.reason="closed manually";
   }
-  renderTrades(); render();
+  savePapers(); renderTrades(); render();
 }
 function deletePaper(id){
   state.papers=state.papers.filter(x=>x.id!==id);
-  renderTrades(); render();
+  savePapers(); renderTrades(); render();
 }
 function tradeStats(){
   const done=state.papers.filter(t=>["stopped","target","closed","breakeven"].includes(t.status) && t.exit!=null);
@@ -2229,6 +2269,9 @@ function runBacktest(onProgress){
       const entry=best.c.mean;
       const stop = isSupport? entry*(1-a*1.2) : entry*(1+a*1.2);
       const risk=Math.abs(entry-stop);
+      /* stays a flat 2R ON PURPOSE: aiming historical trades at lines drawn
+         today would be lookahead bias and would invalidate lookahead.js. The
+         backtest is a fixed-rule benchmark, not a replay of live targeting. */
       const target = isSupport? entry+risk*2 : entry-risk*2;
       /* only take it if price actually reaches the entry within a few bars */
       let filled=-1;
@@ -3163,8 +3206,10 @@ function preTradeChecks(isLong, price){
   const SF0=stopFor(price,isLong);
   const stop=SF0.stop;
   const risk=Math.abs(price-stop);
-  const target=isLong? price+risk*2 : price-risk*2;
-  add("Risk:reward at least 2:1", true, "planned 1:2.00 by construction (stop "+fmtAxis(stop)+", target "+fmtAxis(target)+")");
+  const TF1=targetFor(price,stop,isLong);
+  const target=TF1.target;
+  add("Risk:reward at least 2:1", TF1.rr>=2,
+      TF1.rr.toFixed(2)+":1 — "+TF1.note+" (stop "+fmtAxis(stop)+", target "+fmtAxis(target)+")");
 
   const H=htfRead();
   if(H){
@@ -4476,6 +4521,50 @@ async function saveLevels(){
   if(!hasStorage) return;
   try{ await window.storage.set(storeKey(), JSON.stringify(state.levels)); }catch(e){}
 }
+/* ── Paper trades + verdicts persistence (Swenik) ───────────────────────────
+   Both lists were in-memory only, so every reload wiped the trade book and the
+   calibration log. They ride the SAME window.storage abstraction levels use, so
+   they inherit the Postgres backing with no new plumbing. Papers are one global
+   list (each row carries its own symbol/tf), so one key holds them all.
+   Saves are fire-and-forget and debounced — never block the render loop.      */
+let _wbSaveT=null;
+function savePapers(){
+  if(!hasStorage) return;
+  clearTimeout(_wbSaveT);
+  _wbSaveT=setTimeout(()=>{ try{ window.storage.set("papers:all", JSON.stringify(state.papers)); }catch(e){} },400);
+}
+async function loadPapers(){
+  if(!hasStorage) return;
+  try{
+    const r=await window.storage.get("papers:all");
+    if(r&&r.value){
+      const rows=JSON.parse(r.value);
+      if(Array.isArray(rows)){
+        const have=new Set(state.papers.map(t=>t.id));
+        /* keep anything opened while boot was still finishing (same guard loadLevels uses) */
+        state.papers=state.papers.concat(rows.filter(t=>t&&t.id&&!have.has(t.id)));
+      }
+    }
+  }catch(e){}
+  try{ renderTrades(); }catch(e){}
+}
+function saveVerdicts(){
+  if(!hasStorage) return;
+  try{ window.storage.set("verdicts:all", JSON.stringify(state.verdicts)); }catch(e){}
+}
+async function loadVerdicts(){
+  if(!hasStorage) return;
+  try{
+    const r=await window.storage.get("verdicts:all");
+    if(r&&r.value){
+      const rows=JSON.parse(r.value);
+      if(Array.isArray(rows)){
+        const have=new Set(state.verdicts.map(v=>v.id));
+        state.verdicts=state.verdicts.concat(rows.filter(v=>v&&v.id&&!have.has(v.id)));
+      }
+    }
+  }catch(e){}
+}
 function snapPrice(p){
   if(!state.prefs.snap) return p;
   let best=p, bestD=p*0.0035;
@@ -5343,6 +5432,7 @@ function openVerdicts(){
       result:null, resolvedIdx:null, note:""
     });
   }
+  saveVerdicts();
 }
 function resolveVerdicts(){
   const n=state.candles.length;
@@ -5377,6 +5467,7 @@ function resolveVerdicts(){
       v.note="no decisive move within "+HB+" bars";
     }
   }
+  saveVerdicts();
 }
 function verdictStats(){
   const done=state.verdicts.filter(v=>v.result && v.result!=="unclear");
@@ -5832,6 +5923,7 @@ async function boot(){
   try{
     await loadCandles();
     await loadLevels();
+    await loadPapers(); await loadVerdicts();
     loadFunding(); loadDepth(); loadCorr();
     $("loadOverlay").style.display="none";
     startPolling();

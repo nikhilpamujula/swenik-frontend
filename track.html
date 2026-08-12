@@ -1285,6 +1285,7 @@ function findOpportunity(card) {
 // NAVIGATION
 // ================================================================
 function selectPage(page) {
+  if (page !== 'futures' && window.wbUnmount) window.wbUnmount();
   currentPage = page;
   saveUiState();
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
@@ -8746,17 +8747,38 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         + (flat  ? '<div style="margin-top:6px; font-size:11px; font-weight:700; color:var(--gray-500, #64748b);">◎ near round-off (≤ ' + BF_ROUNDOFF_PCT + '%)</div>' : '')
         + '</div>';
     }
-    // S/R Workbench sub-tab — isolated iframe of the standalone TA app, default
-    // BTCUSDT (switch inside). Idempotent: the 4s refresh tick must NOT reload the
-    // iframe, so we only build it when it isn't already mounted.
+    // S/R Workbench sub-tab — the standalone TA app is a FULL-SCREEN desktop
+    // tool; squeezing it into the card grid beside the sidebar gave a narrow
+    // column, nested double-scroll and clipped tabs. So it mounts as a fixed
+    // full-viewport layer that escapes the sidebar and page chrome entirely,
+    // with its own slim bar to come back. Mount is idempotent: the page's 4s
+    // refresh tick must never reload the iframe (it would wipe a chart in use).
+    function wbMount() {
+      if (document.getElementById('wbFull')) return;      // already up → never rebuild
+      var d = document.createElement('div');
+      d.id = 'wbFull';
+      d.style.cssText = 'position:fixed; inset:0; z-index:9998; background:#0b1220; display:flex; flex-direction:column;';
+      d.innerHTML =
+        '<div style="flex:none; display:flex; align-items:center; gap:10px; padding:6px 10px; background:#0f1c33; color:#fff; font-size:12.5px; font-weight:700;">'
+        +  '<button onclick="wbExit()" style="background:#22375f; color:#fff; border:0; border-radius:8px; padding:6px 12px; font-weight:700; cursor:pointer;">← Futures</button>'
+        +  '<span style="opacity:.85;">📈 S/R Workbench</span>'
+        + '</div>'
+        + '<iframe id="wbTabFrame" title="S/R Workbench" src="sr-workbench.html?apibase=' + encodeURIComponent(API_BASE) + '" '
+        +   'style="flex:1; width:100%; border:0; display:block;"></iframe>';
+      document.body.appendChild(d);
+      document.body.style.overflow = 'hidden';            // kill the outer scrollbar → no double-scroll
+    }
+    window.wbUnmount = function () {
+      var d = document.getElementById('wbFull');
+      if (d) d.parentNode.removeChild(d);
+      document.body.style.overflow = '';
+    };
+    window.wbExit = function () { window.wbUnmount(); bfSetTab('engine'); };
     function wbRenderTab() {
-      var el = document.getElementById('cardList'); if (!el) return;
-      if (document.getElementById('wbTabFrame')) return;   // already mounted → leave it (no reload)
-      el.innerHTML = bfBar(bfCounts())
-        + '<div style="grid-column:1/-1;">'
-        +   '<iframe id="wbTabFrame" title="S/R Workbench" src="sr-workbench.html?apibase=' + encodeURIComponent(API_BASE) + '" '
-        +   'style="width:100%; height:calc(100vh - 230px); min-height:520px; border:0; border-radius:12px; background:#0b1220;"></iframe>'
-        + '</div>';
+      var el = document.getElementById('cardList');
+      // keep the tab bar painted underneath, so exiting lands on a correct page
+      if (el && String(el.innerHTML).indexOf('bfSetTab') < 0) el.innerHTML = bfBar(bfCounts());
+      wbMount();
     }
     function bfRender() {
       if (currentPage !== 'futures' || bfTab === 'engine') return;
@@ -8791,6 +8813,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     window.bfSetTab = function (t) {
       bfTab = t;
       try { localStorage.setItem('swenik-bf-tab', t); } catch (e) {}
+      if (t !== 'workbench' && window.wbUnmount) window.wbUnmount();
       if (t === 'workbench') { wbRenderTab(); return; }
       if (t === 'engine') { window.renderFuturesPage(); return; }
       if (t === 'research') { rsRender(); return; } // on-demand only — no polling
