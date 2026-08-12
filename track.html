@@ -8757,7 +8757,14 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       if (document.getElementById('wbFull')) return;      // already up → never rebuild
       var d = document.createElement('div');
       d.id = 'wbFull';
-      d.style.cssText = 'position:fixed; inset:0; z-index:9998; background:#0b1220; display:flex; flex-direction:column;';
+      // MOBILE VIEWPORT: inset:0 resolves against the LARGE viewport, so the
+      // bottom of the layer hides behind the phone browser's URL/title bar and
+      // the workbench's bottom sheet gets clipped. 100dvh tracks the *visible*
+      // viewport as that chrome shows/hides. 100vh first as the fallback for
+      // engines without dvh; dvh wins wherever it is understood.
+      d.style.cssText = 'position:fixed; top:0; left:0; right:0; height:100vh; height:100dvh;'
+        + ' z-index:9998; background:#0b1220; display:flex; flex-direction:column; overflow:hidden;'
+        + ' padding-bottom:env(safe-area-inset-bottom,0px);';
       d.innerHTML =
         '<div style="flex:none; display:flex; align-items:center; gap:10px; padding:6px 10px; background:#0f1c33; color:#fff; font-size:12.5px; font-weight:700;">'
         +  '<button onclick="wbExit()" style="background:#22375f; color:#fff; border:0; border-radius:8px; padding:6px 12px; font-weight:700; cursor:pointer;">← Futures</button>'

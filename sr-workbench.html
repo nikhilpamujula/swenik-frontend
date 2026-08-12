@@ -18,7 +18,7 @@
     --gold:var(--accent);       /* kept only where a third colour is genuinely needed */
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-  html,body{height:100%}
+  html,body{height:100%;height:100dvh}   /* dvh: follow the phone browser's visible viewport, not the large one */
   body{
     background:var(--bg);color:var(--text);
     font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -413,7 +413,8 @@
 
   #sheet{
     border-top:1px solid var(--line);background:var(--panel);
-    max-height:36vh;display:flex;flex-direction:column;
+    max-height:36vh;max-height:46dvh;display:flex;flex-direction:column;
+    padding-bottom:env(safe-area-inset-bottom,0px);
   }
   #sheetHead{
     display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none;
@@ -698,6 +699,7 @@
     <div class="sw on" data-pref="proj"><span>Projection paths</span><span class="tr"></span></div>
     <div class="sw on" data-pref="sound"><span>Sound + vibration alerts</span><span class="tr"></span></div>
     <div class="sw on" data-pref="snap"><span>Snap drawing to wicks</span><span class="tr"></span></div>
+    <div class="sw on" data-pref="showOrders"><span>Show my orders on the chart</span><span class="tr"></span></div>
     <div class="sw" data-pref="cmd"><span>Command bar (typed shortcuts)</span><span class="tr"></span></div>
     <div class="sw" data-pref="vp"><span>Volume profile (where volume traded)</span><span class="tr"></span></div>
     <div class="sw" data-pref="pat"><span>Chart patterns</span><span class="tr"></span></div>
@@ -884,7 +886,7 @@ const state = {
   drawMode:null, pending:null,
   pollTimer:null, fundTimer:null,
   funding:{rate:null},
-  prefs:{vol:true, proj:true, sound:true, snap:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false,
+  prefs:{vol:true, proj:true, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false,
          ma:false, boll:false, rsi:false, macd:false},
   verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
@@ -1316,27 +1318,57 @@ function render(){
     }
   }
 
-  /* open paper positions: entry / stop / target bands */
-  for(const t of state.papers){
-    if(t.status!=="open" && t.status!=="pending") continue;
-    const pend = t.status==="pending";
-    const yE=yOf(t.entry), yS=yOf(t.stop), yT=yOf(t.target);
-    const up=t.side==="long";
-    ctx.fillStyle= pend? "rgba(163,167,173,.05)" : (up? "rgba(45,212,160,.07)":"rgba(242,73,92,.07)");
-    ctx.fillRect(0,Math.min(yE,yT),chartW(),Math.abs(yT-yE));
-    ctx.fillStyle= "rgba(242,73,92,.09)";
-    ctx.fillRect(0,Math.min(yE,yS),chartW(),Math.abs(yS-yE));
-    ctx.setLineDash([5,3]); ctx.lineWidth=1.2;
-    const mark=(y,col,txt)=>{
-      if(y<-10||y>priceH()+10) return;
-      ctx.strokeStyle=col; ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
-      ctx.font="9.5px ui-monospace,Menlo,monospace"; ctx.fillStyle=col;
-      ctx.fillText(txt, 8, y-4);
-    };
-    mark(yE, pend? C_N1 : (up? C_UP : C_DOWN), (pend?"⏳ PENDING ":(up?"▲ LONG ":"▼ SHORT "))+fmtAxis(t.entry));
-    mark(yS,"#F2495C","stop "+fmtAxis(t.stop));
-    mark(yT,"#2DD4A0","target "+fmtAxis(t.target));
-    ctx.setLineDash([]); ctx.lineWidth=1;
+  /* ── open orders on the chart (rebuilt 12 Aug) ─────────────────────────────
+     Three faults were making the chart unreadable:
+       1. NO SYMBOL FILTER — a BTC order (65,223) drew on an ETH chart (1,890).
+          Its off-scale band ran fillRect across the FULL width, washing every
+          candle red. That was the "blurry" chart, not a rendering artefact.
+       2. Full-width dashed lines for every entry/stop/target buried the price
+          action under stripes.
+       3. Left-anchored labels collided whenever two levels were close
+          ("target 92523" printed on top of its neighbour).
+     Now: current pair only, compact tags parked in a right-hand gutter, the
+     risk/reward shading confined to that gutter, and overlapping tags nudged
+     apart so text can never mash. Hidden entirely via prefs.showOrders.       */
+  if(state.prefs.showOrders !== false){
+    const W=chartW(), H=priceH();
+    const GUT=Math.max(58, Math.min(92, W*0.20));   /* the strip tags live in */
+    const x0=W-GUT;
+    const clampY=y=>Math.max(0,Math.min(H,y));
+    const tags=[];
+    for(const t of state.papers){
+      if(t.status!=="open" && t.status!=="pending") continue;
+      if(String(t.symbol||SYMBOL).toUpperCase()!==String(SYMBOL).toUpperCase()) continue;
+      const pend=t.status==="pending", up=t.side==="long";
+      const yE=yOf(t.entry), yS=yOf(t.stop), yT=yOf(t.target);
+      /* shading stays inside the gutter — it can never wash out the candles */
+      ctx.fillStyle="rgba(242,73,92,.13)";
+      ctx.fillRect(x0,clampY(Math.min(yE,yS)),GUT,Math.abs(clampY(yS)-clampY(yE)));
+      ctx.fillStyle= pend? "rgba(163,167,173,.10)" : "rgba(45,212,160,.13)";
+      ctx.fillRect(x0,clampY(Math.min(yE,yT)),GUT,Math.abs(clampY(yT)-clampY(yE)));
+      tags.push({y:yE, col: pend? C_N1 : (up? C_UP : C_DOWN), txt:(pend?"◷":(up?"▲":"▼"))+fmtAxis(t.entry)});
+      tags.push({y:yS, col:"#F2495C", txt:"S "+fmtAxis(t.stop)});
+      tags.push({y:yT, col:"#2DD4A0", txt:"T "+fmtAxis(t.target)});
+    }
+    if(tags.length){
+      tags.sort((a,b)=>a.y-b.y);
+      const GAPY=13;                                 /* anti-collision nudge */
+      for(let i=1;i<tags.length;i++) if(tags[i].y-tags[i-1].y<GAPY) tags[i].y=tags[i-1].y+GAPY;
+      ctx.font="9.5px ui-monospace,Menlo,monospace";
+      for(const g of tags){
+        if(g.y<-8||g.y>H+8) continue;                /* off-scale → don't draw */
+        const w=Math.min(GUT-4, ctx.measureText(g.txt).width+9);
+        const x=W-w-2, y=Math.max(8,Math.min(H-8,g.y));
+        ctx.strokeStyle=g.col; ctx.globalAlpha=.5; ctx.setLineDash([3,3]); ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(x0,y+.5); ctx.lineTo(x,y+.5); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha=1;
+        ctx.fillStyle="rgba(11,14,20,.92)";
+        ctx.fillRect(x,y-6.5,w,13);
+        ctx.strokeStyle=g.col; ctx.lineWidth=1; ctx.strokeRect(x+.5,y-6,w-1,12);
+        ctx.fillStyle=g.col; ctx.fillText(g.txt, x+4.5, y+3.2);
+      }
+      ctx.lineWidth=1;
+    }
   }
 
   /* ---- RSI sub-pane ---- */
