@@ -909,11 +909,21 @@ const FAPI = "https://fapi.binance.com";
 /* CHART PALETTE — deliberately only three ideas:
    green = up / long / bullish, red = down / short / bearish, grey = no direction. */
 const C_UP="#2DD4A0", C_DOWN="#F2495C";
+/* STRUCTURE HUES — validated with the dataviz palette checker (dark mode):
+   lightness band PASS · chroma PASS · CVD separation PASS · normal-vision PASS ·
+   contrast PASS.  Why they exist: red/green are STATUS colours (direction, stop,
+   target, P&L). The chart was painting resistance, trendlines and the BROKEN
+   badge red too, so five different meanings shared one alarm colour and the whole
+   screen read as danger. Structure is IDENTITY, not status — it gets its own
+   non-alarm hues, and red/green go back to meaning only "up / down / risk".      */
+const C_RES="#B8891A";   /* ceiling  — gold   */
+const C_SUP="#1F9BB3";   /* floor    — teal   */
+const C_TL ="#8560D6";   /* trendline— violet */
 const baseOf = sym => String(sym||"").replace(/USDT$/,"") || "units";
 const C_N1="#E8EAED", C_N2="#A3A7AD", C_N3="#6A6E75";   /* neutral, brightest first */
 let SYMBOL = "BTCUSDT";   /* current pair — changed by the picker */
-const COLORS = ["#2DD4A0","#F2495C","#E8EAED","#A3A7AD","#7FE3C4","#F58B98"];
-const AXIS_W = 74, TIME_H = 24, VOL_FRAC = 0.16;
+const COLORS = ["#1F9BB3","#B8891A","#8560D6","#E8EAED","#A3A7AD","#7FE3C4"];
+const AXIS_W = 82, TIME_H = 24, VOL_FRAC = 0.16;
 const INTERVAL_SEC = {"15m":900,"1h":3600,"4h":14400,"1d":86400};
 const KIND_GLYPH = {h:"─", d:"╱", v:"│"};
 
@@ -1061,7 +1071,7 @@ function render(){
   const bodyW = Math.max(1, Math.min(bw*0.72, 14));
 
   ctx.strokeStyle="#161A21"; ctx.fillStyle="#A3A7AD";
-  ctx.font="10px ui-monospace,Menlo,monospace"; ctx.textBaseline="middle";
+  ctx.font="11.5px ui-monospace,Menlo,monospace"; ctx.textBaseline="middle";
   const steps = niceSteps(PB[0],PB[1],6);
   for(const p of steps){
     const y = yOf(p);
@@ -1122,14 +1132,14 @@ function render(){
         ctx.strokeStyle="rgba(232,234,237,.75)"; ctx.lineWidth=1.4; ctx.setLineDash([7,4]);
         ctx.beginPath(); ctx.moveTo(chartW()-maxW,yp+.5); ctx.lineTo(chartW(),yp+.5); ctx.stroke();
         ctx.setLineDash([]); ctx.lineWidth=1;
-        ctx.font="9.5px ui-monospace,Menlo,monospace";
+        ctx.font="11px ui-monospace,Menlo,monospace";
         ctx.fillStyle="rgba(232,234,237,.9)";
         ctx.fillText("POC "+fmtAxis(vp.poc), chartW()-maxW+3, yp-7);
       }
     }
   }
 
-  ctx.font="10.5px ui-monospace,Menlo,monospace";
+  ctx.font="12px ui-monospace,Menlo,monospace";
   ctx.save();
   ctx.beginPath(); ctx.rect(0,0,chartW(),panesBottom()); ctx.clip();
 
@@ -1162,7 +1172,7 @@ function render(){
       ctx.stroke(); ctx.lineWidth=1;
     }
     /* compact legend, top-left, instead of labels fighting the price axis */
-    ctx.font="9.5px ui-monospace,Menlo,monospace";
+    ctx.font="11px ui-monospace,Menlo,monospace";
     let lx=8;
     for(const [arr,col,lab] of mas){
       if(arr[r]==null) continue;
@@ -1172,7 +1182,7 @@ function render(){
       lx+=ctx.measureText(t).width+10;
     }
     if(lx>8) labelBoxes.push({x:0,y:0,w:lx+4,h:18});
-    ctx.font="10.5px ui-monospace,Menlo,monospace";
+    ctx.font="12px ui-monospace,Menlo,monospace";
   }
 
   /* expected path from the full read */
@@ -1188,7 +1198,7 @@ function render(){
     for(const q of legs.slice(1)){
       const x=xOf(q.i),y=yOf(q.p);
       ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
-      ctx.font="10px ui-monospace,Menlo,monospace";
+      ctx.font="11.5px ui-monospace,Menlo,monospace";
       const t=fmtAxis(q.p);
       const w=ctx.measureText(t).width+10;
       ctx.fillStyle="rgba(11,14,20,.85)"; ctx.fillRect(Math.min(x+7,chartW()-w-3),y-8,w,15);
@@ -1200,7 +1210,7 @@ function render(){
         ctx.strokeStyle=hexA("#F2495C",0.5); ctx.setLineDash([2,5]);
         ctx.beginPath(); ctx.moveTo(chartW()*0.45,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.font="9.5px ui-monospace,Menlo,monospace";
+        ctx.font="11px ui-monospace,Menlo,monospace";
         tryLabel("read fails "+fmtAxis(R2.inval.p), chartW()*0.62, y-3, hexA("#F2495C",0.9), "rgba(11,14,20,.75)");
       }
     }
@@ -1209,7 +1219,7 @@ function render(){
   /* Fibonacci levels from the detected impulse leg */
   if(state.prefs.fib && state.fib){
     const F=state.fib;
-    ctx.font="9.5px ui-monospace,Menlo,monospace";
+    ctx.font="11px ui-monospace,Menlo,monospace";
     for(const L of F.levels){
       const y=yOf(L.price);
       if(y<0||y>priceH()) continue;
@@ -1236,7 +1246,7 @@ function render(){
 
   /* market structure labels on the swings */
   if(state.prefs.ms && state.mstruct){
-    ctx.font="bold 10px ui-monospace,Menlo,monospace";
+    ctx.font="bold 11.5px ui-monospace,Menlo,monospace";
     for(const L of state.mstruct.labels){
       const x=xOf(L.i), y=yOf(L.p);
       if(x<-20||x>chartW()+20||y<0||y>priceH()) continue;
@@ -1259,13 +1269,13 @@ function render(){
         ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
         ctx.setLineDash([]); ctx.lineWidth=1;
         const t="⚡ BOS "+fmtAxis(B.at);
-        ctx.font="bold 9.5px ui-monospace,Menlo,monospace";
+        ctx.font="bold 11px ui-monospace,Menlo,monospace";
         const w=ctx.measureText(t).width+10;
         ctx.fillStyle=bosCol; ctx.fillRect(chartW()*0.5-w/2, y-16, w, 14);
         ctx.fillStyle="#08130F"; ctx.fillText(t, chartW()*0.5-w/2+5, y-9);
       }
     }
-    ctx.font="10.5px ui-monospace,Menlo,monospace";
+    ctx.font="12px ui-monospace,Menlo,monospace";
   }
 
   for(const lvl of state.levels){
@@ -1342,15 +1352,15 @@ function render(){
           ctx.strokeStyle=hexA(col,0.5); ctx.setLineDash([2,5]);
           ctx.beginPath(); ctx.moveTo(chartW()*0.55,yg+.5); ctx.lineTo(chartW(),yg+.5); ctx.stroke();
           ctx.setLineDash([]);
-          ctx.font="9.5px ui-monospace,Menlo,monospace";
+          ctx.font="11px ui-monospace,Menlo,monospace";
           tryLabel("target "+fmtAxis(P.target), chartW()*0.55+4, yg-3, hexA(col,0.95), "rgba(9,11,15,.8)");
         }
       }
       if(P.key && P.key.length){
         const tag=(P.status==="confirmed"?"✓ ":P.status==="broken-weak"?"⚠ ":"")+P.name;
-        ctx.font="10px ui-monospace,Menlo,monospace";
+        ctx.font="11.5px ui-monospace,Menlo,monospace";
         tryLabel(tag, Math.max(4,xOf(P.from)), yOf(P.key[0].p)-14, col, "rgba(9,11,15,.85)");
-        ctx.font="10.5px ui-monospace,Menlo,monospace";
+        ctx.font="12px ui-monospace,Menlo,monospace";
       }
     }
   }
@@ -1391,7 +1401,7 @@ function render(){
       tags.sort((a,b)=>a.y-b.y);
       const GAPY=13;                                 /* anti-collision nudge */
       for(let i=1;i<tags.length;i++) if(tags[i].y-tags[i-1].y<GAPY) tags[i].y=tags[i-1].y+GAPY;
-      ctx.font="9.5px ui-monospace,Menlo,monospace";
+      ctx.font="11px ui-monospace,Menlo,monospace";
       for(const g of tags){
         if(g.y<-8||g.y>H+8) continue;                /* off-scale → don't draw */
         const w=Math.min(GUT-4, ctx.measureText(g.txt).width+9);
@@ -1428,7 +1438,7 @@ function render(){
     for(let i=l;i<=r;i++){ if(IND.rsi[i]==null) continue; const x=xOf(i),y=yR(IND.rsi[i]); st?ctx.lineTo(x,y):(ctx.moveTo(x,y),st=true); }
     ctx.stroke(); ctx.lineWidth=1;
     const rv=IND.rsi[r];
-    ctx.font="9.5px ui-monospace,Menlo,monospace";
+    ctx.font="11px ui-monospace,Menlo,monospace";
     ctx.fillStyle="#A3A7AD"; ctx.fillText("RSI 14", 6, P.top+11);
     if(rv!=null){
       ctx.fillStyle= rv>=70?C_DOWN: rv<=30?C_UP:C_N2;
@@ -1465,18 +1475,22 @@ function render(){
       };
       ln(M.line,C_N1); ln(M.sig,C_N3);
     }
-    ctx.font="9.5px ui-monospace,Menlo,monospace"; ctx.fillStyle="#A3A7AD";
+    ctx.font="11px ui-monospace,Menlo,monospace"; ctx.fillStyle="#A3A7AD";
     ctx.fillText("MACD 12/26/9", 6, P.top+11);
   }
 
   ctx.restore();
 
   /* price-axis tags, painted after the clip is released */
-  ctx.font="10.5px ui-monospace,Menlo,monospace";
+  ctx.font="12px ui-monospace,Menlo,monospace";
   for(const t of axisTags){
     if(t.y<-8||t.y>priceH()+8) continue;
-    ctx.fillStyle=t.color; ctx.fillRect(chartW(),t.y-8,AXIS_W,16);
-    ctx.fillStyle="#10131A"; ctx.fillText(t.txt, chartW()+5, t.y);
+    /* level tags read as labels, not warnings: dark chip + coloured ink + a
+       coloured spine. Only the LIVE price keeps a solid fill, so exactly one
+       thing on the axis is loud — and it is the one that should be. */
+    ctx.fillStyle="rgba(11,14,20,.94)"; ctx.fillRect(chartW(),t.y-9,AXIS_W,18);
+    ctx.fillStyle=hexA(t.color,0.95);   ctx.fillRect(chartW(),t.y-9,2.5,18);
+    ctx.fillStyle=hexA(t.color,0.98);   ctx.fillText(t.txt, chartW()+7, t.y+1);
   }
 
   const lc = state.candles[state.candles.length-1];
@@ -1487,9 +1501,9 @@ function render(){
     ctx.beginPath(); ctx.moveTo(0,ly+.5); ctx.lineTo(chartW(),ly+.5); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = lc.close>=lc.open? "#2DD4A0":"#F2495C";
-    ctx.fillRect(chartW(),ly-8,AXIS_W,16);
+    ctx.fillRect(chartW(),ly-9,AXIS_W,18);
     ctx.fillStyle="#090B0F";
-    ctx.fillText(fmtAxis(lc.close), chartW()+5, ly);
+    ctx.fillText(fmtAxis(lc.close), chartW()+5, ly+1);
   }
 
   if(state.cross){
@@ -1507,7 +1521,7 @@ function render(){
       ctx.fillStyle=big?"#10131A":"#E8EAED"; ctx.fillText(fmtAxis(priceAt(y)), chartW()+5, y);
       if(big){
         const tl=timeLabel(state.candles[i].time,true);
-        ctx.font="10px ui-monospace,Menlo,monospace";
+        ctx.font="11.5px ui-monospace,Menlo,monospace";
         const w=ctx.measureText(tl).width+12;
         const bx=Math.min(Math.max(0,x-w/2), chartW()-w);
         ctx.fillStyle=C_N1; ctx.fillRect(bx, panesBottom()+2, w, 16);
@@ -1532,19 +1546,19 @@ function hexA(hex,a){
 const STATE_STYLE={
   untested:{a:0.00, edge:0.14, dash:[6,4], badge:"", bc:null},
   held:    {a:0.035,edge:0.22, dash:null, badge:"", bc:null},
-  testing: {a:0.20, edge:0.75, dash:null, badge:"🎯 TESTING", bc:C_N1},
-  broken:  {a:0.06, edge:0.30, dash:null, badge:"💥 BROKEN", bc:"#F2495C"},
-  "weak-break":{a:0.06, edge:0.30, dash:[2,3], badge:"🔨 WEAK BREAK", bc:C_N1},
-  "false-break":{a:0.10, edge:0.45, dash:null, badge:"🪤 FALSE BREAK", bc:C_N1}
+  testing: {a:0.16, edge:0.70, dash:null, badge:"TESTING", bc:C_N1},
+  broken:  {a:0.06, edge:0.30, dash:null, badge:"BROKEN", bc:"#B8891A"},
+  "weak-break":{a:0.06, edge:0.30, dash:[2,3], badge:"WEAK BREAK", bc:C_N1},
+  "false-break":{a:0.10, edge:0.45, dash:null, badge:"FALSE BREAK", bc:C_N1}
 };
 function zoneBadge(txt,color,x,y){
-  ctx.font="10px ui-monospace,Menlo,monospace";
-  const w=ctx.measureText(txt).width+10;
+  ctx.font="bold 10px ui-monospace,Menlo,monospace";
+  const w=ctx.measureText(txt).width+11;
   const bx=Math.min(x, chartW()-w-4);
-  ctx.fillStyle="rgba(11,14,20,.9)";
+  ctx.fillStyle="rgba(11,14,20,.82)";
   ctx.fillRect(bx,y-8,w,15);
-  ctx.strokeStyle=color; ctx.lineWidth=1; ctx.strokeRect(bx+.5,y-7.5,w-1,14);
-  ctx.fillStyle=color; ctx.fillText(txt,bx+5,y);
+  ctx.strokeStyle=hexA(color,0.55); ctx.lineWidth=1; ctx.strokeRect(bx+.5,y-7.5,w-1,14);
+  ctx.fillStyle=hexA(color,0.95); ctx.fillText(txt,bx+6,y);
 }
 function drawHLevel(lvl){
   const y=yOf(lvl.price);
@@ -1569,11 +1583,13 @@ function drawHLevel(lvl){
     ctx.restore();
   }
   /* crisp core line at the exact price */
-  ctx.strokeStyle=lvl.color; ctx.lineWidth=1.6;
-  if(sty.dash) ctx.setLineDash(sty.dash);
+  /* a hand-drawn line is a decision and stays solid; an auto-detected one is a
+     suggestion and is dashed — weight carries confidence, colour carries identity */
+  ctx.strokeStyle=hexA(lvl.color, lvl.auto?0.80:1); ctx.lineWidth=lvl.auto?1.1:1.5;
+  if(sty.dash) ctx.setLineDash(sty.dash); else if(lvl.auto) ctx.setLineDash([7,5]);
   ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
   ctx.setLineDash([]); ctx.lineWidth=1;
-  ctx.font="10.5px ui-monospace,Menlo,monospace";
+  ctx.font="12px ui-monospace,Menlo,monospace";
   axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price)});
   if(lvl.label) labelPill(lvl.label, 6, y, lvl.color);
   if(sty.badge) zoneBadge(sty.badge, sty.bc, chartW()*0.42, yUp-10);
@@ -1600,7 +1616,8 @@ function drawDiag(lvl){
   ctx.beginPath(); ctx.moveTo(a.x,a.y-dzU); ctx.lineTo(xe,ye-dzU);
   ctx.moveTo(a.x,a.y+dzD); ctx.lineTo(xe,ye+dzD); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.strokeStyle=lvl.color; ctx.lineWidth=1.6;
+  ctx.strokeStyle=hexA(lvl.color, lvl.auto?0.80:1); ctx.lineWidth=lvl.auto?1.1:1.5;
+  if(lvl.auto && !(STATE_STYLE[lineState(lvl).code]||{}).dash) ctx.setLineDash([7,5]);
   if(sty.dash) ctx.setLineDash(sty.dash);
   ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(xe,ye); ctx.stroke();
   ctx.setLineDash([]); ctx.lineWidth=1;
@@ -4634,6 +4651,20 @@ async function loadLevels(){
   }
   const ids=new Set(existing.map(l=>l.id));
   state.levels = existing.concat(restored.filter(l=>!ids.has(l.id)));
+  /* Colour migration: lines saved before the palette change still carry the old
+     status red/green. Without this, an existing chart would look identical after
+     the update — repaint auto lines onto the structure hues on load. Hand-drawn
+     lines are left alone: that colour was the user's choice, not a default. */
+  let repainted=0;
+  for(const l of state.levels){
+    if(!l || !l.auto) continue;
+    const isTL = l.kind==="d" || /TL/i.test(l.label||"");
+    if(l.color==="#F2495C" || l.color==="#2DD4A0"){
+      l.color = isTL ? C_TL : (l.color==="#F2495C" ? C_RES : C_SUP);
+      repainted++;
+    }
+  }
+  if(repainted) saveLevels();
   renderLevelList(); render();
 }
 async function saveLevels(){
@@ -5287,20 +5318,20 @@ function runAuto(){
       const above=c.mean>=px;
       proposals.push({ kind:"h", id:uid(), price:c.mean, auto:true,
         label:(above?"auto R":"auto S")+(above?rI++:sI++),
-        color:above?"#F2495C":"#2DD4A0", why:c.why, score:c.score, tier:c.tier||"moderate" });
+        color:above?C_RES:C_SUP, why:c.why, score:c.score, tier:c.tier||"moderate" });
     }
     if(rejected) notes.push(rejected+" candidate"+(rejected===1?"":"s")+" failed the basic gates (single pivot, stale, or too scattered)");
   }
   if($("optTLH").checked){
     const r=autoTrend("H");
     if(r.line) proposals.push({kind:"d",id:uid(),t1:r.line.t1,p1:r.line.p1,t2:r.line.t2,p2:r.line.p2,
-      label:"auto TL highs",auto:true,color:C_DOWN,why:r.line.why,score:r.line.score,tier:r.line.tier||"moderate"});
+      label:"auto TL highs",auto:true,color:C_TL,why:r.line.why,score:r.line.score,tier:r.line.tier||"moderate"});
     else notes.push("no trendline from highs: "+r.reason);
   }
   if($("optTLL").checked){
     const r=autoTrend("L");
     if(r.line) proposals.push({kind:"d",id:uid(),t1:r.line.t1,p1:r.line.p1,t2:r.line.t2,p2:r.line.p2,
-      label:"auto TL lows",auto:true,color:C_UP,why:r.line.why,score:r.line.score,tier:r.line.tier||"moderate"});
+      label:"auto TL lows",auto:true,color:C_TL,why:r.line.why,score:r.line.score,tier:r.line.tier||"moderate"});
     else notes.push("no trendline from lows: "+r.reason);
   }
   state.proposals=proposals;
@@ -5513,6 +5544,7 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   b.classList.add("on");
   state.tab=b.dataset.tab;
+  try{ if(hasStorage) window.storage.set("ui:tab", state.tab); }catch(e){}
   document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
   const map={watch:"watchList",signals:"sigList",lines:"levelList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
@@ -6069,6 +6101,16 @@ async function boot(){
       }
     }catch(e){}
     addTab(SYMBOL); renderCoinTabs();
+    try{                                   /* reopen the tab he was last using */
+      if(hasStorage){
+        const tb=await window.storage.get("ui:tab");
+        const want=tb&&tb.value;
+        if(want && want!==state.tab){
+          const el=[...document.querySelectorAll(".tab")].find(x=>x.dataset.tab===want);
+          if(el) el.click();
+        }
+      }
+    }catch(e){}
     loadFunding(); loadDepth(); loadCorr();
     $("loadOverlay").style.display="none";
     startPolling();
