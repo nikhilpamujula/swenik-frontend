@@ -79,6 +79,13 @@
   #panels{position:relative;height:0;z-index:30}
   .panel{
     position:absolute;right:10px;top:6px;min-width:250px;max-width:86vw;
+    /* Long panels (settings has 14 toggles) ran past the bottom of a phone —
+       adding the coin strip pushed them 38px over. Cap to what is actually on
+       screen and scroll inside instead. Safe to clip here: no child of a panel
+       is absolutely positioned (the drawTools flyout lives in the toolbar, and
+       is position:fixed precisely so nothing can clip it). */
+    max-height:calc(100vh - 200px); max-height:calc(100dvh - 200px);
+    overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
     background:rgba(15,19,28,.98);border:1px solid var(--line);border-radius:13px;
     padding:12px;display:none;box-shadow:0 10px 30px rgba(0,0,0,.55);
   }
@@ -640,6 +647,26 @@
   .del{background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:4px 6px;line-height:1}
   .del:active{color:var(--down)}
   .empty{padding:16px 10px;color:#A7B1C4;font-size:13px;line-height:1.6}
+  /* OPEN-COIN STRIP — switching pairs parks the old chart instead of discarding
+     it (parkSymbol already keeps its levels + verdicts), so every pair you have
+     touched stays one tap away. NOTE: no overflow-y here and children are not
+     absolutely positioned — the drawTools clipping bug came from exactly that. */
+  #coinTabs{display:none;gap:6px;align-items:center;padding:6px 10px;
+    border-bottom:1px solid var(--line);background:var(--panel);
+    overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #coinTabs::-webkit-scrollbar{display:none}
+  #coinTabs.show{display:flex}
+  .ctab{display:inline-flex;align-items:center;gap:6px;flex:none;cursor:pointer;
+    background:var(--panel2,#151A24);border:1px solid var(--line);color:var(--text);
+    border-radius:999px;padding:5px 6px 5px 11px;font-size:12px;font-weight:700;
+    white-space:nowrap;transition:border-color .15s,background .15s}
+  .ctab:active{background:#1b2230}
+  .ctab.on{border-color:var(--accent);color:var(--accent);background:rgba(45,212,160,.08)}
+  .ctab .cx{opacity:.5;font-size:14px;line-height:1;padding:0 3px;border-radius:6px}
+  .ctab .cx:active{opacity:1;color:var(--down)}
+  .ctab .dot{width:6px;height:6px;border-radius:50%;background:var(--dim);flex:none}
+  .ctab.on .dot{background:var(--accent)}
+  .ctab .np{font-weight:600;opacity:.75;font-size:11px}
 </style>
 </head>
 <body>
@@ -652,6 +679,8 @@
   <button id="helpBtn" title="What is this?">?</button>
   <div id="status">connecting…</div>
 </header>
+
+<div id="coinTabs"></div>
 
 <div class="toolbar">
   <button class="tf" data-tf="15m">15m</button>
@@ -898,6 +927,7 @@ const state = {
   verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
   papers:[], menu:null, patterns:[], htfPats:[], pending:null, read:null, combine:false,
+  tabs:[],                                  /* open pairs, most-recent last */
   symbol:"BTCUSDT",
   watch:["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT"],
   store:{},              /* per-pair lines and verdicts */
@@ -2679,6 +2709,55 @@ function readToSignal(R){
 function parkSymbol(){
   state.store[state.symbol]={ levels:state.levels.slice(), verdicts:state.verdicts.slice() };
 }
+/* ── open-coin strip ─────────────────────────────────────────────────────────
+   His 12 Aug ask: "if I move to a different coin the current one has to minimize,
+   available to open from the top bar". switchSymbol() already parks the old
+   pair's levels and verdicts in state.store, so the only thing missing was a way
+   back. Each chip shows the pair and, when it has live orders, how many.        */
+function openTabsSave(){
+  if(typeof hasStorage!=="undefined" && hasStorage){
+    try{ window.storage.set("tabs:open", JSON.stringify(state.tabs)); }catch(e){}
+  }
+}
+function addTab(sym){
+  sym=String(sym||"").toUpperCase(); if(!sym) return;
+  if(!state.tabs.includes(sym)) state.tabs.push(sym);
+  renderCoinTabs(); openTabsSave();
+}
+function closeTab(sym, ev){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  const i=state.tabs.indexOf(sym); if(i<0) return;
+  state.tabs.splice(i,1);
+  if(sym===SYMBOL){
+    /* closed the one on screen — fall back to its neighbour, never a blank chart */
+    const next=state.tabs[Math.max(0,i-1)];
+    if(next) switchSymbol(next); else state.tabs.push(sym);   /* last tab stays open */
+  }
+  renderCoinTabs(); openTabsSave();
+}
+function liveOrdersFor(sym){
+  try{ return state.papers.filter(t=>(t.status==="open"||t.status==="pending")
+        && String(t.symbol||"").toUpperCase()===sym).length; }catch(e){ return 0; }
+}
+function renderCoinTabs(){
+  const el=document.getElementById("coinTabs"); if(!el) return;
+  if(state.tabs.length<2){ el.classList.remove("show"); el.innerHTML=""; return; }
+  el.classList.add("show");
+  el.innerHTML=state.tabs.map(sym=>{
+    const on=sym===SYMBOL, n=liveOrdersFor(sym);
+    return '<span class="ctab'+(on?' on':'')+'" data-sym="'+sym+'">'
+      + '<span class="dot"></span>'+sym.replace("USDT","")
+      + (n?'<span class="np">'+n+'</span>':'')
+      + '<span class="cx" data-x="'+sym+'">×</span></span>';
+  }).join("");
+  el.querySelectorAll(".ctab").forEach(c=>{
+    c.onclick=e=>{
+      if(e.target && e.target.dataset && e.target.dataset.x) return closeTab(e.target.dataset.x, e);
+      const s2=c.dataset.sym; if(s2!==SYMBOL) switchSymbol(s2);
+    };
+  });
+  const act=el.querySelector(".ctab.on"); if(act && act.scrollIntoView) try{ act.scrollIntoView({block:"nearest",inline:"nearest"}); }catch(e){}
+}
 function restoreSymbol(sym){
   const st=state.store[sym];
   state.levels = st? st.levels.slice() : [];
@@ -2694,11 +2773,12 @@ async function switchSymbol(sym){
   state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
   $("anaCard").style.display="none"; $("readCard").style.display="none";
   $("pairName").textContent=sym.replace("USDT","")+" / USDT";
+  addTab(sym); renderCoinTabs();
   await loadCandles();
   await loadLevels();
   loadHTF().then(()=>{ try{ state.htfPats=htfPatterns(); }catch(e){} renderPane(); render(); });
   loadDepth(); loadCorr(); loadFunding();
-  renderLevelList(); renderPane(); render();
+  renderLevelList(); renderPane(); render(); renderCoinTabs();
 }
 /* the tradable universe, ranked by turnover so the list is useful not exhaustive */
 async function loadUniverse(){
@@ -5982,6 +6062,13 @@ async function boot(){
     await loadCandles();
     await loadLevels();
     await loadPapers(); await loadVerdicts();
+    try{
+      if(hasStorage){
+        const tr=await window.storage.get("tabs:open");
+        if(tr&&tr.value){ const arr=JSON.parse(tr.value); if(Array.isArray(arr)) state.tabs=arr.filter(x=>typeof x==="string"); }
+      }
+    }catch(e){}
+    addTab(SYMBOL); renderCoinTabs();
     loadFunding(); loadDepth(); loadCorr();
     $("loadOverlay").style.display="none";
     startPolling();
