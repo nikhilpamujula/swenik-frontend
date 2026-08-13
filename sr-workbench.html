@@ -227,6 +227,53 @@
   #readCard .cItem.no{color:#FFB3BE;background:rgba(242,73,92,.07);border-color:var(--down)}
   #readCard .rSrc{font-size:11px;color:var(--dim);padding:6px 8px;background:var(--panel2);border-radius:7px;margin-bottom:8px;line-height:1.45}
   #readCard .fine{font-size:10.5px;color:var(--dim);margin-top:9px;line-height:1.5}
+  /* --- risk:reward strip --- */
+  #readCard .rr{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:8px 10px;border-radius:9px;
+    background:var(--panel2);margin:8px 0;font-size:12.5px}
+  #readCard .rr b{font-size:15px;font-variant-numeric:tabular-nums}
+  #readCard .rr .gr{color:var(--dim);text-decoration:line-through;font-size:12px}
+  #readCard .rr.good{border:1px solid rgba(45,212,160,.45)} #readCard .rr.good b{color:var(--up)}
+  #readCard .rr.thin{border:1px solid rgba(245,215,122,.45)} #readCard .rr.thin b{color:#F5D77A}
+  #readCard .rr.bad{border:1px solid rgba(242,73,92,.5)}     #readCard .rr.bad b{color:var(--down)}
+  #readCard .rr small{display:block;width:100%;color:#A7B1C4;font-size:11px;margin-top:3px;line-height:1.45}
+  /* --- collapsible factor groups --- */
+  #readCard .vGrp{border:1px solid var(--line);border-radius:9px;margin-top:6px;overflow:hidden;background:rgba(255,255,255,.015)}
+  #readCard .vGrp>summary{list-style:none;cursor:pointer;padding:8px 10px;font-size:12.5px;font-weight:600;
+    display:flex;align-items:center;gap:7px;user-select:none}
+  #readCard .vGrp>summary::-webkit-details-marker{display:none}
+  #readCard .vGrp>summary::after{content:"▾";margin-left:auto;color:var(--dim);font-size:11px;transition:transform .15s}
+  #readCard .vGrp[open]>summary::after{transform:rotate(180deg)}
+  #readCard .vGrp>summary em{font-style:normal;color:var(--dim);font-size:11px;font-weight:500}
+  #readCard .vGrp>summary .tick{font-size:10px;padding:1px 6px;border-radius:20px;background:rgba(45,212,191,.16);color:var(--accent)}
+  #readCard .vGrp.up>summary{color:#A6EBCE} #readCard .vGrp.down>summary{color:#FFB3BE}
+  #readCard .vGrp .cItem{margin:0 8px 6px}
+  /* --- individual vs combined --- */
+  #readCard .cmp{border:1px solid var(--line);border-radius:9px;margin:8px 0;overflow:hidden}
+  #readCard .cmp .ch{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--panel2);font-size:12px}
+  #readCard .cmp .ch b{font-size:12px}
+  #readCard .cmpRow{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:baseline;
+    padding:6px 10px;font-size:11.5px;border-top:1px solid #1A2030}
+  #readCard .cmpRow span:first-child{color:var(--dim)}
+  #readCard .cmpRow .was{color:var(--dim);text-align:right}
+  #readCard .cmpRow .now{color:var(--text);font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+  #readCard .cmpNone{padding:7px 10px;font-size:11.5px;color:var(--dim);line-height:1.45}
+  #readCard .rowTog{display:flex;align-items:center;gap:9px;padding:8px 10px;margin-top:8px;
+    border:1px solid var(--line);border-radius:9px;font-size:12px;cursor:pointer;background:rgba(255,255,255,.015)}
+  #readCard .rowTog small{display:block;color:var(--dim);font-size:10.5px;margin-top:2px;line-height:1.4}
+  #readCard .rowTog .kn{width:34px;height:19px;border-radius:20px;background:#2A3242;position:relative;flex:none;transition:background .15s}
+  #readCard .rowTog .kn::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;
+    background:#7A8699;transition:transform .15s,background .15s}
+  #readCard .rowTog.on .kn{background:rgba(45,212,191,.35)}
+  #readCard .rowTog.on .kn::after{transform:translateX(15px);background:var(--accent)}
+  #readCard .rFoot{display:flex;gap:8px;margin-top:10px}
+  #readCard .rFoot button{flex:1;background:var(--panel2);border:1px solid var(--line);color:#A7B1C4;
+    border-radius:8px;padding:8px;font-size:11.5px;cursor:pointer}
+  #readCard .rFoot button:active{border-color:var(--accent)}
+  #readChip{position:absolute;left:8px;bottom:30px;z-index:7;display:none;align-items:center;gap:7px;
+    background:rgba(13,17,25,.97);border:1px solid var(--line);border-radius:20px;padding:7px 13px;
+    font-size:12px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.45)}
+  #readChip b{font-size:12px}
+  #readChip .dot{width:8px;height:8px;border-radius:50%;flex:none}
   #pickModal{position:fixed;inset:0;z-index:55;display:none;align-items:center;justify-content:center;
     background:rgba(5,7,11,.8);padding:16px}
   .pickCard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;
@@ -796,6 +843,7 @@
   </div>
   <div id="ctxMenu"></div>
   <div id="readCard"></div>
+  <div id="readChip"></div>
   <div id="pickModal">
     <div class="pickCard">
       <h4>Pairs to track</h4>
@@ -956,6 +1004,10 @@ const state = {
   verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
   papers:[], menu:null, patterns:[], htfPats:[], pending:null, read:null, combine:false,
+  readAlt:null,                             /* the same read with 🔗 flipped — for the compare block */
+  readHidden:false,                         /* card collapsed to a chip; projection stays on the chart */
+  readGroups:{},                            /* which factor groups the user left open */
+  combineAll:false,                         /* 🔗 on by default, on every coin, across sessions */
   tabs:[],                                  /* open pairs, most-recent last */
   symbol:"BTCUSDT",
   watch:["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT"],
@@ -1942,14 +1994,34 @@ function nearestLineFor(price, isLong){
 /* One place decides where a stop goes.
    A level only earns the stop if it is close enough to suit this timeframe —
    otherwise a 15m setup inherits a swing-sized stop and stops being a 15m trade. */
+/* ROUND-TRIP COST as a fraction of price. Taker both sides plus a slippage
+   allowance — the number that decides whether a tight stop is even tradable. */
+const RT_COST_PCT = 0.0012;        /* 0.05% taker ×2 + ~0.02% slippage        */
+function costPct(){ return RT_COST_PCT; }
+
 function stopFor(entry, isLong){
   const a=atrPct();
   const maxDist=a*3;                        /* a stop beyond 3 ATR is not this timeframe's trade */
+  /* MINIMUM stop distance. The old code guarded only against stops that were too
+     FAR. A line sitting on top of price produced a stop inside one ATR — pure
+     noise — and on a 0.29% stop the round-trip fee is 40% of the risk, so a
+     "1:2" trade is really 1:1.2. Whichever is larger: one ATR, or 4× the
+     round-trip cost (so fees can never be more than ~25% of what you risk).   */
+  const minDist = Math.max(a, RT_COST_PCT*4);
   const guard=nearestLineFor(entry,isLong);
   if(guard){
     const d=Math.abs(guard.p-entry)/entry;
     if(d<=maxDist){
-      return { stop: isLong? guard.p*(1-a*0.5) : guard.p*(1+a*0.5),
+      const raw = isLong? guard.p*(1-a*0.5) : guard.p*(1+a*0.5);
+      const rawD = Math.abs(entry-raw)/entry;
+      if(rawD < minDist){
+        const pushed = isLong? entry*(1-minDist) : entry*(1+minDist);
+        return { stop: pushed, anchored:true, atr:a, widened:true,
+          note: "stop beyond "+(guard.l.label||lineTitle(guard.l))+
+                " — widened to "+(minDist*100).toFixed(2)+"% because "+(rawD*100).toFixed(2)+
+                "% sits inside the noise/fee floor" };
+      }
+      return { stop: raw,
                note: "stop beyond "+(guard.l.label||lineTitle(guard.l)),
                anchored:true, atr:a };
     }
@@ -2039,22 +2111,43 @@ function updatePapers(){
   const c=state.candles[state.candles.length-1];
   let changed=false;
   for(const t of state.papers){
+    if(t.status!=="pending" && t.status!=="open") continue;
+    /* ── EXTREMES SINCE THE ORDER EXISTED ────────────────────────────────────
+       The bug this replaces: fills and stops were tested against
+       state.candles[last].high/low — the CURRENT, still-forming candle. Those
+       extremes include everything that happened BEFORE the order was placed, so
+       a limit order dropped in mid-candle was filled retroactively against the
+       candle's earlier wick, and frequently stopped in the same tick by the very
+       same wick. A real trade at 1,891 was filled and stopped instantly on a low
+       of 1,885 that had printed minutes before it was placed; price never
+       traded 1,891 afterwards at all.
+       Now every order carries its own watermark. On the candle it was armed in
+       we only accumulate CLOSES seen since arming; on later candles the full
+       high/low is legitimate because all of it happened after placement.       */
+    if(t.armTime==null){ t.armTime=c.time; t.hiSince=c.close; t.loSince=c.close; changed=true; }
+    if(c.time > t.armTime){
+      t.hiSince=Math.max(t.hiSince==null?c.high:t.hiSince, c.high);
+      t.loSince=Math.min(t.loSince==null?c.low :t.loSince, c.low);
+    } else {
+      t.hiSince=Math.max(t.hiSince==null?c.close:t.hiSince, c.close);
+      t.loSince=Math.min(t.loSince==null?c.close:t.loSince, c.close);
+    }
+    const HI=t.hiSince, LO=t.loSince;
     if(t.status==="pending"){
-      const filled = t.side==="long" ? c.low<=t.entry : c.high>=t.entry;
+      const filled = t.side==="long" ? LO<=t.entry : HI>=t.entry;
       if(filled){ t.status="open"; t.filledTime=c.time; changed=true; beep(); }
       else if(t.side==="long" ? c.close<t.stop : c.close>t.stop){
         t.status="cancelled"; t.reason="price ran past the stop before filling"; changed=true;
       }
       continue;
     }
-    if(t.status!=="open") continue;
     if(t.trail){
       const R=Math.abs(t.entry-t.initialStop);
       const ns = t.side==="long"? c.close-R : c.close+R;
       if(t.side==="long" ? ns>t.stop : ns<t.stop){ t.stop=ns; changed=true; }
     }
-    const hitStop  = t.side==="long"? c.low<=t.stop  : c.high>=t.stop;
-    const hitTarget= t.side==="long"? c.high>=t.target: c.low<=t.target;
+    const hitStop  = t.side==="long"? LO<=t.stop  : HI>=t.stop;
+    const hitTarget= t.side==="long"? HI>=t.target: LO<=t.target;
     if(hitStop){ t.status= t.beMoved&&Math.abs(t.stop-t.entry)/t.entry<0.0005 ? "breakeven":"stopped";
                  t.exit=t.stop; t.exitTime=c.time; t.reason= t.status==="breakeven"?"stopped at break-even":"stop hit"; changed=true; beep(); }
     else if(hitTarget){ t.status="target"; t.exit=t.target; t.exitTime=c.time; t.reason="target hit"; changed=true; beep(); }
@@ -2149,6 +2242,13 @@ function renderTrades(){
     const live = t.status==="open"||t.status==="pending";
     const R=Math.abs(t.entry-t.initialStop);
     const rr=R>0? Math.abs(t.target-t.entry)/R : 0;
+    /* NET of round-trip cost: you pay the fee on the way in AND out, so it adds
+       to what you actually risk and subtracts from what you actually make. The
+       gross figure flattered a 0.29% stop by ~40%. */
+    const cAbs=(typeof costPct==='function'? costPct():0.0012)*t.entry;
+    const netRisk=R+cAbs, netRew=Math.max(0,Math.abs(t.target-t.entry)-cAbs);
+    const rrNet=netRisk>0? netRew/netRisk : 0;
+    const drag=R>0? cAbs/R*100 : 0;
     const icon = t.status==="pending"?"\u23f3": t.status==="open"? (t.side==="long"?"\u25b2":"\u25bc")
       : t.status==="target"?"\ud83c\udfaf": t.status==="stopped"?"\ud83d\uded1"
       : t.status==="breakeven"?"\u2696\ufe0f": t.status==="cancelled"?"\u2716":"\u270b";
@@ -2160,11 +2260,14 @@ function renderTrades(){
         '<small>'+sym+' '+t.tf+'</small></div>'+
       '<div class="ldg-c">'+fmt(t.entry)+'<small>'+stTxt+'</small></div>'+
       '<div class="ldg-c down">'+fmt(t.stop)+'<small>'+(t.exit!=null&&/stop/.test(t.reason||"")?"hit":(t.beMoved?"at BE":(t.trail?"trailing":"—")))+'</small></div>'+
-      '<div class="ldg-c up">'+fmt(t.target)+'<small>1:'+rr.toFixed(2)+'</small></div>'+
+      '<div class="ldg-c up">'+fmt(t.target)+'<small>1:'+rrNet.toFixed(2)+' net</small></div>'+
       '<div class="ldg-r '+(t.status==="pending"?"":(pl.cash>=0?"up":"down"))+'">'+
         (t.status==="pending"?"—":(pl.rMul>=0?"+":"")+pl.rMul.toFixed(2))+'</div>'+
       '</div>'+
       '<div class="ldg-x">'+t.units.toFixed(4)+' '+sym+
+      ' · R:R 1:'+rr.toFixed(2)+' gross → <b>1:'+rrNet.toFixed(2)+' after costs</b>'+
+      (drag>=25? ' <span style="color:var(--down)">(fees eat '+Math.round(drag)+'% of your risk — stop too tight)</span>'
+               : ' (fees '+Math.round(drag)+'% of risk)')+
       (t.exit!=null? ' · exit '+fmt(t.exit)+' ('+t.reason+')' : (t.reason? ' · '+t.reason : ''))+
       ' · '+t.note+(t.why? ' · <i>“'+t.why+'”</i>':'')+'</div>';
     if(live){
@@ -2634,6 +2737,13 @@ function fullRead(useLevels){
           t1, t2, inval, rsi:rv, ema:E.map(a=>a[n-1]), fib:F, ms:MS, regime:REG};
 }
 
+/* Compute the read AND its counterpart, so the card can show what 🔗 actually
+   changed instead of only asserting that it might change something.            */
+function computeRead(){
+  state.read = fullRead(state.combine);
+  try{ state.readAlt = fullRead(!state.combine); }catch(e){ state.readAlt=null; }
+}
+
 /* apply the read: set the right layers, compute, and draw the expected path */
 function applyFullRead(){
   const cfg=taCfg();
@@ -2657,7 +2767,8 @@ function applyFullRead(){
   try{ state.patterns=want.pat? detectPatterns() : []; }catch(e){}
   try{ state.fib=fibLevels(); }catch(e){}
   try{ state.mstruct=marketStructure(); }catch(e){}
-  state.read=fullRead(state.combine);
+  computeRead();
+  state.readHidden=false;              /* explicitly running a read always shows it */
   state.readSignal = ($("rOptSig").checked && state.read) ? readToSignal(state.read) : null;
   if(state.read && state.follow){
     const need=(state.candles.length-1)+16;
@@ -2666,22 +2777,129 @@ function applyFullRead(){
   renderReadCard();
   render();
 }
+/* ---------- read: risk / reward ----------
+   The objective and the invalidation are both real prices, so the ratio between
+   them is a fact, not an opinion — and it is the single number that decides
+   whether a read is worth trading. Costs are charged to BOTH sides: fees widen
+   the effective stop and shave the objective, which is why the net ratio can be
+   half the gross one on a tight read.                                          */
+function readRR(R){
+  if(!R || !R.t1 || !R.inval) return null;
+  const risk=Math.abs(R.px - R.inval.p);
+  const rew =Math.abs(R.t1.p - R.px);
+  if(!(risk>0) || !(rew>0)) return null;
+  const c = (typeof costPct==="function"? costPct() : 0.0012) * R.px;
+  const gross = rew/risk;
+  const net   = Math.max(0, rew-c) / (risk+c);
+  return {risk, rew, cost:c, gross, net,
+          be: net>0? 1/(1+net) : 1,          /* win rate needed just to break even */
+          inverted: rew < risk,
+          drag: rew>0? c/rew : 1};
+}
+function rrBlock(R){
+  const r=readRR(R);
+  if(!r) return "";
+  const cls = r.net>=1.8? "good" : r.net>=1? "thin" : "bad";
+  let msg;
+  if(r.inverted)
+    msg = "⚠ The objective is <b>closer</b> than the invalidation — you are risking more than you stand to make. "+
+          "At "+r.net.toFixed(2)+":1 you need to be right <b>"+(r.be*100).toFixed(0)+"% of the time</b> just to break even.";
+  else if(r.net<1)
+    msg = "⚠ Below 1:1 after costs. You need <b>"+(r.be*100).toFixed(0)+"% winners</b> to break even on this shape.";
+  else
+    msg = "Break-even win rate <b>"+(r.be*100).toFixed(0)+"%</b> — above that this shape pays.";
+  if(r.drag>=0.25)
+    msg += " Round-trip costs eat <b>"+(r.drag*100).toFixed(0)+"%</b> of the move — the objective is close enough that fees are a main character.";
+  return '<div class="rr '+cls+'">'+
+    '<span>Risk : reward</span>'+
+    (Math.abs(r.gross-r.net)>0.03? '<span class="gr">'+r.gross.toFixed(2)+':1</span>' : '')+
+    '<b>'+r.net.toFixed(2)+':1</b><span style="color:var(--dim)">net of costs</span>'+
+    '<small>'+msg+'</small></div>';
+}
+/* ---------- read: individual vs combined ----------
+   Both reads share identical votes — drawn levels never change the direction
+   call, only where the objectives sit. Saying that plainly is more useful than
+   implying 🔗 makes the read "smarter".                                        */
+function readDiff(R, A){
+  if(!R || !A) return [];
+  const out=[];
+  const px=n=>n==null? "none" : fmt(n);
+  if(R.bias!==A.bias) out.push({k:"Direction", was:A.bias, now:R.bias});
+  const t1a=A.t1? px(A.t1.p)+" · "+A.t1.src : "none";
+  const t1b=R.t1? px(R.t1.p)+" · "+R.t1.src : "none";
+  if(t1a!==t1b) out.push({k:"First objective", was:t1a, now:t1b});
+  const t2a=A.t2? px(A.t2.p):"none", t2b=R.t2? px(R.t2.p):"none";
+  if(t2a!==t2b) out.push({k:"Then", was:t2a, now:t2b});
+  const ia=A.inval? px(A.inval.p):"none", ib=R.inval? px(R.inval.p):"none";
+  if(ia!==ib) out.push({k:"Invalidation", was:ia, now:ib});
+  const ra=readRR(A), rb=readRR(R);
+  if(ra&&rb && Math.abs(ra.net-rb.net)>=0.05)
+    out.push({k:"Net R:R", was:ra.net.toFixed(2)+":1", now:rb.net.toFixed(2)+":1"});
+  else if(!!ra !== !!rb)
+    out.push({k:"Net R:R", was: ra? ra.net.toFixed(2)+":1":"—", now: rb? rb.net.toFixed(2)+":1":"—"});
+  return out;
+}
+function cmpBlock(R){
+  const A=state.readAlt;
+  const on=!!R.combined;
+  const head='<div class="ch">'+(on?"🔗 <b>Combined</b>":"⛓️‍💥 <b>Independent</b>")+
+    '<span style="color:var(--dim);font-size:11px;margin-left:auto">vs '+(on?"independent":"combined")+'</span></div>';
+  if(!A) return '<div class="cmp">'+head+'<div class="cmpNone">Could not compute the other version to compare against.</div></div>';
+  const d=readDiff(R,A);
+  const body = d.length
+    ? '<div class="cmpRow" style="border:0"><span></span><span class="was">'+(on?"alone":"combined")+'</span><span class="now">'+(on?"combined":"alone")+'</span></div>'+
+      d.map(x=>'<div class="cmpRow"><span>'+x.k+'</span><span class="was">'+x.was+'</span><span class="now">'+x.now+'</span></div>').join("")
+    : '<div class="cmpNone">Identical either way — your drawn levels sit nowhere near the objectives this read would pick on its own. '+
+      (on?"🔗 is adding nothing here.":"Turning 🔗 on would change nothing here.")+'</div>';
+  const foot = d.length && !d.some(x=>x.k==="Direction")
+    ? '<div class="cmpNone">Direction is unchanged — combining never votes. It only moves <b>where</b> the objectives and the invalidation sit.</div>'
+    : "";
+  return '<div class="cmp">'+head+body+foot+'</div>';
+}
 function renderReadCard(){
   const R=state.read;
-  const box=$("readCard");
-  if(!R){ box.style.display="none"; return; }
+  const box=$("readCard"), chip=$("readChip");
+  if(!R){ box.style.display="none"; chip.style.display="none"; return; }
   const cls = R.bias==="bullish"?"good": R.bias==="bearish"?"hot": "mid";
   const arrow = R.bias==="bullish"?"▲": R.bias==="bearish"?"▼":"◆";
+  const dotCol = R.bias==="bullish"? "var(--up)" : R.bias==="bearish"? "var(--down)" : "var(--accent)";
   const conv = R.conviction>=0.6? "strong agreement" : R.conviction>=0.3? "leaning" : "split";
+
+  /* collapsed: the chip stands in for the card, the projection stays drawn */
+  if(state.readHidden){
+    box.style.display="none";
+    const r=readRR(R);
+    chip.innerHTML='<span class="dot" style="background:'+dotCol+'"></span>'+
+      '<b>'+R.bias.toUpperCase()+'</b><span style="color:var(--dim)">'+state.tf+
+      (r? ' · '+r.net.toFixed(2)+':1' : '')+'</span>'+
+      '<span style="color:var(--accent);margin-left:4px">open ▴</span>';
+    chip.style.display="flex";
+    chip.onclick=()=>{ state.readHidden=false; renderReadCard(); };
+    return;
+  }
+  chip.style.display="none";
+
   const grouped={};
   for(const v of R.votes){ if(!v.txt) continue; (grouped[v.dir]=grouped[v.dir]||[]).push(v); }
   const line=v=>'<div class="cItem '+(v.dir==="up"?"ok":v.dir==="down"?"no":"")+'">'+
     (v.dir==="up"?"▲":v.dir==="down"?"▼":"•")+' <b>'+v.src+'</b> — '+v.txt+'</div>';
+  /* the group that agrees with the read opens by default; the user's own choice wins */
+  const grp=(key,label,arr,dflt)=>{
+    if(!arr || !arr.length) return "";
+    const open = state.readGroups[key]==null? dflt : !!state.readGroups[key];
+    const agrees = (key==="up"&&R.bias==="bullish")||(key==="down"&&R.bias==="bearish");
+    const w = arr.reduce((s,v)=>s+(v.w||0),0);
+    return '<details class="vGrp '+key+'" data-g="'+key+'"'+(open?" open":"")+'>'+
+      '<summary>'+label+' <em>'+arr.length+(w?' · weight '+w:'')+'</em>'+
+      (agrees?'<span class="tick">drives the call</span>':'')+'</summary>'+
+      arr.map(line).join("")+'</details>';
+  };
+
   box.innerHTML=
     '<div class="rHead"><span class="rArrow '+cls+'">'+arrow+'</span>'+
       '<div><b>'+R.bias.toUpperCase()+'</b> on the '+state.tf+
       '<small>'+R.up+' up vs '+R.down+' down · '+conv+'</small></div>'+
-      '<button id="readClose">✕</button></div>'+
+      '<button id="readClose" title="Hide this card — the projection stays on the chart">✕</button></div>'+
     '<div class="rBody">'+
       '<div class="plain">'+plainRead(R)+'</div>'+
       (()=>{ const an=state.analysis;
@@ -2692,27 +2910,60 @@ function renderReadCard(){
           (an.isSupport?"long":"short")+'; this read is '+R.bias+'. Two independent tools, one conclusion each — waiting is a valid answer.</div>';
       })()+
       '<div class="cardNote">'+R.cfg.note+' · typical hold '+R.cfg.hold+' · EMA '+R.cfg.ema.join("/")+' · RSI '+R.cfg.rsi+'</div>'+
-      '<div class="rSrc">'+(R.combined
-        ? '🔗 <b>Combined</b> — objectives may come from your drawn levels as well as fib and swing structure.'
-        : 'Independent read — objectives come only from Fibonacci and swing structure, not from your drawn levels. Tap 🔗 to combine them.')+'</div>'+
       (R.t1? '<div class="kv"><span>First objective</span><b>'+fmt(R.t1.p)+'</b></div>'+
              '<div class="cardNote">'+R.t1.label+' ('+R.t1.src+') · '+pct((R.t1.p-R.px)/R.px)+' away</div>' : '')+
       (R.t2? '<div class="kv"><span>Then</span><b>'+fmt(R.t2.p)+'</b></div>' : '')+
       (R.inval? '<div class="kv"><span>Read fails if price closes past</span><b class="r">'+fmt(R.inval.p)+'</b></div>' : '')+
+      rrBlock(R)+
       (R.bias==="mixed"
         ? '<div class="flag warn">The engines disagree. A mixed read is a reason to wait, not to pick a side.</div>'
         : R.bias==="neutral"
         ? '<div class="flag warn">Almost nothing is pointing anywhere — flat averages, undecided momentum. There is no read here; that is a reason to wait, not to pick a side.</div>'
         : '')+
-      '<div class="rVotes">'+
-        (grouped.up||[]).map(line).join("")+
-        (grouped.down||[]).map(line).join("")+
-        (grouped.flat||[]).map(line).join("")+
-      '</div>'+
-      '<div class="fine">Objectives are real levels computed from your lines, fib and detected structure. The dotted route between them is illustrative — nothing here predicts when or by what path price travels.</div>'+
+      cmpBlock(R)+
+      '<div class="rowTog'+(state.combine?" on":"")+'" id="rTogComb"><span class="kn"></span>'+
+        '<span>Use my drawn levels as objectives'+
+        '<small>🔗 Off = fib and swing structure only. On = your lines and detected levels compete for the objective too.</small></span></div>'+
+      '<div class="rowTog'+(state.combineAll?" on":"")+'" id="rTogAll"><span class="kn"></span>'+
+        '<span>Keep it combined everywhere'+
+        '<small>Apply combined support/resistance to every read, on every coin, and remember it next session.</small></span></div>'+
+      grp("up",  "▲ Bullish factors",  grouped.up,   R.bias==="bullish")+
+      grp("down","▼ Bearish factors",  grouped.down, R.bias==="bearish")+
+      grp("flat","• Neutral / no signal", grouped.flat, false)+
+      '<div class="rFoot"><button id="readHideBtn">Hide card, keep projection</button>'+
+        '<button id="readWipeBtn">Clear read &amp; projection</button></div>'+
+      '<div class="fine">Objectives are real levels computed from your lines, fib and detected structure. The dotted route between them is illustrative — nothing here predicts when or by what path price travels. Risk:reward assumes entry at the current price, exit at the first objective, and a stop at the invalidation.</div>'+
     '</div>';
   box.style.display="block";
-  $("readClose").onclick=()=>{ state.read=null; box.style.display="none"; render(); };
+
+  const hide=()=>{ state.readHidden=true; renderReadCard(); };
+  const wipe=()=>{ state.read=null; state.readAlt=null; state.readSignal=null;
+                   state.readHidden=false; box.style.display="none"; $("readChip").style.display="none";
+                   renderPane(); render(); };
+  $("readClose").onclick=hide;
+  $("readHideBtn").onclick=hide;
+  $("readWipeBtn").onclick=wipe;
+  box.querySelectorAll("details.vGrp").forEach(d=>{
+    d.addEventListener("toggle",()=>{ state.readGroups[d.dataset.g]=d.open; });
+  });
+  $("rTogComb").onclick=()=>{
+    state.combine=!state.combine;
+    $("combineBtn").classList.toggle("arm", state.combine);
+    if(!state.combine && state.combineAll){ state.combineAll=false; saveCombineAll(); }
+    applyFullRead();
+  };
+  $("rTogAll").onclick=()=>{
+    state.combineAll=!state.combineAll;
+    saveCombineAll();
+    if(state.combineAll && !state.combine){
+      state.combine=true;
+      $("combineBtn").classList.toggle("arm", true);
+    }
+    applyFullRead();
+  };
+}
+function saveCombineAll(){
+  try{ if(hasStorage) window.storage.set("ui:combineAll", state.combineAll? "1":"0"); }catch(e){}
 }
 
 /* turn a read into a tradeable signal so it appears alongside level setups */
@@ -2814,10 +3065,13 @@ async function switchSymbol(sym){
   parkSymbol();
   state.symbol=sym; SYMBOL=sym;
   restoreSymbol(sym);
-  state.read=null; state.readSignal=null; state.analysis=null; state.patterns=[]; state.htfPats=[];
+  state.read=null; state.readAlt=null; state.readSignal=null; state.analysis=null; state.patterns=[]; state.htfPats=[];
+  state.readHidden=false;
+  if(state.combineAll) state.combine=true;      /* "combined everywhere" survives a coin switch */
+  const _cb=$("combineBtn"); if(_cb) _cb.classList.toggle("arm", !!state.combine);
   state.fib=null; state.mstruct=null; state.depth={walls:[],imbalance:null,ok:false};
   state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
-  $("anaCard").style.display="none"; $("readCard").style.display="none";
+  $("anaCard").style.display="none"; $("readCard").style.display="none"; $("readChip").style.display="none";
   $("pairName").textContent=sym.replace("USDT","")+" / USDT";
   addTab(sym); renderCoinTabs();
   await loadCandles();
@@ -4773,7 +5027,7 @@ function startPolling(){
         updateHeader();
         openVerdicts(); resolveVerdicts(); updatePapers(); checkSignalAlerts();
         if(newBar){ try{ state.patterns=detectPatterns(); }catch(e){}
-                    if(state.read){ try{ state.read=fullRead(state.combine); renderReadCard(); }catch(e){} }
+                    if(state.read){ try{ computeRead(); renderReadCard(); }catch(e){} }
                     try{ state.fib=fibLevels(); }catch(e){}
                     try{ state.mstruct=marketStructure(); }catch(e){} }
         if(state.analysis){
@@ -6068,8 +6322,8 @@ $("readBtn").onclick=e=>{ e.stopPropagation(); $("readTf").textContent=state.tf.
 $("readGo").onclick=()=>{ document.querySelectorAll(".panel").forEach(p=>p.classList.remove("open")); applyFullRead(); };
 $("readClear").onclick=()=>{
   document.querySelectorAll(".panel").forEach(p=>p.classList.remove("open"));
-  state.read=null; state.readSignal=null;
-  $("readCard").style.display="none";
+  state.read=null; state.readAlt=null; state.readSignal=null; state.readHidden=false;
+  $("readCard").style.display="none"; $("readChip").style.display="none";
   Object.assign(state.prefs,{ma:false,rsi:false,fib:false,ms:false,pat:false});
   document.querySelectorAll(".sw").forEach(sw=>{ const k=sw.dataset.pref; if(k in state.prefs) sw.classList.toggle("on",!!state.prefs[k]); });
   renderPane(); render();
@@ -6100,6 +6354,7 @@ $("combineBtn").onclick=e=>{
   e.stopPropagation();
   state.combine=!state.combine;
   $("combineBtn").classList.toggle("arm", state.combine);
+  if(!state.combine && state.combineAll){ state.combineAll=false; saveCombineAll(); }
   cmdSay(state.combine
     ? "Combined: the Read will now use your drawn levels as objectives too."
     : "Separated: Levels and Read work independently again.");
@@ -6298,6 +6553,15 @@ async function boot(){
       }
     }catch(e){}
     addTab(SYMBOL); renderCoinTabs();
+    try{                                   /* "combined everywhere" is a standing choice */
+      if(hasStorage){
+        const ca=await window.storage.get("ui:combineAll");
+        if(ca && ca.value==="1"){
+          state.combineAll=true; state.combine=true;
+          $("combineBtn").classList.add("arm");
+        }
+      }
+    }catch(e){}
     try{                                   /* reopen the tab he was last using */
       if(hasStorage){
         const tb=await window.storage.get("ui:tab");
