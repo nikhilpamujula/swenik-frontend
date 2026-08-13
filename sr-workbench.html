@@ -560,6 +560,29 @@
   .pane .patRow:last-child{border-bottom:none}
   .pane .patTop{display:flex;align-items:center;gap:8px;font-size:12.5px}
   .pane .patTop .tagS{margin-left:auto}
+  /* --- pattern explanation cards --- */
+  .pane details.patX{border:1px solid var(--line);border-radius:10px;margin-top:7px;overflow:hidden;
+    background:rgba(255,255,255,.015)}
+  .pane details.patX>summary{list-style:none;cursor:pointer;padding:9px 11px;display:flex;
+    align-items:center;gap:8px;font-size:12.5px;user-select:none;flex-wrap:wrap}
+  .pane details.patX>summary::-webkit-details-marker{display:none}
+  .pane details.patX>summary::after{content:"▾";color:var(--dim);font-size:11px;margin-left:6px;transition:transform .15s}
+  .pane details.patX[open]>summary::after{transform:rotate(180deg)}
+  .pane details.patX>summary .tagS{margin-left:auto}
+  .pane .pAway{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums;width:100%}
+  .pane .patBody{padding:0 11px 11px}
+  .pane .pWhat{font-size:12.5px;line-height:1.55;color:var(--text);margin-bottom:6px}
+  .pane .pFacts{font-size:10.5px;color:var(--dim);margin-bottom:8px;font-family:ui-monospace,Menlo,monospace}
+  .pane .pSec{margin-top:9px;font-size:11.5px;line-height:1.55;color:#A7B1C4}
+  .pane .pSec>span{display:block;font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--accent);margin-bottom:3px;font-weight:700}
+  .pane .pSec i{color:var(--dim)}
+  .pane .pRR{margin:9px 0 2px;padding:7px 9px;border-radius:8px;font-size:11.5px;background:var(--panel2)}
+  .pane .pRR.good{border:1px solid rgba(45,212,160,.45)} .pane .pRR.good b{color:var(--up)}
+  .pane .pRR.thin{border:1px solid rgba(245,215,122,.45)} .pane .pRR.thin b{color:#F5D77A}
+  .pane .pRR.bad{border:1px solid rgba(242,73,92,.5)}     .pane .pRR.bad b{color:var(--down)}
+  .pane .pCaveat{margin-top:10px;padding:7px 9px;border-radius:8px;font-size:10.5px;line-height:1.5;
+    color:#A7B1C4;background:rgba(242,73,92,.06);border:1px solid rgba(242,73,92,.22)}
   /* coach habit bars */
   .pane .habit{padding:9px 0;border-bottom:1px solid #1A2030}
   .pane .habit:last-child{border-bottom:none}
@@ -934,7 +957,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-13b-objectives";
+window.WB_BUILD = "2026-08-13c-patterns";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1020,6 +1043,7 @@ const state = {
   readAlt:null,                             /* the same read with 🔗 flipped — for the compare block */
   readHidden:false,                         /* card collapsed to a chip; projection stays on the chart */
   readGroups:{},                            /* which factor groups the user left open */
+  patOpen:{},                               /* which pattern explanations are expanded */
   combineAll:false,                         /* 🔗 on by default, on every coin, across sessions */
   tabs:[],                                  /* open pairs, most-recent last */
   symbol:"BTCUSDT",
@@ -1422,6 +1446,7 @@ function render(){
   }
 
   /* detected patterns: outline, boundaries, trigger and measured target */
+  state._patHit=[];
   if(state.prefs.pat && state.patterns && state.patterns.length){
     for(const P of state.patterns){
       const col = P.dir==="bullish"? C_UP : P.dir==="bearish"? C_DOWN : C_N2;
@@ -1463,9 +1488,13 @@ function render(){
         }
       }
       if(P.key && P.key.length){
-        const tag=(P.status==="confirmed"?"✓ ":P.status==="broken-weak"?"⚠ ":"")+P.name;
+        const tag=(P.status==="confirmed"?"✓ ":P.status==="broken-weak"?"⚠ ":"")+P.name+" ⓘ";
         ctx.font="11.5px ui-monospace,Menlo,monospace";
-        tryLabel(tag, Math.max(4,xOf(P.from)), yOf(P.key[0].p)-14, col, "rgba(9,11,15,.85)");
+        const lx=Math.max(4,xOf(P.from)), ly=yOf(P.key[0].p)-14;
+        tryLabel(tag, lx, ly, col, "rgba(9,11,15,.85)");
+        /* Register the label so a tap can open its explanation. A name on the
+           chart with nowhere to go is the thing being fixed here. */
+        state._patHit.push({ name:P.name, x:lx-4, y:ly-13, w:ctx.measureText(tag).width+10, h:19 });
         ctx.font="12px ui-monospace,Menlo,monospace";
       }
     }
@@ -4257,6 +4286,13 @@ function anchorAt(x,y){
 }
 function handleTap(x,y){
   if(x>chartW()||y>panesBottom()) return;
+  /* A pattern label is the most natural place to ask "what IS this?" — so make
+     it answer. Checked before drawing modes only when no tool is armed, so it
+     can never steal a tap meant to place a line. */
+  if(!state.drawMode && state._patHit && state._patHit.length){
+    const h=state._patHit.find(r=> x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h);
+    if(h){ openPatternInfo(h.name); return; }
+  }
   if(state.drawMode==="h"){
     const price = snapPrice(priceAt(y));
     const lvl={ kind:"h", id:Date.now().toString(36), price, label:"",
@@ -5670,6 +5706,186 @@ function noiseBaseline(){
   state._nbCache={key,val};
   return val;
 }
+/* ============================================================================
+   PATTERN EXPLANATIONS
+
+   A name on the chart is not information. "Rectangle / Range" tells you a shape
+   was matched; it does not tell you what the shape is claiming, why it landed
+   HERE, or what would have to happen for it to pay.
+
+   Three deliberate omissions:
+   · No hit-rate percentages. Every "H&S works 84% of the time" figure in
+     circulation traces back to one 1990s book with no out-of-sample test. This
+     app measures its own level accuracy honestly; inventing a pattern statistic
+     would poison that. Where a base rate belongs, the card says it is unmeasured
+     and points at the backtest.
+   · No prediction of WHEN. The measured move is a distance, not a schedule.
+   · The failure mode is stated as prominently as the thesis, because the way a
+     pattern fails is usually more actionable than the way it works.
+   ========================================================================== */
+const PATTERN_INFO = {
+  "Rectangle / Range": {
+    shape: "Price is bouncing between a flat ceiling and a flat floor. Neither side is winning.",
+    why:   "Buyers keep stepping in at the same low and sellers keep appearing at the same high. Both sides have a price they are defending, and until one of them gives up, price has nowhere to go.",
+    leads: "A range resolves by breaking one edge. The conventional objective is the height of the range projected from the edge that breaks — the logic being that whoever was defending that edge is now trapped and has to cover.",
+    fails: "Ranges break falsely more often than they break cleanly, especially on low volume. A close back inside the range after a break is the single most reliable sign the break was a liquidity grab, not a move.",
+    play:  "Two honest ways to trade it: fade the edges while it holds, or wait for a close outside and trade the retest. Trading the break itself, without a retest, is where most of the losses live.",
+  },
+  "Ascending Triangle": {
+    shape: "A flat ceiling with higher lows pressing up into it.",
+    why:   "The same sellers keep defending one price, but buyers are willing to pay more each time. That asymmetry — a fixed supply against rising demand — is the whole pattern.",
+    leads: "If the ceiling gives way, the measured objective is the triangle's height added to the breakout price. The rising lows mean there is little room left to retreat, so a break tends to be fast when it comes.",
+    fails: "The lows stop rising, or price closes decisively below the rising trendline. That says the buyers who were paying up have stopped — the asymmetry is gone and the ceiling won.",
+    play:  "The apex is a deadline, not a target. A triangle that runs all the way into its point usually stops being a pattern and becomes noise; the useful breaks come in the middle two thirds.",
+  },
+  "Descending Triangle": {
+    shape: "A flat floor with lower highs pressing down into it.",
+    why:   "Buyers keep defending one price while sellers accept less each time. The mirror image of the ascending case, and the reason it leans bearish.",
+    leads: "If the floor breaks, the objective is the triangle's height subtracted from the break. The trapped buyers who were defending that floor become the supply that drives the next leg.",
+    fails: "A close back above the descending trendline. The sellers who were accepting less have stopped, and the floor holders were right.",
+    play:  "In a strong uptrend a descending triangle is often just a pause, not a top. The higher timeframe direction matters more than the shape.",
+  },
+  "Symmetrical Triangle": {
+    shape: "Lower highs and higher lows squeezing towards a point. Neither side is in control.",
+    why:   "Volatility is contracting. Traders are becoming less willing to pay up AND less willing to sell down — a coiling, not a decision.",
+    leads: "Direction is genuinely undecided; the pattern says a move is coming, not which way. The objective is the height at the widest part, projected from whichever edge breaks.",
+    fails: "There is no bullish or bearish thesis to invalidate — only a range to break. Picking a side before the break is guessing with extra steps.",
+    play:  "This is the one pattern where waiting is not conservatism, it is the strategy. Let it break, then trade it.",
+  },
+  "Rising Wedge": {
+    shape: "Both boundaries slope up, but the ceiling rises more slowly than the floor. The move is running out of room.",
+    why:   "Price is still making highs, but each push gains less than the one before. Rising price on shrinking progress is the definition of a tiring trend.",
+    leads: "Wedges usually break against their slope, so a rising wedge leans bearish. The objective is typically back to where the wedge began — the whole structure unwinds rather than partially retracing.",
+    fails: "A close above the upper boundary on real volume. The trend was not tiring, it was consolidating.",
+    play:  "A rising wedge inside a strong uptrend is a warning to tighten, not automatically a short. Fading a trend on shape alone is expensive.",
+  },
+  "Falling Wedge": {
+    shape: "Both boundaries slope down, but the floor falls more slowly than the ceiling. The selling is losing force.",
+    why:   "Price is still making lows, but each new low gains less ground. Sellers are working harder for less.",
+    leads: "Leans bullish for the mirror reason. The conventional objective is back to the start of the wedge.",
+    fails: "A close below the lower boundary. The selling was not exhausted after all.",
+    play:  "Falling wedges in a downtrend are frequently just continuation pauses. Treat the higher timeframe as the tiebreaker.",
+  },
+  "Double Top": {
+    shape: "Two highs at roughly the same price, with a dip between them.",
+    why:   "Price attacked the same ceiling twice and failed twice. The second failure is the information — it says the first rejection was not a one-off.",
+    leads: "The neckline (the dip low) is the trigger. Below it, the objective is the height of the pattern projected down: everyone who bought between the neckline and the highs is now underwater and is supply on the way back up.",
+    fails: "A close back above the second high. Two failures do not make a third — plenty of double tops become continuation after a shakeout.",
+    play:  "The pattern is not complete until the neckline breaks. Shorting the second high because it 'looks like' a double top is trading a shape that has not happened yet.",
+  },
+  "Double Bottom": {
+    shape: "Two lows at roughly the same price, with a bounce between them.",
+    why:   "Price tested the same floor twice and held twice. The second hold says buyers are defending a specific price, not just reacting.",
+    leads: "The neckline (the bounce high) is the trigger. Above it, the objective is the pattern height projected up.",
+    fails: "A close below the second low. The floor was defended until it wasn't.",
+    play:  "Same discipline as the double top: it is not a pattern until the neckline gives way.",
+  },
+  "Head & Shoulders": {
+    shape: "Three peaks — a higher middle one flanked by two lower, roughly equal ones.",
+    why:   "The middle peak is a trend making a final push; the right shoulder failing to match it is the trend failing to repeat itself. That failure to make a higher high is the actual signal — the shape just makes it visible.",
+    leads: "The neckline drawn under the two troughs is the trigger. Below it, the objective is the head-to-neckline distance projected down.",
+    fails: "A close back above the right shoulder, and certainly above the head. Then the trend did repeat itself and the read was wrong.",
+    play:  "The neckline is often retested from below after the break. That retest is a better entry than the break, with a far tighter stop.",
+  },
+  "Inverse Head & Shoulders": {
+    shape: "Three troughs — a deeper middle one between two shallower, roughly equal ones.",
+    why:   "The mirror case: a downtrend makes a final low, then fails to make a lower one. The failure to continue is the signal.",
+    leads: "Neckline above the two peaks is the trigger; the head-to-neckline distance projected up is the objective.",
+    fails: "A close back below the right shoulder, and certainly below the head. That says the downtrend was pausing, not ending, and the failure-to-continue read was premature.",
+    play:  "Same as above — the retest of the neckline from above is usually the better-priced entry.",
+  },
+};
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* Turn a detected pattern into the four things worth knowing about it. */
+function explainPattern(P){
+  if(!P) return null;
+  const I = PATTERN_INFO[P.name] || {
+    shape:"A recognised price shape.", why:"Detected from the swing highs and lows on this timeframe.",
+    leads:"See the trigger and measured objective below.", fails:"See the invalidation below.", play:"" };
+  const px = state.candles.length? state.candles[state.candles.length-1].close : null;
+  const bars = (P.to!=null && P.from!=null)? (P.to-P.from) : null;
+  const q = Math.round((P.quality||0)*100);
+
+  /* the geometry, stated as measurements rather than adjectives */
+  const facts=[];
+  if(bars!=null) facts.push(bars+" "+state.tf+" bars wide");
+  if(P.key && P.key.length) facts.push("built from "+P.key.length+" swing points");
+  if(P.scale) facts.push("swing sensitivity "+P.scale);
+  facts.push("fit quality "+q+"%");
+
+  /* what a trade off it would actually look like, net of costs */
+  let plan=null;
+  if(P.trigger!=null && P.target!=null && P.invalid!=null){
+    const risk=Math.abs(P.trigger-P.invalid), rew=Math.abs(P.target-P.trigger);
+    if(risk>0 && rew>0){
+      const c=(typeof costPct==="function"? costPct():0.0012)*P.trigger;
+      const net=Math.max(0,rew-c)/(risk+c);
+      plan={ risk, rew, net, gross:rew/risk, be: net>0? 1/(1+net) : 1 };
+    }
+  }
+  const away = (P.trigger!=null && px)? (P.trigger-px)/px : null;
+
+  return { P, I, facts, plan, away, quality:q, bars };
+}
+/* One collapsible block per pattern. Everything above is prose; this is layout. */
+function patternCard(P, idx){
+  const E=explainPattern(P); if(!E) return "";
+  const col = P.dir==="bullish"?"g": P.dir==="bearish"?"r":"y";
+  const dirWord = P.dir==="bilateral"? "direction undecided" : P.dir;
+  const st = P.status==="confirmed"? ['✅ confirmed on volume','good']
+    : P.status==="broken-weak"? ['⚠ broke on weak volume','warn'] : ['still forming','info'];
+  const open = state.patOpen && state.patOpen[P.name];
+  const sec = (t,b)=> b? '<div class="pSec"><span>'+t+'</span>'+b+'</div>' : '';
+  const rr = E.plan
+    ? '<div class="pRR '+(E.plan.net>=1.8?"good":E.plan.net>=1?"thin":"bad")+'">'+
+      'If it triggers: <b>'+E.plan.net.toFixed(2)+':1</b> net of costs · needs '+
+      (E.plan.be*100).toFixed(0)+'% winners to break even</div>' : '';
+  return '<details class="patX" data-p="'+esc(P.name)+'"'+(open?" open":"")+'>'+
+    '<summary><b class="'+col+'">'+P.name+'</b>'+
+      '<span class="tagS '+st[1]+'">'+st[0]+'</span>'+
+      (E.away!=null? '<span class="pAway">'+pct(E.away)+' to trigger</span>':'')+
+    '</summary>'+
+    '<div class="patBody">'+
+      '<div class="pWhat">'+E.I.shape+'</div>'+
+      '<div class="pFacts">'+E.facts.join(" · ")+'</div>'+
+      (P.trigger!=null? '<div class="kv"><span>Triggers on a close '+(P.dir==="bearish"?"below":P.dir==="bullish"?"above":"outside")+'</span><b>'+fmtAxis(P.trigger)+'</b></div>':'')+
+      (P.target!=null?  '<div class="kv"><span>Measured objective</span><b>'+fmtAxis(P.target)+'</b></div>':'')+
+      (P.invalid!=null? '<div class="kv"><span>Dead if price closes '+(P.dir==="bearish"?"above":"below")+'</span><b class="r">'+fmtAxis(P.invalid)+'</b></div>':'')+
+      /* A bilateral shape has no single trigger — but it does have two edges and
+         a height, and hiding those left the card with nothing actionable at all. */
+      (P.trigger==null && P.upper!=null && P.lower!=null
+        ? '<div class="kv"><span>Breaks up on a close above</span><b class="g">'+fmtAxis(P.upper)+'</b></div>'+
+          '<div class="kv"><span>Breaks down on a close below</span><b class="r">'+fmtAxis(P.lower)+'</b></div>'+
+          '<div class="kv"><span>Height, projected either way</span><b>'+fmtAxis(Math.abs(P.upper-P.lower))+'</b></div>'+
+          '<div class="cardNote">Objectives: <b>'+fmtAxis(P.upper+Math.abs(P.upper-P.lower))+'</b> if it breaks up, '+
+          '<b>'+fmtAxis(P.lower-Math.abs(P.upper-P.lower))+'</b> if it breaks down. No direction is implied — this shape does not have one.</div>'
+        : '')+
+      rr+
+      sec("Why it is drawn here", E.I.why+' <i>'+esc(P.note||"")+'</i>')+
+      sec("Where it leads", E.I.leads)+
+      sec("How it fails", E.I.fails)+
+      (E.I.play? sec("How it is usually traded", E.I.play) : "")+
+      '<div class="pCaveat">This app has <b>no measured hit rate for patterns yet</b> — unlike your levels, which are scored in RECORD. Treat the objective as a distance the shape implies, not a probability. '+
+      (state._pnCache? 'For scale: the same detector finds <b>'+state._pnCache.val.toFixed(1)+'</b> patterns per scan in shuffled, meaningless data.' : '')+
+      '</div>'+
+    '</div></details>';
+}
+/* The PATTERNS section, standalone so it renders whether or not lines exist. */
+function patternsBlock(){
+  if(!(state.patterns && state.patterns.length)){
+    if(!state.prefs.pat)
+      return '<div class="card"><div class="cardT">PATTERNS</div>'+
+        '<div class="cardNote">Pattern detection is off. Turn it on in ⚙️ Settings, or tick <b>Chart patterns</b> when you run a ⚡ Read.</div></div>';
+    return '<div class="card"><div class="cardT">PATTERNS</div>'+
+      '<div class="cardNote">Nothing recognisable on the '+state.tf+' right now. That is the common case — a detector that always finds something is a detector finding noise.</div></div>';
+  }
+  const noise=state._pnCache? state._pnCache.val : null;
+  let out='<div class="card"><div class="cardT">PATTERNS'+
+    (noise!==null?' <span class="est">random data averages '+noise.toFixed(1)+' per scan</span>':'')+'</div>'+
+    '<div class="cardNote">Tap any pattern to see what it is claiming, why it landed here, and what would kill it.</div>';
+  state.patterns.forEach((P,i)=>{ out+=patternCard(P,i); });
+  return out+'</div>';
+}
 function patternNoiseRate(){
   const C=state.candles;
   const key=state.tf+":"+C.length+":"+(C.length?Math.round(C[C.length-1].close):0)+":pat";
@@ -5944,6 +6160,23 @@ function postMortem(){
 
 function renderStructure(){
   $("structList").innerHTML = structureRead();
+  /* remember which explanations were left open, so a new bar does not collapse
+     the one being read */
+  $("structList").querySelectorAll("details.patX").forEach(d=>{
+    d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; });
+  });
+}
+/* Open one pattern's explanation from anywhere (chart label, read card, link). */
+function openPatternInfo(name){
+  state.patOpen[name]=true;
+  const sheet=$("sheet"); if(sheet) sheet.classList.add("open");
+  const tab=[...document.querySelectorAll(".tab")].find(t=>t.dataset.tab==="structure");
+  if(tab) tab.click(); else { state.tab="structure"; renderPane(); }
+  renderStructure();
+  setTimeout(()=>{
+    const d=$("structList").querySelector('details.patX[data-p="'+esc(name).replace(/"/g,'\\"')+'"]');
+    if(d){ d.open=true; d.scrollIntoView({block:"center", behavior:"smooth"}); }
+  },60);
 }
 function renderRecord(){
   const st=verdictStats();
@@ -6198,8 +6431,12 @@ function structureRead(){
     label: l.label||lineTitle(l),
     touches: touchesFor(l)
   })).filter(o=>isFinite(o.p));
+  // Patterns are detected from swings, not from your lines, so they must not be
+  // hidden behind "draw a line first". This gate used to swallow the whole
+  // panel — including the pattern explanations, which were then unreachable.
   if(!lines.length)
-    return "<div class='empty'>Draw or auto-detect some lines — this panel then reads the whole board: where price sits, what is boxing it in, and where pressure is building.</div>";
+    return "<div class='empty'>Draw or auto-detect some lines — this panel then reads the whole board: where price sits, what is boxing it in, and where pressure is building.</div>"
+      + patternsBlock();
 
   const above=lines.filter(o=>o.p>px).sort((a,b)=>a.p-b.p);
   const below=lines.filter(o=>o.p<=px).sort((a,b)=>b.p-a.p);
@@ -6355,22 +6592,7 @@ function structureRead(){
   }
 
   /* ---- patterns ---- */
-  if(state.patterns && state.patterns.length){
-    const noise=state._pnCache? state._pnCache.val : null;
-    out+='<div class="card"><div class="cardT">PATTERNS'+(noise!==null?' <span class="est">random data averages '+noise.toFixed(1)+' per scan</span>':'')+'</div>';
-    for(const P of state.patterns){
-      const col=P.dir==="bullish"?"g":P.dir==="bearish"?"r":"y";
-      const st = P.status==="confirmed"? ['✅ confirmed','good']
-        : P.status==="broken-weak"? ['⚠ broke on weak volume','warn'] : ['forming','info'];
-      out+='<div class="patRow"><div class="patTop"><b class="'+col+'">'+P.name+'</b>'+
-        '<span class="tagS '+st[1]+'">'+st[0]+'</span></div>'+
-        '<div class="cardNote">'+P.note+'</div>'+
-        (P.trigger!=null?'<div class="kv"><span>Trigger</span><b>'+fmtAxis(P.trigger)+(P.distance!=null?' ('+pct(P.distance)+' away)':'')+'</b></div>':'')+
-        (P.target!=null?'<div class="kv"><span>Measured target</span><b>'+fmtAxis(P.target)+'</b></div>':'')+
-      '</div>';
-    }
-    out+='</div>';
-  }
+  out += patternsBlock();
   if(state.htfPats && state.htfPats.length){
     out+='<div class="card"><div class="cardT">'+(state.htf?state.htf.tf.toUpperCase():"HIGHER TF")+' PATTERNS</div>'+
       '<div class="cardNote">'+state.htfPats.map(P=>'<b class="'+(P.dir==="bullish"?"g":P.dir==="bearish"?"r":"y")+'">'+P.name+'</b> ('+P.status+')').join(" · ")+
