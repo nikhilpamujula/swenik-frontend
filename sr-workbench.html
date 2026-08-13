@@ -816,6 +816,8 @@
     <div class="pTitle" style="margin-top:12px">RISK</div>
     <label class="riskRow">Account size <input id="acctIn" type="number" value="10000" min="1"></label>
     <label class="riskRow">Risk per trade % <input id="riskIn" type="number" value="1" min="0.1" step="0.1"></label>
+    <div id="buildTag" style="margin-top:14px;padding-top:9px;border-top:1px solid #1A2030;
+      font-size:10.5px;color:#7A8699;font-family:ui-monospace,Menlo,monospace">build —</div>
   </div>
   <div class="panel" id="propBox">
     <div class="pTitle">✨ CANDIDATES — REVIEW BEFORE DRAWING</div>
@@ -924,6 +926,17 @@
   </div>
 </div>
 
+<script>
+/* ── Build stamp ─────────────────────────────────────────────────────────────
+   Deliberately GLOBAL and set before anything else, for one reason: the wrapper
+   in track.html loads this file in a same-origin iframe whose src never changes,
+   which means a phone browser will happily serve a cached copy of a deploy that
+   is days old and there is no way to tell by looking. The wrapper reads this
+   value and forces a hard reload when it does not match what it expects.
+   BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
+window.WB_BUILD = "2026-08-13b-objectives";
+try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
+</script>
 <script>
 /* ── Persistence shim (Swenik) ───────────────────────────────────────────────
    The app funnels ALL persistence through window.storage.get/set. Inside the
@@ -1282,9 +1295,28 @@ function render(){
         ctx.beginPath(); ctx.moveTo(chartW()*0.45,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
         ctx.setLineDash([]);
         ctx.font="11px ui-monospace,Menlo,monospace";
-        tryLabel("read fails "+fmtAxis(R2.inval.p), chartW()*0.62, y-3, hexA("#F2495C",0.9), "rgba(11,14,20,.75)");
+        /* "read fails 65,474" parses as a verdict. It is a condition — spell out
+           the direction so the line reads as "if price goes past here".         */
+        tryLabel("read fails "+(R2.bias==="bullish"?"below":"above")+" "+fmtAxis(R2.inval.p),
+                 chartW()*0.62, y-3, hexA("#F2495C",0.9), "rgba(11,14,20,.75)");
       }
     }
+    /* When risk is charged to a clamped stop rather than the invalidation, draw
+       that stop. A risk:reward measured against a line nobody can see is worse
+       than no risk:reward at all.                                               */
+    try{
+      const S2=readStop(R2);
+      if(S2 && S2.clamped && R2.inval && Math.abs(S2.p-R2.inval.p)/R2.px >= 0.0005){
+        const ys=yOf(S2.p);
+        if(ys>0&&ys<priceH()){
+          ctx.strokeStyle=hexA("#B8891A",0.75); ctx.setLineDash([6,4]);
+          ctx.beginPath(); ctx.moveTo(chartW()*0.55,ys+.5); ctx.lineTo(chartW(),ys+.5); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.font="11px ui-monospace,Menlo,monospace";
+          tryLabel("stop "+fmtAxis(S2.p), chartW()*0.68, ys-3, hexA("#B8891A",0.95), "rgba(11,14,20,.75)");
+        }
+      }
+    }catch(e){}
   }
 
   /* Fibonacci levels from the detected impulse leg */
@@ -2724,17 +2756,31 @@ function fullRead(useLevels){
     if(MS.lastH) cand.push({p:MS.lastH.p, label:"last swing high", src:"structure"});
     if(MS.lastL) cand.push({p:MS.lastL.p, label:"last swing low", src:"structure"});
   }
-  const upT=cand.filter(c=>c.p>px*1.002).sort((a,b)=>a.p-b.p);
-  const dnT=cand.filter(c=>c.p<px*0.998).sort((a,b)=>b.p-a.p);
+  /* How far away does a level have to be before it counts as an "objective"?
+     This used to be a hardcoded 0.2%. On 15m that is a sensible noise floor; on
+     1D, where a single bar routinely travels 2%, it let a level 0.7% away pose
+     as the next objective while the invalidation came from real daily structure
+     2.8% out — a structurally doomed 0.18:1 on every daily read. Scale the floor
+     to the timeframe's own volatility instead of a constant.                    */
+  const atr = atrPct();
+  const minGap = Math.max(0.002, atr*0.75);
+  const upT=cand.filter(c=>c.p>px*(1+minGap)).sort((a,b)=>a.p-b.p);
+  const dnT=cand.filter(c=>c.p<px*(1-minGap)).sort((a,b)=>b.p-a.p);
+  const nearUp=cand.filter(c=>c.p>px && c.p<=px*(1+minGap)).length;
+  const nearDn=cand.filter(c=>c.p<px && c.p>=px*(1-minGap)).length;
   const dir = bias==="bullish"? 1 : bias==="bearish"? -1 : 0;
   const path=[];
   let t1=null,t2=null,inval=null;
   if(dir>0){ t1=upT[0]; t2=upT[1]; inval=dnT[0]; }
   else if(dir<0){ t1=dnT[0]; t2=dnT[1]; inval=upT[0]; }
   else { t1=upT[0]; t2=dnT[0]; }
+  /* nothing far enough away in the direction of the read: say so rather than
+     silently rendering a read with no objective */
+  const skipped = dir>0? nearUp : dir<0? nearDn : 0;
 
   return {cfg, votes, bias, conviction, up, down, px, combined:!!useLevels,
-          t1, t2, inval, rsi:rv, ema:E.map(a=>a[n-1]), fib:F, ms:MS, regime:REG};
+          t1, t2, inval, minGap, skipped, atr,
+          rsi:rv, ema:E.map(a=>a[n-1]), fib:F, ms:MS, regime:REG};
 }
 
 /* Compute the read AND its counterpart, so the card can show what 🔗 actually
@@ -2783,15 +2829,39 @@ function applyFullRead(){
    whether a read is worth trading. Costs are charged to BOTH sides: fees widen
    the effective stop and shave the objective, which is why the net ratio can be
    half the gross one on a tight read.                                          */
+/* ---------- read: the ONE stop ----------
+   The thesis invalidation and the trade stop are different things, and the app
+   used to compute them in two places that could disagree: the card charged risk
+   against the raw structural invalidation while readToSignal quietly clamped it
+   to 2×ATR when structure sat more than 3×ATR away. Same read, two stops, two
+   risk:reward numbers. Both callers now come through here.                     */
+function readStop(R){
+  if(!R || (R.bias!=="bullish" && R.bias!=="bearish")) return null;
+  const a  = (R && R.atr) || atrPct();
+  const px = R.px, isLong = R.bias==="bullish";
+  const away = p => Math.abs(px-p)/px;
+  let p = R.inval? R.inval.p : (isLong? px*(1-a*2) : px*(1+a*2));
+  let clamped=null;
+  if(!R.inval) clamped="none";                       /* no structure to lean on */
+  else if(away(p) > a*3){                            /* structure is a different trade */
+    p = isLong? px*(1-a*2) : px*(1+a*2); clamped="far";
+  }
+  const floor = Math.max(a, (typeof costPct==="function"? costPct() : 0.0012)*4);
+  if(away(p) < floor){                               /* inside the noise / fee floor */
+    p = isLong? px*(1-floor) : px*(1+floor); clamped="near";
+  }
+  return {p, clamped, atr:a, pct:away(p)};
+}
 function readRR(R){
-  if(!R || !R.t1 || !R.inval) return null;
-  const risk=Math.abs(R.px - R.inval.p);
+  const S=readStop(R);
+  if(!R || !R.t1 || !S) return null;
+  const risk=Math.abs(R.px - S.p);
   const rew =Math.abs(R.t1.p - R.px);
   if(!(risk>0) || !(rew>0)) return null;
   const c = (typeof costPct==="function"? costPct() : 0.0012) * R.px;
   const gross = rew/risk;
   const net   = Math.max(0, rew-c) / (risk+c);
-  return {risk, rew, cost:c, gross, net,
+  return {risk, rew, cost:c, gross, net, stop:S,
           be: net>0? 1/(1+net) : 1,          /* win rate needed just to break even */
           inverted: rew < risk,
           drag: rew>0? c/rew : 1};
@@ -2810,6 +2880,10 @@ function rrBlock(R){
     msg = "Break-even win rate <b>"+(r.be*100).toFixed(0)+"%</b> — above that this shape pays.";
   if(r.drag>=0.25)
     msg += " Round-trip costs eat <b>"+(r.drag*100).toFixed(0)+"%</b> of the move — the objective is close enough that fees are a main character.";
+  if(r.stop.clamped==="far")
+    msg += " Risk is measured to a <b>"+pct(r.stop.pct)+" stop</b> ("+fmt(r.stop.p)+"), not to the invalidation — that level is more than 3× a bar's range away, which is a different trade, not a stop.";
+  else if(r.stop.clamped==="near")
+    msg += " Stop widened to <b>"+pct(r.stop.pct)+"</b> ("+fmt(r.stop.p)+") — anything tighter sits inside the noise and fee floor.";
   return '<div class="rr '+cls+'">'+
     '<span>Risk : reward</span>'+
     (Math.abs(r.gross-r.net)>0.03? '<span class="gr">'+r.gross.toFixed(2)+':1</span>' : '')+
@@ -2911,9 +2985,21 @@ function renderReadCard(){
       })()+
       '<div class="cardNote">'+R.cfg.note+' · typical hold '+R.cfg.hold+' · EMA '+R.cfg.ema.join("/")+' · RSI '+R.cfg.rsi+'</div>'+
       (R.t1? '<div class="kv"><span>First objective</span><b>'+fmt(R.t1.p)+'</b></div>'+
-             '<div class="cardNote">'+R.t1.label+' ('+R.t1.src+') · '+pct((R.t1.p-R.px)/R.px)+' away</div>' : '')+
+             '<div class="cardNote">'+R.t1.label+' ('+R.t1.src+') · '+pct((R.t1.p-R.px)/R.px)+' away</div>'
+           : (R.bias==="bullish"||R.bias==="bearish")
+           ? '<div class="flag warn">No objective at least '+pct(R.minGap||0.002)+' away'+
+             (R.skipped? ' — '+R.skipped+' level'+(R.skipped>1?'s were':' was')+' skipped for sitting inside a single '+state.tf+' bar’s range' : '')+
+             '. Nothing worth travelling to from here; that is a wait, not a trade.</div>' : '')+
       (R.t2? '<div class="kv"><span>Then</span><b>'+fmt(R.t2.p)+'</b></div>' : '')+
-      (R.inval? '<div class="kv"><span>Read fails if price closes past</span><b class="r">'+fmt(R.inval.p)+'</b></div>' : '')+
+      (R.inval? '<div class="kv"><span>Read fails if price closes '+(R.bias==="bullish"?"below":"above")+
+                '</span><b class="r">'+fmt(R.inval.p)+'</b></div>' : '')+
+      (()=>{ const S=readStop(R);
+        if(!S || !R.inval || Math.abs(S.p-R.inval.p)/R.px < 0.0005) return "";
+        return '<div class="kv"><span>Trade stop (what risk is measured to)</span><b class="r">'+fmt(S.p)+'</b></div>'+
+          '<div class="cardNote">'+pct(S.pct)+' away'+
+          (S.clamped==="far"? ' — the invalidation at '+fmt(R.inval.p)+' is further than 3× a '+state.tf+' bar’s range, so risking to it would be a different trade.'
+                            : ' — the invalidation is inside the noise and fee floor.')+'</div>';
+      })()+
       rrBlock(R)+
       (R.bias==="mixed"
         ? '<div class="flag warn">The engines disagree. A mixed read is a reason to wait, not to pick a side.</div>'
@@ -2973,8 +3059,9 @@ function readToSignal(R){
   const px=R.px;
   const entry=px;
   const a=atrPct();
-  let stop = R.inval? R.inval.p : (isLong? px*(1-a*2) : px*(1+a*2));
-  if(Math.abs(entry-stop)/entry > a*3) stop = isLong? entry*(1-a*2) : entry*(1+a*2);
+  const S=readStop(R);                     /* one stop, shared with the card's R:R */
+  if(!S) return null;
+  const stop=S.p;
   const risk=Math.abs(entry-stop);
   if(!(risk>0)) return null;
   const target=R.t1.p;
@@ -3267,7 +3354,7 @@ function plainRead(R){
   return "Most signals on the "+state.tf+" chart point "+(up?"upward":"downward")+" ("+R.up+" for, "+R.down+" against)."+
     (t1? " If that holds, the next place price is likely to react is <b>"+t1+"</b>."
        : "")+
-    (R.inval? " If price closes past <b>"+fmt(R.inval.p)+"</b> instead, this read is wrong and should be dropped." : "");
+    (R.inval? " If price closes "+(up?"below":"above")+" <b>"+fmt(R.inval.p)+"</b> instead, this read is wrong and should be dropped." : "");
 }
 function plainStructure(px,S2,R2){
   if(!S2&&!R2) return "";
@@ -6571,6 +6658,10 @@ async function boot(){
           if(el) el.click();
         }
       }
+    }catch(e){}
+    try{ const bt=$("buildTag");
+         if(bt) bt.textContent = "build " + (window.WB_BUILD||"?") +
+           (location.search.match(/[?&]v=([^&]+)/)? "  ·  loaded fresh" : "");
     }catch(e){}
     loadFunding(); loadDepth(); loadCorr();
     $("loadOverlay").style.display="none";

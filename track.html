@@ -8753,6 +8753,14 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // full-viewport layer that escapes the sidebar and page chrome entirely,
     // with its own slim bar to come back. Mount is idempotent: the page's 4s
     // refresh tick must never reload the iframe (it would wipe a chart in use).
+    // The build of sr-workbench.html this wrapper expects. The iframe src used to
+    // be a constant URL, so a phone browser served whatever it had cached and a
+    // fresh deploy looked identical to no deploy at all. Two defences: the ?v=
+    // token below changes the URL on every release (so the cache misses once and
+    // then caches normally), and after load we compare the frame's own stamp and
+    // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
+    var WB_VER = '2026-08-13b-objectives';
+
     function wbMount() {
       if (document.getElementById('wbFull')) return;      // already up → never rebuild
       var d = document.createElement('div');
@@ -8769,11 +8777,42 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         '<div style="flex:none; display:flex; align-items:center; gap:10px; padding:6px 10px; background:#0f1c33; color:#fff; font-size:12.5px; font-weight:700;">'
         +  '<button onclick="wbExit()" style="background:#22375f; color:#fff; border:0; border-radius:8px; padding:6px 12px; font-weight:700; cursor:pointer;">← Futures</button>'
         +  '<span style="opacity:.85;">📈 S/R Workbench</span>'
+        +  '<span id="wbBuild" style="margin-left:auto; opacity:.5; font-weight:500; font-size:10.5px; font-family:ui-monospace,Menlo,monospace;">' + WB_VER + '</span>'
         + '</div>'
-        + '<iframe id="wbTabFrame" title="S/R Workbench" src="sr-workbench.html?apibase=' + encodeURIComponent(API_BASE) + '" '
+        + '<iframe id="wbTabFrame" title="S/R Workbench" src="sr-workbench.html?v=' + encodeURIComponent(WB_VER) + '&apibase=' + encodeURIComponent(API_BASE) + '" '
         +   'style="flex:1; width:100%; border:0; display:block;"></iframe>';
       document.body.appendChild(d);
       document.body.style.overflow = 'hidden';            // kill the outer scrollbar → no double-scroll
+      wbVerify();
+    }
+
+    // Same-origin iframe, so we can read its build stamp directly. If it does not
+    // match, the browser served a cached copy: bust it once with a timestamp. If
+    // it STILL disagrees the deployed file itself is old — say so in the bar
+    // rather than leaving you to infer it from missing features.
+    function wbVerify() {
+      var f = document.getElementById('wbTabFrame');
+      var tag = document.getElementById('wbBuild');
+      if (!f || !tag) return;
+      var tries = 0;
+      var check = function () {
+        var got;
+        try { got = f.contentWindow && f.contentWindow.WB_BUILD; } catch (e) { return; }  // not loaded yet
+        if (got === WB_VER) { tag.textContent = WB_VER; tag.style.opacity = '.5'; tag.style.color = ''; return; }
+        if (got === undefined) { if (++tries < 40) setTimeout(check, 250); return; }
+        if (!f.dataset.busted) {                          // one automatic cache-bust
+          f.dataset.busted = '1';
+          tag.textContent = 'refreshing…';
+          f.src = 'sr-workbench.html?v=' + encodeURIComponent(WB_VER) + '.' + Date.now()
+                + '&apibase=' + encodeURIComponent(API_BASE);
+          tries = 0; setTimeout(check, 900);
+          return;
+        }
+        tag.textContent = '⚠ deployed build is ' + got + ', expected ' + WB_VER;
+        tag.style.opacity = '1'; tag.style.color = '#ffb3be';
+      };
+      f.addEventListener('load', function () { tries = 0; setTimeout(check, 120); });
+      setTimeout(check, 400);
     }
     window.wbUnmount = function () {
       var d = document.getElementById('wbFull');
