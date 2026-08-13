@@ -487,7 +487,10 @@
     padding:1px 8px;border-radius:12px;color:var(--dim);
   }
   #caret{margin-left:6px;color:var(--dim);transition:transform .2s;font-size:15px;flex:none;padding:4px}
-  .tabs{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none;flex:1;padding:1px}
+  /* min-width:0 lets the scroller actually shrink instead of pushing the caret
+     and expand button off the edge — without it the last tab slides underneath
+     them and both become unreadable. */
+  .tabs{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none;flex:1 1 0;min-width:0;padding:1px}
   .tabs::-webkit-scrollbar{display:none}
   .tab{
     background:var(--panel2);border:1px solid var(--line);color:var(--dim);cursor:pointer;
@@ -690,6 +693,40 @@
   .vRow .res{font-weight:700;white-space:nowrap}
   .vRow .meta{color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #sheet.open #caret{transform:rotate(180deg)}
+  /* ---- full-screen reading mode -------------------------------------------
+     A 46dvh box is fine for a list and hostile for prose. Rather than fight the
+     chart for a few more vh, the sheet lifts out into its own layer. The chart
+     is not being read at that moment anyway.                                 */
+  #sheet.full{position:fixed;inset:0;z-index:40;max-height:none;border-top:none;
+    background:var(--bg);padding-bottom:env(safe-area-inset-bottom,0px)}
+  #sheet.full #paneWrap{flex:1;max-height:none;display:block}
+  #sheet.full #sheetHead{position:sticky;top:0;z-index:2;background:var(--panel);
+    border-bottom:1px solid var(--line)}
+  #sheet.full .pane{padding:0 14px 24px;max-width:760px;margin:0 auto}
+  #sheet.full #caret{display:none}
+  #expandBtn{color:var(--dim);font-size:14px;flex:none;padding:4px 6px;cursor:pointer;
+    background:none;border:none;line-height:1}
+  #sheet.full #expandBtn{color:var(--accent)}
+  /* ---- collapsible sections inside a pane --------------------------------- */
+  .pane details.secX{display:block}
+  .pane details.secX>summary{list-style:none;cursor:pointer;user-select:none;
+    display:flex;align-items:center;gap:8px;
+    font-size:10.5px;letter-spacing:.7px;color:var(--accent);font-weight:700}
+  .pane details.secX>summary::-webkit-details-marker{display:none}
+  .pane details.secX>summary::after{content:"▾";margin-left:auto;color:var(--dim);
+    font-size:11px;transition:transform .15s}
+  .pane details.secX[open]>summary::after{transform:rotate(180deg)}
+  /* the caveat that rides along with a section title is context, not a heading —
+     it must not compete with the title for attention */
+  .pane details.secX>summary .est{letter-spacing:0;color:var(--dim);font-weight:500;
+    text-transform:none;font-size:10px;flex:1 1 auto;min-width:0}
+  .pane details.secX>summary>*:first-child{flex:none}
+  .pane .secBody{padding-top:9px}
+  .pane details.secX:not([open])>summary{opacity:.8}
+  #secTools{display:flex;gap:7px;margin:2px 0 9px}
+  #secTools button{flex:1;background:var(--panel2);border:1px solid var(--line);color:#A7B1C4;
+    border-radius:8px;padding:7px;font-size:11px;cursor:pointer}
+  #secTools button:active{border-color:var(--accent)}
   .lvl{display:flex;align-items:center;gap:9px;padding:9px 8px;border-bottom:1px solid var(--line)}
   .lvl:last-child{border-bottom:none}
   .dot{width:11px;height:11px;border-radius:3px;flex:none;cursor:pointer}
@@ -936,6 +973,7 @@
       <button class="tab" data-tab="coach">COACH</button>
       <button class="tab" data-tab="record">RECORD <span class="n" id="recCount">0</span></button>
     </div>
+    <button id="expandBtn" title="Read full screen">⤢</button>
     <span id="caret">▾</span>
   </div>
   <div id="paneWrap">
@@ -957,7 +995,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-13c-patterns";
+window.WB_BUILD = "2026-08-13d-readable";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1044,6 +1082,7 @@ const state = {
   readHidden:false,                         /* card collapsed to a chip; projection stays on the chart */
   readGroups:{},                            /* which factor groups the user left open */
   patOpen:{},                               /* which pattern explanations are expanded */
+  secOpen:{},                               /* which STRUCTURE sections are expanded */
   combineAll:false,                         /* 🔗 on by default, on every coin, across sessions */
   tabs:[],                                  /* open pairs, most-recent last */
   symbol:"BTCUSDT",
@@ -6158,11 +6197,62 @@ function postMortem(){
   return h;
 }
 
+/* ---------- turn a pane of cards into collapsible sections ------------------
+   STRUCTURE emits ten cards. Stacked, that is a wall you scroll past rather
+   than read. Rather than rewrite ten construction sites, the transform happens
+   on the rendered DOM: exact, and it automatically covers any card added later.
+   Which sections you leave open is remembered, so a new bar does not slam shut
+   the one you were mid-way through.                                          */
+const SEC_OPEN_BY_DEFAULT = /^(WHERE PRICE SITS|CONDITIONS|PATTERNS)/;
+function sectionise(root){
+  [...root.children].forEach(card=>{
+    if(!card.classList || !card.classList.contains("card")) return;
+    if(card.querySelector(":scope > details.secX")) return;      // already done
+    const head=card.querySelector(":scope > .cardT");
+    if(!head) return;
+    const key=(head.textContent||"").replace(/\s+/g," ").trim().slice(0,44);
+    if(!key) return;
+    const d=document.createElement("details");
+    d.className="secX"; d.dataset.s=key;
+    const sm=document.createElement("summary");
+    sm.innerHTML=head.innerHTML;
+    head.remove();
+    const body=document.createElement("div");
+    body.className="secBody";
+    while(card.firstChild) body.appendChild(card.firstChild);
+    d.appendChild(sm); d.appendChild(body);
+    card.appendChild(d);
+    d.open = state.secOpen[key]==null ? SEC_OPEN_BY_DEFAULT.test(key) : !!state.secOpen[key];
+    d.addEventListener("toggle",()=>{ state.secOpen[key]=d.open; });
+  });
+}
+function sectionTools(root, onAll){
+  const bar=document.createElement("div");
+  bar.id="secTools";
+  bar.innerHTML='<button data-a="open">Expand all</button>'+
+                '<button data-a="shut">Collapse all</button>'+
+                '<button data-a="full">Full screen</button>';
+  bar.querySelectorAll("button").forEach(b=>{
+    b.onclick=()=>{
+      if(b.dataset.a==="full"){ setSheetFull(!$("sheet").classList.contains("full")); return; }
+      const want=b.dataset.a==="open";
+      root.querySelectorAll("details.secX").forEach(d=>{ d.open=want; state.secOpen[d.dataset.s]=want; });
+      if(onAll) onAll(want);
+    };
+  });
+  root.insertBefore(bar, root.firstChild);
+}
 function renderStructure(){
-  $("structList").innerHTML = structureRead();
+  const root=$("structList");
+  root.innerHTML = structureRead();
+  sectionise(root);
+  sectionTools(root, want=>{
+    /* expand-all should also open the pattern explanations, not just the shells */
+    root.querySelectorAll("details.patX").forEach(d=>{ d.open=want; state.patOpen[d.dataset.p]=want; });
+  });
   /* remember which explanations were left open, so a new bar does not collapse
      the one being read */
-  $("structList").querySelectorAll("details.patX").forEach(d=>{
+  root.querySelectorAll("details.patX").forEach(d=>{
     d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; });
   });
 }
@@ -6175,7 +6265,11 @@ function openPatternInfo(name){
   renderStructure();
   setTimeout(()=>{
     const d=$("structList").querySelector('details.patX[data-p="'+esc(name).replace(/"/g,'\\"')+'"]');
-    if(d){ d.open=true; d.scrollIntoView({block:"center", behavior:"smooth"}); }
+    if(!d) return;
+    const sec=d.closest("details.secX");      /* the PATTERNS shell must open too */
+    if(sec && !sec.open){ sec.open=true; state.secOpen[sec.dataset.s]=true; }
+    d.open=true;
+    d.scrollIntoView({block:"center", behavior:"smooth"});
   },60);
 }
 function renderRecord(){
@@ -6320,10 +6414,33 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   const map={watch:"watchList",signals:"sigList",lines:"levelList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
   $("sheet").classList.add("open");
+  /* The strip scrolls horizontally, so the tab you just chose can end up half
+     under the caret and expand button — which is how STRUCTURE read as "STR".
+     Pull it fully into view. */
+  try{ b.scrollIntoView({inline:"center", block:"nearest", behavior:"smooth"}); }catch(e){}
   renderPane();
 });
 $("caret").onclick=e=>{ e.stopPropagation(); $("sheet").classList.toggle("open"); };
-$("sheetHead").onclick=()=>$("sheet").classList.toggle("open");
+$("sheetHead").onclick=()=>{
+  /* in full-screen the head is a sticky title bar, not a collapse handle —
+     collapsing it there would leave a blank screen with no way back */
+  if($("sheet").classList.contains("full")) return;
+  $("sheet").classList.toggle("open");
+};
+function setSheetFull(on){
+  const s=$("sheet");
+  s.classList.toggle("full", !!on);
+  if(on) s.classList.add("open");
+  $("expandBtn").textContent = on ? "⤡" : "⤢";
+  $("expandBtn").title = on ? "Back to the chart" : "Read full screen";
+  document.body.style.overflow = on ? "hidden" : "";
+  /* Deliberately NOT persisted across reloads. Full screen is a reading mode,
+     not a preference: restoring it on boot opens a charting app on a wall of
+     text with the toolbar behind an overlay. It survives re-renders within the
+     session, which is what actually matters while you are reading.           */
+  if(!on) requestAnimationFrame(()=>{ try{ resize(); render(); }catch(e){} });
+}
+$("expandBtn").onclick=e=>{ e.stopPropagation(); setSheetFull(!$("sheet").classList.contains("full")); };
 
 /* ---------- verdict log: does the engine's % actually work? ----------
    A verdict opens the moment a line is genuinely tested (price within 0.4%),
