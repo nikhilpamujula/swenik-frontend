@@ -723,6 +723,43 @@
   .pane details.secX>summary>*:first-child{flex:none}
   .pane .secBody{padding-top:9px}
   .pane details.secX:not([open])>summary{opacity:.8}
+  /* ---- ZONES: the multi-timeframe board ---------------------------------- */
+  .zBanner{border-radius:12px;padding:13px 15px;margin-bottom:12px;border:1px solid}
+  .zBanner .zt{font-size:17px;font-weight:800;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+  .zBanner .zw{font-size:12.5px;color:#A7B1C4;line-height:1.55;margin-top:5px}
+  .zBanner.buy{background:rgba(45,212,160,.10);border-color:rgba(45,212,160,.45)} .zBanner.buy .zt{color:var(--up)}
+  .zBanner.sell{background:rgba(242,73,92,.10);border-color:rgba(242,73,92,.45)} .zBanner.sell .zt{color:var(--down)}
+  .zBanner.warn{background:rgba(245,215,122,.09);border-color:rgba(245,215,122,.45)} .zBanner.warn .zt{color:#F5D77A}
+  .zBanner.wait{background:var(--panel2);border-color:var(--line)} .zBanner.wait .zt{color:var(--dim)}
+  .zPlan{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;margin-top:10px;
+    font-family:ui-monospace,Menlo,monospace;font-size:12.5px;align-items:baseline}
+  .zPlan .k{color:var(--dim)} .zPlan .v{font-weight:700;font-variant-numeric:tabular-nums}
+  .zPlan .x{color:var(--dim);font-size:11px;text-align:right}
+  .zRR{margin-top:9px;padding:7px 10px;border-radius:8px;font-size:12px;background:rgba(0,0,0,.25)}
+  .zRR b{font-size:14px}
+  /* one row per zone: band, who agrees, how far, how strong */
+  .zRow{display:grid;grid-template-columns:1fr auto;gap:3px 10px;padding:9px 10px;border-radius:9px;
+    border:1px solid var(--line);margin-bottom:7px;background:rgba(255,255,255,.015)}
+  .zRow.here{border-color:var(--accent);background:rgba(45,212,191,.07)}
+  .zRow .band{font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums}
+  .zRow .away{font-size:12px;color:var(--dim);text-align:right;font-variant-numeric:tabular-nums}
+  .zRow .meta{grid-column:1/-1;display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:10.5px;color:var(--dim)}
+  .zTf{padding:1px 6px;border-radius:5px;border:1px solid var(--line);font-weight:700;letter-spacing:.3px}
+  .zTf.t1d{color:#C9B6FF;border-color:rgba(133,96,214,.5)}
+  .zTf.t4h{color:#8FA0FF;border-color:rgba(124,140,248,.45)}
+  .zTf.t1h{color:#7FD8E8;border-color:rgba(31,155,179,.5)}
+  .zTf.t15m{color:#A7B1C4}
+  .zBar{flex:1;min-width:60px;height:5px;border-radius:3px;background:#242c3b;overflow:hidden}
+  .zBar>i{display:block;height:5px;border-radius:3px;background:var(--accent)}
+  .zGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:2px 0 4px}
+  .zCell{border:1px solid var(--line);border-radius:9px;padding:8px 6px;text-align:center}
+  .zCell .tf{font-size:10px;letter-spacing:.6px;color:var(--dim);font-weight:700}
+  .zCell .bi{font-size:12.5px;font-weight:800;margin-top:3px}
+  .zCell .rs{font-size:10px;color:var(--dim);margin-top:2px}
+  .zCell.up{border-color:rgba(45,212,160,.4)} .zCell.up .bi{color:var(--up)}
+  .zCell.down{border-color:rgba(242,73,92,.4)} .zCell.down .bi{color:var(--down)}
+  .zCell.flat .bi{color:var(--dim)}
+  .zStale{font-size:10.5px;color:var(--dim);margin-top:10px;font-family:ui-monospace,Menlo,monospace}
   #secTools{display:flex;gap:7px;margin:2px 0 9px}
   #secTools button{flex:1;background:var(--panel2);border:1px solid var(--line);color:#A7B1C4;
     border-radius:8px;padding:7px;font-size:11px;cursor:pointer}
@@ -968,6 +1005,7 @@
       <button class="tab" data-tab="watch">WATCH <span class="n" id="watchCount">0</span></button>
       <button class="tab on" data-tab="signals">SIGNALS <span class="n" id="sigCount">0</span></button>
       <button class="tab" data-tab="lines">LINES <span class="n" id="lvlCount">0</span></button>
+      <button class="tab" data-tab="zones">ZONES <span class="n" id="zoneCount">0</span></button>
       <button class="tab" data-tab="structure">STRUCTURE</button>
       <button class="tab" data-tab="trades">TRADES <span class="n" id="trdCount">0</span></button>
       <button class="tab" data-tab="coach">COACH</button>
@@ -980,6 +1018,7 @@
     <div id="watchList" class="pane"></div>
     <div id="sigList" class="pane on"></div>
     <div id="levelList" class="pane"></div>
+    <div id="zoneList" class="pane"></div>
     <div id="structList" class="pane"></div>
     <div id="tradeList" class="pane"></div>
     <div id="coachList" class="pane"></div>
@@ -995,7 +1034,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-13d-readable";
+window.WB_BUILD = "2026-08-13f-verdicts";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1083,6 +1122,8 @@ const state = {
   readGroups:{},                            /* which factor groups the user left open */
   patOpen:{},                               /* which pattern explanations are expanded */
   secOpen:{},                               /* which STRUCTURE sections are expanded */
+  zones:null,                               /* server snapshot of the 15m/1h/4h/1d board */
+  vf:{},                                    /* candle series for the tracked verdict timeframes */
   combineAll:false,                         /* 🔗 on by default, on every coin, across sessions */
   tabs:[],                                  /* open pairs, most-recent last */
   symbol:"BTCUSDT",
@@ -3221,6 +3262,8 @@ async function switchSymbol(sym){
   state.symbol=sym; SYMBOL=sym;
   restoreSymbol(sym);
   state.read=null; state.readAlt=null; state.readSignal=null; state.analysis=null; state.patterns=[]; state.htfPats=[];
+  state.zones=null; if(state.tab==="zones") loadZones().then(renderZones);
+  state.vf={}; setTimeout(()=>{ try{ seedVerdicts(); }catch(e){} }, 1200);
   state.readHidden=false;
   if(state.combineAll) state.combine=true;      /* "combined everywhere" survives a coin switch */
   const _cb=$("combineBtn"); if(_cb) _cb.classList.toggle("arm", !!state.combine);
@@ -6197,6 +6240,118 @@ function postMortem(){
   return h;
 }
 
+/* ============================================================================
+   ZONES — the multi-timeframe board, rendered from the SERVER's snapshot.
+
+   Deliberately not recomputed here. The server decides the stance and sends the
+   alert; if the app recomputed it locally the two could disagree and you would
+   have no way to tell which one the Telegram message came from. What you read
+   on this tab is exactly what the alert decided on.
+   ========================================================================== */
+const ZONE_CLS = { BUY_ZONE:'buy', APPROACHING_BUY:'buy', BUY_ZONE_AGAINST_TREND:'warn',
+                   SELL_ZONE:'sell', APPROACHING_SELL:'sell', SELL_ZONE_AGAINST_TREND:'warn',
+                   HOLD:'wait', STAND_ASIDE:'wait' };
+const ZONE_ICON = { BUY_ZONE:'🟢', APPROACHING_BUY:'🔵', BUY_ZONE_AGAINST_TREND:'🟡',
+                    SELL_ZONE:'🔴', APPROACHING_SELL:'🟠', SELL_ZONE_AGAINST_TREND:'🟡',
+                    HOLD:'⚪', STAND_ASIDE:'⚪' };
+async function loadZones(force){
+  const base = window.WB_API;
+  if(!base){ state.zones={err:'No backend configured — the workbench is running as a plain file.'}; return; }
+  try{
+    const u = base+'/api/wb/zones?symbol='+encodeURIComponent(state.symbol)+(force?'&fresh=1':'');
+    const r = await fetch(u,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    state.zones = (j && j.symbol) ? j : {err:'The watcher has not scanned '+state.symbol+' yet.'};
+  }catch(e){ state.zones={err:'Could not reach the watcher: '+e.message}; }
+}
+function zoneRow(z, px, dir){
+  const here = px>=z.lo && px<=z.hi;
+  const tfs = (z.tfs||[]).map(t=>'<span class="zTf t'+t+'">'+t+'</span>').join(' ');
+  const away = here? 'price is inside' : pct((z.mid-px)/px)+' away';
+  return '<div class="zRow'+(here?' here':'')+'">'+
+    '<div class="band">'+fmt(z.lo)+' – '+fmt(z.hi)+'</div>'+
+    '<div class="away">'+away+'</div>'+
+    '<div class="meta">'+tfs+
+      '<span>'+z.touches+' touches</span>'+
+      '<span class="zBar"><i style="width:'+Math.max(4,z.score)+'%"></i></span>'+
+      '<span>confluence '+z.score+'/100</span>'+
+    '</div></div>';
+}
+function renderZones(){
+  const el=$("zoneList"); const Z=state.zones;
+  if(!Z){ el.innerHTML='<div class="empty">Loading the 15m / 1h / 4h / 1d board…</div>'; return; }
+  if(Z.err){ el.innerHTML='<div class="empty"><b>'+Z.err+'</b><br><br>'+
+      'The zones board is computed server-side so it keeps watching when this tab is closed. '+
+      'It appears once the backend has scanned this coin.</div>'+
+      '<div id="secTools"><button data-a="rescan">Scan '+state.symbol.replace("USDT","")+' now</button></div>';
+    const b=el.querySelector('[data-a="rescan"]'); if(b) b.onclick=async()=>{ b.textContent='Scanning…'; await loadZones(true); renderZones(); };
+    $("zoneCount").textContent='0'; return; }
+
+  const S=Z.stance||{}, P=S.plan||null;
+  const cls=ZONE_CLS[S.code]||'wait', icon=ZONE_ICON[S.code]||'•';
+  const n=(Z.buyZones||[]).length+(Z.sellZones||[]).length;
+  $("zoneCount").textContent=String(n);
+
+  let h='<div class="zBanner '+cls+'">'+
+    '<div class="zt">'+icon+' '+esc(S.label||'—')+'</div>'+
+    '<div class="zw">'+esc(S.why||'')+'.</div>';
+  if(P && P.target!=null && P.net!=null){
+    const rrCls = P.net>=1.8?'good':P.net>=1?'thin':'bad';
+    h+='<div class="zPlan">'+
+      '<span class="k">entry</span><span class="v">'+fmt(P.entry)+'</span><span class="x">now</span>'+
+      '<span class="k">stop</span><span class="v">'+fmt(P.stop)+'</span><span class="x">'+
+        (Math.abs(P.entry-P.stop)/P.entry*100).toFixed(2)+'%</span>'+
+      '<span class="k">target</span><span class="v">'+fmt(P.target)+'</span><span class="x">'+
+        (P.targetZone? P.targetZone.tfs.join('+')+' zone':'')+'</span>'+
+    '</div>'+
+    '<div class="zRR '+rrCls+'"><b>'+P.net.toFixed(2)+':1</b> net of costs — needs <b>'+
+      (P.be*100).toFixed(0)+'%</b> winners to break even</div>';
+  } else if(P && P.why){
+    h+='<div class="zw" style="margin-top:8px">No tradeable shape: '+esc(P.why)+'.</div>';
+  }
+  h+='</div>';
+
+  /* the four timeframes, side by side — the whole point of the tab */
+  h+='<div class="card"><div class="cardT">TIMEFRAMES <span class="est">the 1d counts 4× the 15m</span></div>'+
+     '<div class="zGrid">'+
+     ['15m','1h','4h','1d'].map(t=>{ const R=(Z.tf||{})[t];
+       if(!R) return '<div class="zCell flat"><div class="tf">'+t.toUpperCase()+'</div><div class="bi">—</div><div class="rs">no data</div></div>';
+       const k=R.bias==='bullish'?'up':R.bias==='bearish'?'down':'flat';
+       return '<div class="zCell '+k+'"><div class="tf">'+t.toUpperCase()+'</div>'+
+         '<div class="bi">'+(k==='up'?'▲':k==='down'?'▼':'◆')+'</div>'+
+         '<div class="rs">RSI '+(R.rsi==null?'—':R.rsi)+'</div></div>';
+     }).join('')+'</div>'+
+     '<div class="cardNote">Combined bias <b>'+esc(Z.bias.label)+'</b> ('+Z.bias.score+') — '+esc(Z.bias.detail)+'.'+
+     (Z.bias.disagree? ' They disagree, which is itself the signal: the lower timeframe is fighting the higher one.':'')+
+     '</div></div>';
+
+  h+='<div class="card"><div class="cardT">BUY ZONES <span class="est">support, clustered across timeframes</span></div>'+
+     ((Z.buyZones||[]).length? Z.buyZones.map(z=>zoneRow(z,Z.px,'long')).join('')
+       : '<div class="cardNote">No support zone clears the confluence floor right now.</div>')+'</div>';
+  h+='<div class="card"><div class="cardT">SELL ZONES <span class="est">resistance, clustered across timeframes</span></div>'+
+     ((Z.sellZones||[]).length? Z.sellZones.map(z=>zoneRow(z,Z.px,'short')).join('')
+       : '<div class="cardNote">No resistance zone clears the confluence floor right now.</div>')+'</div>';
+
+  h+='<div class="card"><div class="cardT">WHAT A ZONE IS</div><div class="cardNote">'+
+     'A price is one opinion on one timeframe. A <b>zone</b> is a band that several timeframes independently '+
+     'reacted to. Confluence weights the daily 4× the 15m, so a band only 15m wicks agree on scores low and '+
+     'is ignored. Bands are '+Z.tol+'% wide, scaled to this coin’s volatility.<br><br>'+
+     '<b>These are described setups, not instructions.</b> This system still has no measured hit rate — '+
+     'the RECORD tab is the thing that would change that.</div></div>';
+
+  h+='<div class="zStale">server snapshot'+(Z.at? ' · '+new Date(Z.at).toLocaleTimeString():'')+
+     ' · price at scan '+fmt(Z.px)+'</div>'+
+     '<div id="secTools"><button data-a="rescan">Rescan now</button>'+
+     '<button data-a="full">Full screen</button></div>';
+  el.innerHTML=h;
+  sectionise(el);
+  el.querySelectorAll('#secTools button').forEach(b=>b.onclick=async()=>{
+    if(b.dataset.a==='full'){ setSheetFull(!$("sheet").classList.contains("full")); return; }
+    b.textContent='Scanning…'; await loadZones(true); renderZones();
+  });
+}
+
 /* ---------- turn a pane of cards into collapsible sections ------------------
    STRUCTURE emits ten cards. Stacked, that is a wall you scroll past rather
    than read. Rather than rewrite ten construction sites, the transform happens
@@ -6272,6 +6427,26 @@ function openPatternInfo(name){
     d.scrollIntoView({block:"center", behavior:"smooth"});
   },60);
 }
+function backfillBanner(){
+  const bf=verdictStats("backfill");
+  if(!bf.done.length) return "";
+  const respected=v=>v.result==="held"||v.result==="false-break";
+  const hit=bf.done.filter(v=>(v.lean>=0.5)===respected(v)).length;
+  const acc=Math.round(hit/bf.done.length*100);
+  const byTf={};
+  for(const v of bf.done) byTf[v.tf]=(byTf[v.tf]||0)+1;
+  return '<div class="card"><div class="cardT">FROM HISTORY '+
+    '<span class="est">in-sample — read with suspicion</span></div>'+
+    '<div class="hl mid">Walking the loaded history opened <b>'+bf.done.length+
+    '</b> graded verdict'+(bf.done.length===1?'':'s')+' ('+
+    Object.keys(byTf).sort().map(t=>byTf[t]+' on '+t).join(', ')+'), right side <b>'+acc+
+    '%</b> of the time.</div>'+
+    '<div class="cardNote"><b>This is not evidence of edge.</b> Auto-detected levels are fitted '+
+    'on the same history this grades them against, so the number is in-sample and will flatter — '+
+    'the same way any indicator looks good on the data it was tuned on. It is here to show the '+
+    'machinery works and to give the factor weights something to chew on. '+
+    'The headline accuracy above counts <b>live verdicts only</b>.</div></div>';
+}
 function renderRecord(){
   const st=verdictStats();
   const el=$("recordList");
@@ -6282,7 +6457,7 @@ function renderRecord(){
       '<div class="card"><div class="cardT">REALITY CHECK</div>'+
       '<div class="cardNote">You do not have to wait. Run the rules backwards over the real history already loaded ('+state.candles.length+' '+state.tf+' bars) — every decision sees only the bars before it.</div>'+
       '<button class="sigBtn" id="btRun" style="margin-top:8px">Run walk-forward backtest</button>'+
-      '<div id="btOut"></div></div>';
+      '<div id="btOut"></div></div>'+backfillBanner();
     const b0=$("btRun");
     if(b0) b0.onclick=()=>{
       b0.textContent="Running… (also testing shuffled data)"; b0.disabled=true;
@@ -6299,8 +6474,10 @@ function renderRecord(){
   const respected=v=>v.result==="held"||v.result==="false-break";
   const hit=st.done.filter(v=>(v.lean>=0.5)===respected(v)).length;
   const acc=Math.round(hit/st.done.length*100);
-  let h='<div class="hl '+(acc>=60?"good":acc>=45?"mid":"hot")+'">'+
-    'The engine picked the right side <b>'+hit+' of '+st.done.length+'</b> times (<b>'+acc+'%</b>). '+
+  let h=backfillBanner()+
+    '<div class="hl '+(acc>=60?"good":acc>=45?"mid":"hot")+'">'+
+    'The engine picked the right side <b>'+hit+' of '+st.done.length+'</b> times (<b>'+acc+'%</b>), '+
+    'counting <b>live</b> verdicts only. '+
     (acc>=60? 'Better than a coin flip so far — keep collecting before trusting it.'
      : acc>=45? 'Around coin-flip. Not yet evidence of an edge.'
      : 'Worse than a coin flip. Either the weights need work or these levels are not tradable.')+'</div>';
@@ -6400,6 +6577,7 @@ function renderPane(){
   if(state.tab==="watch") renderWatch();
   else if(state.tab==="signals") renderSignals();
   else if(state.tab==="coach") $("coachList").innerHTML=postMortem();
+  else if(state.tab==="zones"){ renderZones(); if(!state.zones) loadZones().then(renderZones); }
   else if(state.tab==="structure") renderStructure();
   else if(state.tab==="record") renderRecord();
   else if(state.tab==="trades") renderTrades();
@@ -6411,7 +6589,7 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   state.tab=b.dataset.tab;
   try{ if(hasStorage) window.storage.set("ui:tab", state.tab); }catch(e){}
   document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
-  const map={watch:"watchList",signals:"sigList",lines:"levelList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
+  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
   $("sheet").classList.add("open");
   /* The strip scrolls horizontally, so the tab you just chose can end up half
@@ -6447,69 +6625,212 @@ $("expandBtn").onclick=e=>{ e.stopPropagation(); setSheetFull(!$("sheet").classL
    snapshotting the lean and every factor. It resolves within 8 bars:
    held / false-break (line ultimately respected) or broke (line failed).
    Shapes here are backend-ready: flat records, no DOM refs.               */
-function openVerdicts(){
-  const n=state.candles.length; if(n<30) return;
-  const iNow=n-1, px=state.candles[iNow].close;
-  for(const lvl of state.levels){
-    if(lvl.kind==="v") continue;
-    const lp = lvl.kind==="h" ? lvl.price : diagPriceAt(lvl,iNow);
-    if(!isFinite(lp)) continue;
-    const d=Math.abs(px-lp)/lp;
-    if(d>=tolPct()*2) continue;
-    const already=state.verdicts.find(v=>v.lvlId===lvl.id && v.tf===state.tf && !v.result);
-    if(already) continue;
-    const recent=state.verdicts.find(v=>v.lvlId===lvl.id && v.tf===state.tf && iNow-v.openedIdx<horizonBars());
-    if(recent) continue;
-    const S=computeStats(lvl);
-    state.verdicts.push({
-      id:uid(), lvlId:lvl.id, label:lvl.label||lineTitle(lvl), kind:lvl.kind,
-      tf:state.tf, symbol:state.symbol,
-      openedIdx:iNow, openedTime:state.candles[iNow].time, openedPrice:px,
-      linePrice:lp, isSupport:S.isSupport,
-      lean:S.leanRespect,
-      factors:S.rows.map(r=>({name:r.name, reading:r.reading, pp:r.pp, vote:r.vote})),
-      result:null, resolvedIdx:null, note:""
-    });
-  }
-  saveVerdicts();
+/* ============================================================================
+   VERDICT COVERAGE
+
+   The problem this fixes, measured rather than assumed: openVerdicts() only ever
+   examined state.candles[n-1] — the newest bar. Over 300 loaded bars with two
+   auto levels, price came within the 0.5% gate SIXTEEN times, and the engine saw
+   none of them, because it only looks at the bar in front of it and only while
+   the tab is open. Three multiplicative filters (newest bar only · tab open ·
+   current timeframe only) is why RECORD has been empty for weeks. The gate was
+   never the problem.
+
+   Two fixes here:
+   1. BACKFILL — walk the loaded history and open/resolve verdicts as if we had
+      been watching. Every decision sees only bars BEFORE it, exactly as
+      runBacktest() does, so the lookahead audit still holds.
+   2. TWO TIMEFRAMES — 1h and 4h are tracked independently and no longer freeze
+      when you switch charts.
+
+   The honesty catch, stated in the UI as well as here: auto-detected levels were
+   FITTED on the same history a backfill grades them against. That is in-sample
+   and it will flatter. Backfilled verdicts are tagged and reported separately;
+   the headline accuracy stays live-only.
+   ========================================================================== */
+const VF_TFS = ["1h","4h"];                       /* the two you actually trade */
+const VF_HB  = {"15m":10,"1h":9,"4h":8,"1d":6};
+function vfSeries(tf){
+  if(tf===state.tf) return state.candles;
+  return (state.vf && state.vf[tf]) || null;
 }
-function resolveVerdicts(){
-  const n=state.candles.length;
-  for(const v of state.verdicts){
-    if(v.result) continue;
-    if(v.tf!==state.tf) continue;
-    const lvl=state.levels.find(l=>l.id===v.lvlId);
-    const lineAt = i => !lvl ? v.linePrice : (lvl.kind==="h"? lvl.price : diagPriceAt(lvl,i));
-    let crossedIdx=-1, backInside=false;
-    const HB=horizonBars();
-    for(let i=v.openedIdx; i<n && i<=v.openedIdx+HB; i++){
-      const c=state.candles[i], lp=lineAt(i), tol=lp*tolPct();
-      const beyond = v.isSupport ? c.close < lp-tol : c.close > lp+tol;
-      if(beyond && crossedIdx<0) crossedIdx=i;
-      else if(crossedIdx>=0 && !beyond && i<=crossedIdx+3) backInside=true;
-      /* clean hold: moved decisively away from the line */
-      const away = v.isSupport ? (c.close-lp)/lp : (lp-c.close)/lp;
-      if(crossedIdx<0 && away>0.006){
-        v.result="held"; v.resolvedIdx=i; v.note="moved "+pct(away)+" off the line";
-        break;
+/* cheap local ATR so the gate can be tested without rebuilding every engine */
+function atrAtSlice(C,i,n){
+  n=n||20; let s=0,c=0;
+  for(let j=Math.max(1,i-n+1);j<=i;j++){
+    const a=C[j],p=C[j-1];
+    s+=Math.max(a.high-a.low,Math.abs(a.high-p.close),Math.abs(a.low-p.close))/a.close; c++;
+  }
+  return c? Math.max(0.0008,s/c) : 0.004;
+}
+const tolAtSlice=(C,i)=>Math.min(0.02, Math.max(0.0008, atrAtSlice(C,i)*0.45));
+
+/* Walk history and open every verdict that WOULD have opened. Expensive engine
+   work runs only on the handful of bars that pass the cheap gate. */
+function backfillVerdicts(full, tf){
+  if(!Array.isArray(full) || full.length<80) return [];
+  const N=full.length, HB=VF_HB[tf]||8, out=[];
+  const lvls=state.levels.filter(l=>l.kind!=="v");
+  if(!lvls.length) return [];
+  const saveC=state.candles, saveTf=state.tf;
+  const saveCache=[state._vpCache,state._nbCache,state._indCache,state._pnCache];
+  const lastFor={};
+  try{
+    state.tf=tf;
+    for(let i=60;i<N-HB;i++){
+      const px=full[i].close, tol=tolAtSlice(full,i);
+      for(const lvl of lvls){
+        const lp = lvl.kind==="h"? lvl.price : diagPriceAt(lvl,i);
+        if(!isFinite(lp)) continue;
+        if(Math.abs(px-lp)/lp >= tol*2) continue;             /* cheap gate first */
+        if(lastFor[lvl.id]!=null && i-lastFor[lvl.id] < HB) continue;
+        /* only NOW pay for the engines, on a slice that cannot see the future */
+        state.candles=full.slice(0,i+1);
+        state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
+        let S; try{ S=computeStats(lvl); }catch(e){ continue; }
+        lastFor[lvl.id]=i;
+        out.push({ id:uid(), lvlId:lvl.id, label:lvl.label||lineTitle(lvl), kind:lvl.kind,
+          tf, symbol:state.symbol, src:"backfill",
+          openedIdx:i, openedTime:full[i].time, openedPrice:px,
+          linePrice:lp, isSupport:S.isSupport, lean:S.leanRespect,
+          factors:S.rows.map(r=>({name:r.name, reading:r.reading, pp:r.pp, vote:r.vote})),
+          result:null, resolvedIdx:null, note:"" });
       }
     }
-    if(v.result) continue;
-    if(crossedIdx>=0 && backInside){
-      v.result="false-break"; v.resolvedIdx=crossedIdx;
-      v.note="closed through, then back inside — trap";
-    } else if(crossedIdx>=0 && n>crossedIdx+3){
-      v.result="broke"; v.resolvedIdx=crossedIdx;
-      v.note="closed through and stayed through";
-    } else if(n-1 >= v.openedIdx+HB){
-      v.result="unclear"; v.resolvedIdx=v.openedIdx+HB;
-      v.note="no decisive move within "+HB+" bars";
+  } finally {
+    state.candles=saveC; state.tf=saveTf;
+    state._vpCache=saveCache[0]; state._nbCache=saveCache[1];
+    state._indCache=saveCache[2]; state._pnCache=saveCache[3];
+  }
+  for(const v of out) resolveOne(v, full);
+  return out;
+}
+/* One verdict, graded against its own timeframe's bars. Extracted so live and
+   backfilled verdicts are resolved by exactly the same rules — two code paths
+   would eventually disagree and there would be no way to tell which was right. */
+function resolveOne(v, C){
+  if(!C || v.result) return;
+  const n=C.length, HB=VF_HB[v.tf]||8;
+  const lvl=state.levels.find(l=>l.id===v.lvlId);
+  const lineAt = i => !lvl ? v.linePrice : (lvl.kind==="h"? lvl.price : diagPriceAt(lvl,i));
+  let crossedIdx=-1, backInside=false;
+  for(let i=v.openedIdx; i<n && i<=v.openedIdx+HB; i++){
+    const c=C[i], lp=lineAt(i), tol=lp*tolAtSlice(C,Math.max(1,i));
+    const beyond = v.isSupport ? c.close < lp-tol : c.close > lp+tol;
+    if(beyond && crossedIdx<0) crossedIdx=i;
+    else if(crossedIdx>=0 && !beyond && i<=crossedIdx+3) backInside=true;
+    const away = v.isSupport ? (c.close-lp)/lp : (lp-c.close)/lp;
+    if(crossedIdx<0 && away>0.006){
+      v.result="held"; v.resolvedIdx=i; v.note="moved "+pct(away)+" off the line"; return;
     }
   }
-  saveVerdicts();
+  if(crossedIdx>=0 && backInside){ v.result="false-break"; v.resolvedIdx=crossedIdx;
+    v.note="closed through, then back inside — trap"; }
+  else if(crossedIdx>=0 && n>crossedIdx+3){ v.result="broke"; v.resolvedIdx=crossedIdx;
+    v.note="closed through and stayed through"; }
+  else if(n-1 >= v.openedIdx+HB){ v.result="unclear"; v.resolvedIdx=v.openedIdx+HB;
+    v.note="no decisive move within "+HB+" bars"; }
 }
-function verdictStats(){
-  const done=state.verdicts.filter(v=>v.result && v.result!=="unclear");
+/* Pull the 1h and 4h series so both can be tracked regardless of what is on
+   screen, then backfill whichever have no verdicts yet. */
+async function loadVerdictFrames(){
+  state.vf = state.vf || {};
+  for(const tf of VF_TFS){
+    if(tf===state.tf){ state.vf[tf]=state.candles; continue; }
+    try{
+      const url=`${state.host}/api/v3/klines?symbol=${SYMBOL}&interval=${tf}&limit=300`;
+      const raw=await (await fetch(url)).json();
+      state.vf[tf]=raw.map(mapK);
+    }catch(e){ /* leave whatever we had */ }
+  }
+}
+async function seedVerdicts(){
+  if(state._seeding) return; state._seeding=true;
+  try{
+    await loadVerdictFrames();
+    let added=0;
+    for(const tf of VF_TFS){
+      const C=vfSeries(tf); if(!C||C.length<80) continue;
+      if(state.verdicts.some(v=>v.src==="backfill" && v.tf===tf && v.symbol===state.symbol)) continue;
+      const got=backfillVerdicts(C, tf);
+      if(got.length){ state.verdicts.push(...got); added+=got.length; }
+    }
+    if(added){ saveVerdicts(); renderPane(); cmdSay("Backfilled "+added+" graded verdict"+(added===1?"":"s")+" from history (in-sample)."); }
+  }catch(e){ /* never break boot */ }
+  finally{ state._seeding=false; }
+}
+function openVerdicts(){
+  /* live opening now runs on BOTH tracked timeframes, not just the visible one */
+  for(const tf of VF_TFS){
+    const C=vfSeries(tf);
+    if(C && C.length>=30 && tf!==state.tf) openVerdictsOn(C, tf);
+  }
+  openVerdictsOn(state.candles, state.tf);
+}
+function openVerdictsOn(C, tf){
+  const n=C.length; if(n<30) return;
+  const iNow=n-1, px=C[iNow].close;
+  const HB=VF_HB[tf]||8, tol=tolAtSlice(C,iNow);
+  // Computing stats for an off-screen timeframe means briefly pointing the
+  // engines at that series. Restored in finally — a leaked state.candles would
+  // silently corrupt the chart.
+  const saveC=state.candles, saveTf=state.tf, off = tf!==state.tf;
+  const saveCache=[state._vpCache,state._nbCache,state._indCache,state._pnCache];
+  let dirty=false;
+  try{
+    for(const lvl of state.levels){
+      if(lvl.kind==="v") continue;
+      const lp = lvl.kind==="h" ? lvl.price : diagPriceAt(lvl,iNow);
+      if(!isFinite(lp)) continue;
+      if(Math.abs(px-lp)/lp >= tol*2) continue;
+      if(state.verdicts.find(v=>v.lvlId===lvl.id && v.tf===tf && !v.result)) continue;
+      if(state.verdicts.find(v=>v.lvlId===lvl.id && v.tf===tf && iNow-v.openedIdx<HB)) continue;
+      if(off){ state.candles=C; state.tf=tf;
+               state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null; }
+      let S; try{ S=computeStats(lvl); }catch(e){ continue; }
+      state.verdicts.push({
+        id:uid(), lvlId:lvl.id, label:lvl.label||lineTitle(lvl), kind:lvl.kind,
+        tf, symbol:state.symbol, src:"live",
+        openedIdx:iNow, openedTime:C[iNow].time, openedPrice:px,
+        linePrice:lp, isSupport:S.isSupport,
+        lean:S.leanRespect,
+        factors:S.rows.map(r=>({name:r.name, reading:r.reading, pp:r.pp, vote:r.vote})),
+        result:null, resolvedIdx:null, note:""
+      });
+      dirty=true;
+    }
+  } finally {
+    state.candles=saveC; state.tf=saveTf;
+    state._vpCache=saveCache[0]; state._nbCache=saveCache[1];
+    state._indCache=saveCache[2]; state._pnCache=saveCache[3];
+  }
+  if(dirty) saveVerdicts();
+}
+function resolveVerdicts(){
+  // Was: `if(v.tf!==state.tf) continue` — which froze every 4h verdict the
+  // moment you switched to 1h, and was half the reason nothing ever resolved.
+  // Each verdict is now graded against its OWN timeframe's bars.
+  let dirty=false;
+  for(const v of state.verdicts){
+    if(v.result) continue;
+    const C=vfSeries(v.tf);
+    if(!C || !C.length) continue;
+    const before=v.result;
+    resolveOne(v, C);
+    if(v.result!==before) dirty=true;
+  }
+  if(dirty) saveVerdicts();
+}
+function verdictStats(scope){
+  // scope: 'live' (default) | 'backfill' | 'all'
+  // The default is LIVE ONLY, deliberately. Backfilled verdicts grade
+  // auto-detected levels against the very history those levels were fitted on —
+  // that is in-sample, it will flatter, and letting it into the headline number
+  // would quietly undo the one honest measurement this app has.
+  const sc = scope || "live";
+  const pool = state.verdicts.filter(v =>
+    sc==="all" ? true : sc==="backfill" ? v.src==="backfill" : v.src!=="backfill");
+  const done=pool.filter(v=>v.result && v.result!=="unclear");
   const respected=v=> v.result==="held"||v.result==="false-break";
   /* calibration buckets */
   const buckets=[[0,.4,"under 40%"],[.4,.5,"40–50%"],[.5,.6,"50–60%"],[.6,.7,"60–70%"],[.7,1,"70%+"]];
@@ -6532,8 +6853,8 @@ function verdictStats(){
     }
   }
   return { done, cal, fmap,
-    open: state.verdicts.filter(v=>!v.result).length,
-    unclear: state.verdicts.filter(v=>v.result==="unclear").length };
+    open: pool.filter(v=>!v.result).length,
+    unclear: pool.filter(v=>v.result==="unclear").length };
 }
 
 /* ---------- structure: read the whole board, not one line ---------- */
@@ -6797,7 +7118,12 @@ document.querySelectorAll("#cntRow button").forEach(b=>b.onclick=()=>{
 });
 $("autoGo").onclick=runAuto;
 $("propCancel").onclick=()=>{ state.proposals=[]; $("propBox").classList.remove("open"); };
-$("propAccept").onclick=acceptProposals;
+$("propAccept").onclick=()=>{
+  acceptProposals();
+  // New lines mean a new scoreboard is possible — seed it straight away rather
+  // than making you reload to find out whether they have ever been tested.
+  setTimeout(()=>{ try{ seedVerdicts(); }catch(e){} }, 600);
+};
 
 /* ---------- command bar ---------- */
 function cmdSay(msg){
@@ -7002,6 +7328,10 @@ async function boot(){
          if(bt) bt.textContent = "build " + (window.WB_BUILD||"?") +
            (location.search.match(/[?&]v=([^&]+)/)? "  ·  loaded fresh" : "");
     }catch(e){}
+    // Seed the scoreboard from history. Deferred so it never delays first paint,
+    // and it needs levels to already be loaded — with no lines there is nothing
+    // to grade.
+    setTimeout(()=>{ try{ seedVerdicts(); }catch(e){} }, 1200);
     loadFunding(); loadDepth(); loadCorr();
     $("loadOverlay").style.display="none";
     startPolling();
