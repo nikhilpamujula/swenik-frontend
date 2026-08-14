@@ -8759,7 +8759,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // token below changes the URL on every release (so the cache misses once and
     // then caches normally), and after load we compare the frame's own stamp and
     // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
-    var WB_VER = '2026-08-13f-verdicts';
+    var WB_VER = '2026-08-13f-verdicts';   // a NEWER workbench is fine; only an older one is an error
 
     function wbMount() {
       if (document.getElementById('wbFull')) return;      // already up → never rebuild
@@ -8790,36 +8790,58 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // match, the browser served a cached copy: bust it once with a timestamp. If
     // it STILL disagrees the deployed file itself is old — say so in the bar
     // rather than leaving you to infer it from missing features.
-    function wbVerify() {
-      var f = document.getElementById('wbTabFrame');
-      var tag = document.getElementById('wbBuild');
-      if (!f || !tag) return;
-      var tries = 0;
-      var check = function () {
-        var got;
-        try { got = f.contentWindow && f.contentWindow.WB_BUILD; } catch (e) { return; }  // not loaded yet
-        if (got === WB_VER) { tag.textContent = WB_VER; tag.style.opacity = '.5'; tag.style.color = ''; return; }
-        if (got === undefined) { if (++tries < 40) setTimeout(check, 250); return; }
-        if (!f.dataset.busted) {                          // one automatic cache-bust
-          f.dataset.busted = '1';
-          tag.textContent = 'refreshing…';
-          f.src = 'sr-workbench.html?v=' + encodeURIComponent(WB_VER) + '.' + Date.now()
-                + '&apibase=' + encodeURIComponent(API_BASE);
-          tries = 0; setTimeout(check, 900);
-          return;
-        }
-        tag.textContent = '⚠ deployed build is ' + got + ', expected ' + WB_VER;
-        tag.style.opacity = '1'; tag.style.color = '#ffb3be';
-      };
-      f.addEventListener('load', function () { tries = 0; setTimeout(check, 120); });
-      setTimeout(check, 400);
-    }
     window.wbUnmount = function () {
       var d = document.getElementById('wbFull');
       if (d) d.parentNode.removeChild(d);
       document.body.style.overflow = '';
     };
     window.wbExit = function () { window.wbUnmount(); bfSetTab('engine'); };
+
+    // Build ids are yyyy-mm-dd<letter>-slug, so a plain string compare orders
+    // them — but ONLY if both actually look like one. Anything unrecognised is
+    // treated as unknown rather than newer: guessing "newer" would mean never
+    // busting a stale cache, which is the failure this whole check exists for.
+    var BUILD_RE = /^\d{4}-\d{2}-\d{2}[a-z]?(-|$)/;
+    function buildNewer(a, b) {
+      return BUILD_RE.test(String(a)) && BUILD_RE.test(String(b)) && String(a) > String(b);
+    }
+
+    function wbVerify() {
+      var f = document.getElementById('wbTabFrame');
+      var tag = document.getElementById('wbBuild');
+      if (!f || !tag) return;
+      var calm = function (txt) { tag.textContent = txt; tag.style.opacity = '.5'; tag.style.color = ''; };
+      var tries = 0;
+      var check = function () {
+        var got;
+        try { got = f.contentWindow && f.contentWindow.WB_BUILD; } catch (e) { return; }
+        if (got === WB_VER) { calm(WB_VER); return; }
+        if (got === undefined) { if (++tries < 40) setTimeout(check, 250); return; }
+
+        // The workbench is AHEAD of this wrapper. That is the NORMAL state
+        // between deploying sr-workbench.html and getting round to this file,
+        // and the first version screamed about it in red and triggered a
+        // pointless cache-bust reload. The copy already loaded is the fresh one:
+        // say so quietly and do nothing.
+        if (buildNewer(got, WB_VER)) { calm(got + '  ·  wrapper ' + WB_VER); return; }
+
+        // Only the other direction is a real problem: the browser served a
+        // workbench OLDER than this wrapper expects, i.e. a cached copy.
+        if (!f.dataset.busted) {
+          f.dataset.busted = '1';
+          calm('refreshing…');
+          f.src = 'sr-workbench.html?v=' + encodeURIComponent(WB_VER) + '.' + Date.now()
+                + '&apibase=' + encodeURIComponent(API_BASE);
+          tries = 0; setTimeout(check, 900);
+          return;
+        }
+        tag.textContent = '⚠ cached workbench ' + got + ' — expected ' + WB_VER + ' or newer';
+        tag.style.opacity = '1'; tag.style.color = '#ffb3be';
+      };
+      f.addEventListener('load', function () { tries = 0; setTimeout(check, 120); });
+      setTimeout(check, 400);
+    }
+
     function wbRenderTab() {
       var el = document.getElementById('cardList');
       // keep the tab bar painted underneath, so exiting lands on a correct page
