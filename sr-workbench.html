@@ -1006,6 +1006,7 @@
       <button class="tab on" data-tab="signals">SIGNALS <span class="n" id="sigCount">0</span></button>
       <button class="tab" data-tab="lines">LINES <span class="n" id="lvlCount">0</span></button>
       <button class="tab" data-tab="zones">ZONES <span class="n" id="zoneCount">0</span></button>
+      <button class="tab" data-tab="proj">🎯 PROJECT <span class="n" id="projCount">0</span></button>
       <button class="tab" data-tab="structure">STRUCTURE</button>
       <button class="tab" data-tab="trades">TRADES <span class="n" id="trdCount">0</span></button>
       <button class="tab" data-tab="coach">COACH</button>
@@ -1019,6 +1020,7 @@
     <div id="sigList" class="pane on"></div>
     <div id="levelList" class="pane"></div>
     <div id="zoneList" class="pane"></div>
+    <div id="projList" class="pane"></div>
     <div id="structList" class="pane"></div>
     <div id="tradeList" class="pane"></div>
     <div id="coachList" class="pane"></div>
@@ -1034,7 +1036,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-13g-fairnull";
+window.WB_BUILD = "2026-08-14b-buyzone";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1124,6 +1126,7 @@ const state = {
   secOpen:{},                               /* which STRUCTURE sections are expanded */
   zones:null,                               /* server snapshot of the 15m/1h/4h/1d board */
   vf:{},                                    /* candle series for the tracked verdict timeframes */
+  projections:[],                           /* tracked forecasts: entry zone / stop / T1 / T2 */
   combineAll:false,                         /* 🔗 on by default, on every coin, across sessions */
   tabs:[],                                  /* open pairs, most-recent last */
   symbol:"BTCUSDT",
@@ -1148,6 +1151,10 @@ const fmt = p => (p==null||!isFinite(p)) ? "—" : p >= 1000 ? p.toLocaleString(
 const fmtAxis = p => (p==null||!isFinite(p)) ? "—" : p >= 1000 ? p.toLocaleString("en-US",{maximumFractionDigits:0})
                                : p.toLocaleString("en-US",{maximumFractionDigits:4});
 const pct = x => (x>=0?"+":"")+(x*100).toFixed(2)+"%";
+/* read-only debug accessors — state is script-scoped, and every "why is the
+   chart drawing THAT" question needs eyes on it from the console            */
+window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view,
+  projections:()=>state.projections, symbol:()=>state.symbol, tf:()=>state.tf };
 
 /* ---------- sizing ---------- */
 function resize(){
@@ -1371,6 +1378,72 @@ function render(){
     }
     if(lx>8) labelBoxes.push({x:0,y:0,w:lx+4,h:18});
     ctx.font="12px ui-monospace,Menlo,monospace";
+  }
+
+  /* ---- projections: the forward boxes -------------------------------------
+     Entry band, green box to the targets, red box to the stop — the picture he
+     asked for, drawn from the projection's own stored prices so the chart and
+     the tracker can never disagree. Only this chart's timeframe: geometry on a
+     foreign timeframe would be a lie about time.                             */
+  if(state.projections && state.projections.length){
+    for(const P3 of state.projections){
+      if(P3.symbol!==state.symbol || P3.tf!==state.tf) continue;
+      if(!["waiting","active","t1","success","partial","failed"].includes(P3.status)) continue;
+      if(P3.outcome && (!P3.resolvedTime || state.candles.length<2 ||
+          P3.resolvedTime < state.candles[Math.max(0,state.candles.length-90)].time)) continue;
+      let i0=state.candles.findIndex(c=>c.time>=P3.createdTime);
+      if(i0<0) i0=Math.max(0, state.candles.length-2);
+      const x0=Math.max(0, xOf(i0)), x1=chartW();
+      if(x0>=x1) continue;
+      const long=P3.dir==="long";
+      const yEL=yOf(P3.entryLo), yEH=yOf(P3.entryHi), yS=yOf(P3.stop),
+            yT1=yOf(P3.t1), yT2=yOf(P3.t2);
+      const dead=P3.outcome? 0.5 : 1;
+      /* reward box: entry edge → T2 (T1 marked inside) */
+      const rTop = long? yT2 : yEL, rBot = long? yEH : yT2;
+      ctx.fillStyle=hexA(C_UP, 0.07*dead);
+      ctx.fillRect(x0, Math.min(rTop,rBot), x1-x0, Math.abs(rBot-rTop));
+      /* risk box: entry edge → stop */
+      const kTop = long? yEL : yS, kBot = long? yS : yEH;
+      ctx.fillStyle=hexA(C_DOWN, 0.08*dead);
+      ctx.fillRect(x0, Math.min(kTop,kBot), x1-x0, Math.abs(kBot-kTop));
+      /* the entry band itself — HIS colour language: green means "buy here",
+         red means "sell here". A long's buy area is green with green borders;
+         a short's sell area is red. The indigo band said nothing.            */
+      const bandCol = long? C_UP : C_DOWN;
+      const bTop=Math.min(yEL,yEH), bH=Math.abs(yEL-yEH);
+      ctx.fillStyle=hexA(bandCol, 0.18*dead);
+      ctx.fillRect(x0, bTop, x1-x0, bH);
+      ctx.lineWidth=1; ctx.strokeStyle=hexA(bandCol, 0.75*dead);
+      ctx.beginPath(); ctx.moveTo(x0,bTop+.5); ctx.lineTo(x1,bTop+.5);
+      ctx.moveTo(x0,bTop+bH-.5); ctx.lineTo(x1,bTop+bH-.5); ctx.stroke();
+      if(bH>=14){
+        ctx.font="10px ui-monospace,Menlo,monospace";   /* 10px floor — the skin suite enforces legibility */
+        ctx.fillStyle=hexA(bandCol, 0.95*dead);
+        ctx.fillText(long? "BUY ZONE" : "SELL ZONE", x0+5, bTop+bH/2+3.5);
+      }
+      /* edges + T1 line */
+      ctx.setLineDash([4,3]); ctx.lineWidth=1;
+      ctx.strokeStyle=hexA(C_UP,0.55*dead);
+      ctx.beginPath(); ctx.moveTo(x0,yT1+.5); ctx.lineTo(x1,yT1+.5); ctx.stroke();
+      ctx.strokeStyle=hexA(C_DOWN,0.6*dead);
+      ctx.beginPath(); ctx.moveTo(x0,yS+.5); ctx.lineTo(x1,yS+.5); ctx.stroke();
+      ctx.setLineDash([]);
+      /* labels in the right gutter, like his reference charts */
+      ctx.font="10.5px ui-monospace,Menlo,monospace";
+      const tag=(txt,y,col)=>{ if(y<8||y>priceH()-4) return;
+        const w=ctx.measureText(txt).width+10;
+        ctx.fillStyle="rgba(9,11,15,.85)"; ctx.fillRect(x1-w-2, y-8, w, 14);
+        ctx.fillStyle=col; ctx.fillText(txt, x1-w+3, y+3); };
+      tag("T2 "+fmtAxis(P3.t2), yT2, hexA(C_UP,0.95));
+      tag("T1 "+fmtAxis(P3.t1), yT1, hexA(C_UP,0.85));
+      tag((long?"BUY ":"SELL ")+fmtAxis((P3.entryLo+P3.entryHi)/2), (yEL+yEH)/2, hexA(bandCol,0.95));
+      tag("SL "+fmtAxis(P3.stop), yS, hexA(C_DOWN,0.95));
+      const st=((PRJ_BADGE[P3.status]||["?"])[0]).replace(/^[^A-Za-z0-9]+/,"");
+      ctx.font="10px ui-monospace,Menlo,monospace";
+      ctx.fillStyle=hexA(P3.status==="failed"? C_DOWN : P3.status==="success"? C_UP : "#AAB6FF", 0.9);
+      ctx.fillText("🎯 "+st, x0+4, Math.min(priceH()-6, Math.max(12, (long? yT2:yS)+12)));
+    }
   }
 
   /* expected path from the full read */
@@ -2365,6 +2438,20 @@ function tradeStats(){
 }
 function renderTrades(){
   const el=$("tradeList");
+  /* One malformed or legacy row (missing units/target/entry) used to throw
+     undefined.toFixed and kill the WHOLE panel — which read as "all my trades
+     were deleted" when they were sitting in storage the entire time. Repair
+     rows on the way in; a number we cannot compute renders as a dash.        */
+  for(const t of state.papers){
+    if(!t || typeof t!=="object") continue;
+    if(!isFinite(t.units))  t.units  = isFinite(t.qty)? +t.qty : 0;
+    if(!isFinite(t.entry))  t.entry  = isFinite(t.linePrice)? +t.linePrice : 0;
+    if(!isFinite(t.stop))   t.stop   = t.entry;
+    if(!isFinite(t.target)) t.target = t.entry;
+    if(!t.status) t.status = t.result? "closed" : "open";
+    if(!t.side)   t.side   = t.isSupport===false? "short" : "long";
+  }
+  state.papers=state.papers.filter(t=>t && typeof t==="object" && isFinite(t.entry));
   const S=tradeStats();
   const nlive=state.papers.filter(t=>t.status==="open"||t.status==="pending").length;
   $("trdCount").textContent=nlive;
@@ -3493,7 +3580,32 @@ async function scanWatchlist(onRow){
   state.candles=savedC; state.levels=savedL; state.symbol=savedSym; SYMBOL=savedSym; state.tf=savedTf;
   state._vpCache=null; state._nbCache=null; state._indCache=null;
   state.scan=rows; state.scanning=false;
+  state.scanAt=Date.now();
+  /* A scan you paid for should not evaporate on reload. Stored with its
+     timestamp so the next boot shows it immediately, marked with its age,
+     while a fresh scan runs in the background.                              */
+  saveWatch();
   return rows;
+}
+function saveWatch(){
+  if(!hasStorage || !HYD.watch) return;
+  try{ window.storage.set("watch:all", JSON.stringify({
+    list: state.watch, scan: state.scan, at: state.scanAt || null, tf: state.tf })); }catch(e){}
+}
+async function loadWatch(){
+  if(!hasStorage){ HYD.watch=true; return; }
+  try{
+    const r=await window.storage.get("watch:all");
+    if(r&&r.value){
+      const j=JSON.parse(r.value);
+      if(j && Array.isArray(j.list) && j.list.length) state.watch=[...new Set(j.list)];
+      if(j && Array.isArray(j.scan) && j.scan.length && !state.scan.length){
+        state.scan=j.scan; state.scanAt=j.at||null; state.scanTf=j.tf||null;
+      }
+    }
+  }catch(e){}
+  HYD.watch=true;
+  try{ renderWatch(); }catch(e){}
 }
 
 function renderWatch(){
@@ -3505,6 +3617,12 @@ function renderWatch(){
   if(!rows.length){
     h+='<div class="empty">No scan yet. Tap <b>Scan all pairs</b> — it checks each one on the '+state.tf+' timeframe.</div>';
   } else {
+    if(state.scanAt){
+      const mins=Math.max(0,Math.round((Date.now()-state.scanAt)/60000));
+      if(mins>2) h+='<div class="cardNote" style="margin:4px 0 8px">Showing your last scan'+
+        (state.scanTf&&state.scanTf!==state.tf? ' ('+state.scanTf+')':'')+
+        ' from <b>'+(mins<60? mins+' min' : (mins/60).toFixed(1)+' h')+' ago</b> — tap Scan to refresh.</div>';
+    }
     const sorted=rows.slice().sort((a,b)=>{
       const rank=r=>r.near? (r.near.d<0.005?3:r.near.d<0.015?2:1):0;
       return rank(b)-rank(a) || (b.conviction||0)-(a.conviction||0);
@@ -3567,13 +3685,14 @@ async function openPairPicker(){
       const sym=b.dataset.sym;
       if(state.watch.includes(sym)) state.watch=state.watch.filter(x=>x!==sym);
       else state.watch.push(sym);
+      saveWatch();
       draw($("pickSearch").value);
       renderWatch();
     });
     $("pickList").querySelectorAll("button[data-open]").forEach(b=>b.onclick=async()=>{
       const sym=b.dataset.open;
       $("pickModal").style.display="none";
-      if(!state.watch.includes(sym)) state.watch.push(sym);
+      if(!state.watch.includes(sym)){ state.watch.push(sym); saveWatch(); }
       await switchSymbol(sym);
       renderWatch();
     });
@@ -3905,7 +4024,7 @@ function applyReplay(){
   try{ state.patterns=detectPatterns(); }catch(e){ state.patterns=[]; }
   try{ state.fib=fibLevels(); }catch(e){ state.fib=null; }
   try{ state.mstruct=marketStructure(); }catch(e){ state.mstruct=null; }
-  openVerdicts(); resolveVerdicts(); updatePapers();
+  openVerdicts(); resolveVerdicts(); updatePapers(); updateProjections();
   if(state.analysis){
     const lvl=state.levels.find(l=>l.id===state.analysis.lvlId);
     if(lvl && lvl.kind!=="v") analyseLine(lvl, $("anaCard").style.display==="block");
@@ -5335,7 +5454,7 @@ async function loadCandles(){
   try{ state.fib=fibLevels(); }catch(e){ state.fib=null; }
   try{ state.mstruct=marketStructure(); }catch(e){ state.mstruct=null; }
   try{ state.htfPats=htfPatterns(); }catch(e){ state.htfPats=[]; }
-  openVerdicts(); resolveVerdicts(); renderPane();
+  openVerdicts(); resolveVerdicts(); updateProjections(); renderPane();
   if(state.analysis){
     const lvl=state.levels.find(l=>l.id===state.analysis.lvlId);
     if(lvl && lvl.kind!=="v") analyseLine(lvl, $("anaCard").style.display==="block");
@@ -5380,7 +5499,7 @@ function startPolling(){
       }
       if(changed){
         updateHeader();
-        openVerdicts(); resolveVerdicts(); updatePapers(); checkSignalAlerts();
+        openVerdicts(); resolveVerdicts(); updatePapers(); updateProjections(); checkSignalAlerts();
         if(newBar){ try{ state.patterns=detectPatterns(); }catch(e){}
                     if(state.read){ try{ computeRead(); renderReadCard(); }catch(e){} }
                     try{ state.fib=fibLevels(); }catch(e){}
@@ -5403,6 +5522,8 @@ function startPolling(){
   },5000);
   clearInterval(state.fundTimer);
   state.fundTimer=setInterval(()=>{ loadFunding(); loadDepth(); }, 60*1000);
+  clearInterval(state.projTimer);
+  state.projTimer=setInterval(syncProjections, 60*1000);
 }
 
 /* ---------- lines ---------- */
@@ -5410,11 +5531,13 @@ const storeKey=()=>"levels:"+SYMBOL;
 const hasStorage = typeof window.storage!=="undefined";
 async function loadLevels(){
   /* never discard lines the user has already drawn while boot was still finishing */
+  const key=storeKey();                /* captured once: a symbol switch mid-load
+                                          must not mark the wrong key hydrated */
   const existing = state.levels.slice();
   let restored = [];
   if(hasStorage){
     try{
-      const r=await window.storage.get(storeKey());
+      const r=await window.storage.get(key);
       // Repair on the way in, not on the way out: a row missing kind, colour or
       // price should be normalised once here rather than defended against in
       // every drawing routine — and a malformed price is dropped outright.
@@ -5428,6 +5551,7 @@ async function loadLevels(){
   }
   const ids=new Set(existing.map(l=>l.id));
   state.levels = existing.concat(restored.filter(l=>!ids.has(l.id)));
+  HYD.levels.add(key);
   /* Colour migration: lines saved before the palette change still carry the old
      status red/green. Without this, an existing chart would look identical after
      the update — repaint auto lines onto the structure hues on load. Hand-drawn
@@ -5446,6 +5570,7 @@ async function loadLevels(){
 }
 async function saveLevels(){
   if(!hasStorage) return;
+  if(!HYD.levels.has(storeKey())) return;      /* never write a key we have not read */
   try{ await window.storage.set(storeKey(), JSON.stringify(state.levels)); }catch(e){}
 }
 /* ── Paper trades + verdicts persistence (Swenik) ───────────────────────────
@@ -5458,7 +5583,8 @@ let _wbSaveT=null;
 function savePapers(){
   if(!hasStorage) return;
   clearTimeout(_wbSaveT);
-  _wbSaveT=setTimeout(()=>{ try{ window.storage.set("papers:all", JSON.stringify(state.papers)); }catch(e){} },400);
+  _wbSaveT=setTimeout(()=>{ if(!HYD.papers) return;
+    try{ window.storage.set("papers:all", JSON.stringify(state.papers)); }catch(e){} },400);
 }
 async function loadPapers(){
   if(!hasStorage) return;
@@ -5473,14 +5599,24 @@ async function loadPapers(){
       }
     }
   }catch(e){}
+  HYD.papers=true;
   try{ renderTrades(); }catch(e){}
 }
+/* ── Hydration gates ─────────────────────────────────────────────────────────
+   The data-loss report ("opening the workbench deletes everything") was a boot
+   race: candles arrive from Binance in ~300ms, the KV GETs from the backend can
+   take seconds on a phone — and any save fired in that window wrote the app's
+   still-empty state over the stored copy. Worse, the shim writes localStorage
+   SYNCHRONOUSLY before the PUT, so the device copy died instantly.
+   Rule: a key cannot be SAVED until its load has SETTLED. No exceptions — a
+   blocked save is retried by the next mutation; a clobber is forever.        */
+const HYD={ papers:false, verdicts:false, levels:new Set(), watch:false };
 function saveVerdicts(){
-  if(!hasStorage) return;
+  if(!hasStorage || !HYD.verdicts) return;
   try{ window.storage.set("verdicts:all", JSON.stringify(state.verdicts)); }catch(e){}
 }
 async function loadVerdicts(){
-  if(!hasStorage) return;
+  if(!hasStorage){ HYD.verdicts=true; return; }
   try{
     const r=await window.storage.get("verdicts:all");
     if(r&&r.value){
@@ -5491,6 +5627,18 @@ async function loadVerdicts(){
       }
     }
   }catch(e){}
+  /* Clean up damage already done by the pre-fix race: duplicated backfills
+     (same test, different random ids). Keep the resolved one.               */
+  const seen=new Map();
+  state.verdicts=state.verdicts.filter(v=>{
+    if(!v || v.src!=="backfill") return !!v;
+    const k=v.symbol+"|"+v.tf+"|"+v.lvlId+"|"+v.openedTime;
+    const prev=seen.get(k);
+    if(prev===undefined){ seen.set(k, v); return true; }
+    if(!prev.result && v.result){ Object.assign(prev, v); }
+    return false;
+  });
+  HYD.verdicts=true;
 }
 function snapPrice(p){
   if(!state.prefs.snap) return p;
@@ -6516,7 +6664,7 @@ function renderZones(){
    on the rendered DOM: exact, and it automatically covers any card added later.
    Which sections you leave open is remembered, so a new bar does not slam shut
    the one you were mid-way through.                                          */
-const SEC_OPEN_BY_DEFAULT = /^(WHERE PRICE SITS|CONDITIONS|PATTERNS)/;
+const SEC_OPEN_BY_DEFAULT = /^(WHERE PRICE SITS|CONDITIONS|PATTERNS|RECENT CALLS)/;
 function sectionise(root){
   [...root.children].forEach(card=>{
     if(!card.classList || !card.classList.contains("card")) return;
@@ -6585,6 +6733,361 @@ function openPatternInfo(name){
     d.scrollIntoView({block:"center", behavior:"smooth"});
   },60);
 }
+/* ============================================================================
+   PROJECTIONS — a forecast you can be held to.
+
+   A read is an opinion that evaporates. A projection is the same opinion
+   written down as four prices — entry zone, stop, target one, target two —
+   drawn forward on the chart, and then TRACKED until the market grades it.
+   On resolution the outcome is stored with the reasons: the factors that were
+   aligned with what actually happened and the ones that were against it.
+
+   Honesty rules, same as everywhere else in this app:
+   · Generated only when the engines actually have a direction. A mixed read
+     refuses, and says why, rather than projecting a coin flip.
+   · The stop-first convention: if one candle touches both stop and target we
+     cannot know the order, so the stop is assumed first. Anything else
+     manufactures wins.
+   · No retroactive fills: candles that closed before the projection existed
+     can never fill it (the same bug the paper trades had, pre-fixed here).
+   · "Reasons" are which signals agreed and disagreed — recorded facts, not
+     invented causality.
+   ========================================================================== */
+const PRJ_WAIT_MULT=2, PRJ_LIVE_MULT=4;              /* × horizon bars */
+function projHB(tf){ return (VF_HB[tf]||8); }
+
+/* Build a projection from the CURRENT chart: the read supplies direction and
+   objectives, readStop supplies the stop, the nearest level supplies the band. */
+function generateProjection(){
+  let R=null;
+  try{ R=fullRead(state.combine); }catch(e){}
+  if(!R) return { err:"Not enough candles for a read yet." };
+  if(R.bias!=="bullish" && R.bias!=="bearish")
+    return { err:"The engines disagree ("+R.up+" up vs "+R.down+" down) — refusing to project a coin flip. Wait for alignment, or change timeframe." };
+  const long = R.bias==="bullish";
+  const px=R.px, a=(R.atr||atrPct());
+  /* entry band: anchor to the nearest level if one sits close enough to be the
+     reason for the trade; otherwise a band around price                      */
+  let anchor=null;
+  for(const l of state.levels){
+    if(l.kind!=="h" || !isFinite(l.price)) continue;
+    const d=Math.abs(l.price-px)/px;
+    if(d<=a*0.9 && (!anchor || d<anchor.d)) anchor={p:l.price, d, label:l.label||"level"};
+  }
+  const mid = anchor? anchor.p : px;
+  const half = Math.max(mid*0.0012, a*0.35*mid);
+  const entryLo=mid-half, entryHi=mid+half;
+  const S=readStop(R);
+  if(!S) return { err:"Could not place a stop — no structure and no volatility estimate." };
+  /* the stop must sit beyond the band, or the shape is self-contradictory */
+  let stop=S.p;
+  if(long  && stop>=entryLo) stop=entryLo*(1-Math.max(a*0.5, 0.002));
+  if(!long && stop<=entryHi) stop=entryHi*(1+Math.max(a*0.5, 0.002));
+  const risk = long? (mid-stop) : (stop-mid);
+  if(!(risk>0)) return { err:"Degenerate geometry — stop ended up on the wrong side." };
+  let t1 = R.t1? R.t1.p : (long? mid+risk*1.5 : mid-risk*1.5);
+  if(long  && t1<=entryHi) t1=entryHi+risk*1.2;
+  if(!long && t1>=entryLo) t1=entryLo-risk*1.2;
+  let t2 = R.t2? R.t2.p : (long? mid+risk*2.5 : mid-risk*2.5);
+  if(long  && t2<=t1) t2=t1+risk;
+  if(!long && t2>=t1) t2=t1-risk;
+  const c=(typeof costPct==="function"?costPct():0.0012)*mid;
+  const rrNet=Math.max(0,(Math.abs(t1-mid)-c))/(risk+c);
+  const now=state.candles[state.candles.length-1];
+  const proj={
+    id:"prj:"+state.symbol+":"+state.tf+":"+now.time,
+    symbol:state.symbol, tf:state.tf, dir: long?"long":"short",
+    entryLo:+entryLo.toFixed(8), entryHi:+entryHi.toFixed(8),
+    stop:+stop.toFixed(8), t1:+t1.toFixed(8), t2:+t2.toFixed(8),
+    createdTime:now.time, createdPx:px,
+    status:"waiting", armTime:null, filledTime:null, filledPx:null,
+    hiSince:null, loSince:null, t1Time:null,
+    resolvedTime:null, resolvedPx:null, barsWaited:0, barsHeld:0,
+    reasons:{
+      bias:R.bias, up:R.up, down:R.down,
+      votes:R.votes.filter(v=>v.txt).map(v=>({src:v.src, dir:v.dir, txt:v.txt})),
+      anchor: anchor? anchor.label+" at "+fmt(anchor.p) : "no nearby level — band drawn around price",
+      combined:!!R.combined, rrNet:+rrNet.toFixed(2),
+      be: rrNet>0? +(1/(1+rrNet)).toFixed(2) : 1,
+      warning: rrNet<0.8? "thin shape — needs "+Math.round(100/(1+rrNet))+"% winners to break even" : null,
+      summary: (long?"Long":"Short")+" from the "+(anchor?anchor.label:"current price")+" band. "+
+               (long?R.up:R.down)+" of "+(R.up+R.down)+" weighted votes point "+(long?"up":"down")+
+               (R.t1? "; first objective "+fmt(R.t1.p)+" ("+R.t1.src+")":"")+".",
+    },
+    outcome:null,
+  };
+  return { proj };
+}
+
+/* One unresolved projection per symbol+timeframe. Overlapping forecasts on one
+   chart are not a portfolio, they are a way to always have been right.       */
+function activeProjection(sym, tf){
+  return state.projections.find(p=>p.symbol===sym && p.tf===tf &&
+    ["waiting","active","t1"].includes(p.status));
+}
+
+/* ---- the tracker ------------------------------------------------------------
+   IDEMPOTENT REPLAY, not incremental mutation. This is called with the full
+   candle array on every tick and after every reload; a version that ++'d
+   counters double-counted bars on each call and could re-fill a fill. So each
+   call derives the entire lifecycle from (createdTime, candles) from scratch —
+   same inputs, same state, no matter how many times it runs. The only latch is
+   a resolved outcome: the candle window slides, and a verdict must not change
+   because the bars that produced it scrolled out of memory.                  */
+function trackProjection(p, C){
+  if(!p || !C || !C.length) return false;
+  if(p.outcome) return false;                          /* resolved is forever */
+  const before=JSON.stringify([p.status,p.filledTime,p.t1Time,p.barsWaited,p.barsHeld]);
+  const long=p.dir==="long", HB=projHB(p.tf);
+  let status="waiting", armTime=null, filledTime=null, filledPx=null,
+      hi=null, lo=null, t1Time=null, waited=0, held=0, resolved=null, resC=null;
+  for(const c of C){
+    if(c.time < p.createdTime) continue;               /* never rewrite the past */
+    if(armTime==null) armTime=c.time;
+    if(status==="waiting"){
+      /* the creation bar only counts with its CLOSE — its high/low happened
+         partly before the projection existed (the retroactive-fill lesson) */
+      const touch = c.time>armTime ? (c.low<=p.entryHi && c.high>=p.entryLo)
+                                   : (c.close<=p.entryHi && c.close>=p.entryLo);
+      if(touch){
+        status="active"; filledTime=c.time;
+        filledPx=Math.min(p.entryHi, Math.max(p.entryLo, c.close));
+        hi=c.close; lo=c.close;
+      } else {
+        waited++;
+        if(waited > PRJ_WAIT_MULT*HB){ resolved="expired-unfilled"; resC=c; break; }
+        continue;
+      }
+    }
+    if(status==="active" || status==="t1"){
+      if(c.time>filledTime){ hi=Math.max(hi,c.high); lo=Math.min(lo,c.low); }
+      else                 { hi=Math.max(hi,c.close); lo=Math.min(lo,c.close); }
+      const hitStop = long? lo<=p.stop : hi>=p.stop;
+      const hitT2   = long? hi>=p.t2  : lo<=p.t2;
+      const hitT1   = long? hi>=p.t1  : lo<=p.t1;
+      if(hitStop){ resolved = status==="t1" ? "partial" : "failed"; resC=c; break; } /* stop first, always */
+      if(hitT2){ resolved="success"; resC=c; break; }
+      if(hitT1 && status!=="t1"){ status="t1"; t1Time=c.time; }
+      held++;
+      if(held > PRJ_LIVE_MULT*HB){ resolved = status==="t1" ? "partial" : "expired-flat"; resC=c; break; }
+    }
+  }
+  p.status=status; p.armTime=armTime; p.filledTime=filledTime; p.filledPx=filledPx;
+  p.hiSince=hi; p.loSince=lo; p.t1Time=t1Time; p.barsWaited=waited; p.barsHeld=held;
+  if(resolved) resolveProjection(p, resolved, resC);
+  const after=JSON.stringify([p.status,p.filledTime,p.t1Time,p.barsWaited,p.barsHeld]);
+  return before!==after || !!resolved;
+}
+
+/* Grade the creation-time reasons against what actually happened, in words.
+   Two framings, kept separate on purpose:
+   · aligned/against — relative to the ACTUAL move. Stored. This is the grading.
+   · supporters/dissenters — relative to the PROJECTED direction. Used in the
+     narrative, because "the dissenters played out" must mean the factors that
+     argued against the call — an earlier draft listed the supporters there,
+     which read plausibly and was exactly backwards.                          */
+function resolveProjection(p, result, c){
+  const long=p.dir==="long";
+  p.status = result;
+  p.resolvedTime=c.time; p.resolvedPx=c.close;
+  const ref = p.filledPx!=null? p.filledPx : p.createdPx;
+  const actual = c.close>=ref? "up":"down";
+  const votes=(p.reasons.votes||[]).filter(v=>v.dir!=="flat");
+  const aligned=votes.filter(v=>v.dir===actual);
+  const against=votes.filter(v=>v.dir!==actual);
+  const projWord = long? "up":"down";
+  const supporters=votes.filter(v=>v.dir===projWord);
+  const dissenters=votes.filter(v=>v.dir!==projWord);
+  const names=a=>a.map(v=>v.src).join(", ");
+  const px2=x=>fmt(x);
+  let plain="";
+  if(result==="success"){
+    plain="Both targets hit. Price entered the zone at "+px2(ref)+" and reached "+px2(p.t2)+
+      " without touching the stop. "+
+      (supporters.length? "The factors that backed the call — "+names(supporters)+" — were the ones the market followed."
+                        : "Few individual factors backed this; the level structure did the work.")+
+      (dissenters.length? " The dissenters ("+names(dissenters)+") were wrong this time." : "");
+  } else if(result==="partial"){
+    plain="Target one at "+px2(p.t1)+" was reached, then the move died — price ended at "+px2(c.close)+
+      ". Half a win: the direction call was right, the follow-through was not. "+
+      (dissenters.length? "What argued against it at creation — "+names(dissenters)+" — is the likely drag on the second leg."
+                        : "Nothing at creation flagged exhaustion; note the move stalled at the first objective, which is where opposing orders sit.");
+  } else if(result==="failed"){
+    plain="Stopped. Price entered the zone at "+px2(ref)+" and broke "+px2(p.stop)+" instead of holding. "+
+      (dissenters.length? "The warnings were on the card at creation: "+dissenters.map(v=>v.src+" ("+v.txt+")").join("; ")+
+                          " — the dissenting factors were the ones that played out."
+                        : "Nothing at creation argued against this — the level simply failed. That happens; it is why the stop exists.")+
+      " The "+(long?"support":"resistance")+" band ("+px2(p.entryLo)+"–"+px2(p.entryHi)+") did not hold.";
+  } else if(result==="expired-unfilled"){
+    const wentProjected = (actual==="up")===long;
+    plain="Price never came to the entry zone within "+(PRJ_WAIT_MULT*projHB(p.tf))+" bars — it went "+
+      (wentProjected? "in the projected direction WITHOUT you. Not a loss, but a missed move: the zone was too far from the action."
+                    : "the other way entirely. A dodged bullet: the fill would likely have been stopped.");
+  } else {
+    plain="Ran out of time: "+(PRJ_LIVE_MULT*projHB(p.tf))+" bars in the trade and price resolved nowhere — ended at "+
+      px2(c.close)+", between stop and target. A projection that goes nowhere is information too: this level is not being traded by anyone bigger than you.";
+  }
+  p.outcome={
+    result,
+    actualDir: actual,
+    plain,
+    aligned: aligned.map(v=>({src:v.src, txt:v.txt})),
+    against: against.map(v=>({src:v.src, txt:v.txt})),
+  };
+}
+
+/* Called wherever candles change, alongside updatePapers. */
+function updateProjections(){
+  let dirty=false;
+  for(const p of state.projections){
+    if(p.symbol!==state.symbol && !(state.vf && state.vf[p.tf])) continue;
+    const C = p.tf===state.tf && p.symbol===state.symbol ? state.candles
+            : (p.symbol===state.symbol ? vfSeries(p.tf) : null);
+    if(!C) continue;
+    if(trackProjection(p, C)) dirty=true;
+  }
+  if(dirty){ saveProjections(); try{ renderProjections(); }catch(e){} }
+}
+function saveProjections(){
+  if(!hasStorage || !HYD.proj) return;
+  try{ window.storage.set("projections:all", JSON.stringify(state.projections)); }catch(e){}
+}
+async function loadProjections(){
+  if(!hasStorage){ HYD.proj=true; return; }
+  try{
+    const r=await window.storage.get("projections:all");
+    if(r&&r.value){
+      const rows=JSON.parse(r.value);
+      if(Array.isArray(rows)){
+        const have=new Set(state.projections.map(p=>p.id));
+        state.projections=state.projections.concat(rows.filter(p=>p&&p.id&&!have.has(p.id)));
+      }
+    }
+  }catch(e){}
+  HYD.proj=true;
+}
+
+/* Two writers (this app and the server watcher) share projections:all. Both
+   derive state from the same candles, so a conflict only ever means "one side
+   is further along". Keep the leader per id; a resolved row — including your
+   own cancel — always wins and can never be regressed. Mirrors the server's
+   mergeProjections in src/projTrack.js; the equivalence suite holds them
+   together.                                                                 */
+const PRJ_RANK={waiting:0,active:1,t1:2};
+function prjRank(p){ if(!p) return -1; if(p.outcome || !(p.status in PRJ_RANK)) return 3; return PRJ_RANK[p.status]; }
+function prjProg(p){ return (p.barsHeld||0)*1000+(p.barsWaited||0); }
+function mergeProjRows(base, incoming){
+  const out=new Map();
+  for(const p of (Array.isArray(base)?base:[])) if(p&&p.id) out.set(p.id,p);
+  let changed=false;
+  for(const q of (Array.isArray(incoming)?incoming:[])){
+    if(!q||!q.id) continue;
+    const cur=out.get(q.id);
+    if(!cur){ out.set(q.id,q); changed=true; continue; }
+    const a=prjRank(cur), b=prjRank(q);
+    if(b>a || (b===a && b<3 && prjProg(q)>prjProg(cur))){ out.set(q.id,q); changed=true; }
+  }
+  return { rows:[...out.values()], changed };
+}
+/* Slow poll: pick up what the server tracked while this tab was closed or on
+   another chart. Pull-only — taking server rows is never echoed back, so the
+   two writers cannot ping-pong.                                             */
+async function syncProjections(){
+  if(!hasStorage || !HYD.proj) return;
+  try{
+    const r=await window.storage.get("projections:all");
+    if(!r||!r.value) return;
+    const m=mergeProjRows(state.projections, JSON.parse(r.value));
+    if(m.changed){
+      state.projections=m.rows;
+      try{ renderProjections(); }catch(e){}
+      try{ render(); }catch(e){}
+    }
+  }catch(e){}
+}
+
+/* ---- the PROJECT tab -------------------------------------------------------
+   One button to generate, the active forecast with its live status, and the
+   graded history — every resolved projection keeps its reasons.              */
+const PRJ_BADGE={ waiting:['⏳ waiting for the zone','info'], active:['● live','good'],
+  t1:['🎯 target one hit','good'], success:['✅ success','good'], partial:['◐ partial','warn'],
+  failed:['✕ failed','bad'], 'expired-unfilled':['never filled','info'], 'expired-flat':['went nowhere','info'] };
+function projCard(p){
+  const b=PRJ_BADGE[p.status]||[p.status,'info'];
+  const long=p.dir==="long";
+  const open = state.patOpen["prj:"+p.id];
+  const rows =
+    '<div class="kv"><span>'+(long?'Buy zone':'Sell zone')+'</span><b class="'+(long?'g':'r')+'">'+fmt(p.entryLo)+' – '+fmt(p.entryHi)+'</b></div>'+
+    '<div class="kv"><span>Stop</span><b class="r">'+fmt(p.stop)+'</b></div>'+
+    '<div class="kv"><span>Target one</span><b class="g">'+fmt(p.t1)+'</b></div>'+
+    '<div class="kv"><span>Target two</span><b class="g">'+fmt(p.t2)+'</b></div>'+
+    '<div class="kv"><span>Net R:R to T1</span><b>'+(p.reasons.rrNet||0).toFixed(2)+':1 · needs '+
+      Math.round((p.reasons.be||1)*100)+'% winners</b></div>';
+  const why='<div class="pSec"><span>Why it was generated</span>'+esc(p.reasons.summary)+
+    (p.reasons.warning? ' <b style="color:#F5D77A">⚠ '+esc(p.reasons.warning)+'</b>':'')+'</div>'+
+    '<div class="pFacts">'+esc(p.reasons.anchor)+' · '+p.reasons.up+' up vs '+p.reasons.down+' down'+
+    (p.reasons.combined? ' · 🔗 combined':'')+'</div>';
+  const out = p.outcome?
+    '<div class="pSec"><span>'+(p.status==="success"?"Why it worked":p.status==="failed"?"Why it failed":"What happened")+
+    '</span>'+esc(p.outcome.plain)+'</div>'+
+    (p.outcome.aligned.length? '<div class="cardNote">✓ aligned: '+p.outcome.aligned.map(v=>esc(v.src)).join(', ')+'</div>':'')+
+    (p.outcome.against.length? '<div class="cardNote">✗ against: '+p.outcome.against.map(v=>esc(v.src)).join(', ')+'</div>':'')
+    : '<div class="cardNote">'+(p.status==="waiting"
+        ? 'Waiting for price to enter the zone — expires after '+(PRJ_WAIT_MULT*projHB(p.tf))+' '+p.tf+' bars unfilled.'
+        : 'Filled at '+fmt(p.filledPx)+' — tracking against stop and targets, '+p.barsHeld+' bars in.')+'</div>';
+  return '<details class="patX" data-p="prj:'+esc(p.id)+'"'+(open?' open':'')+'>'+
+    '<summary><b class="'+(long?'g':'r')+'">'+(long?'▲ LONG':'▼ SHORT')+' '+esc(p.symbol.replace("USDT",""))+
+    ' <em style="font-style:normal;color:var(--dim)">'+p.tf+'</em></b>'+
+    '<span class="tagS '+b[1]+'">'+b[0]+'</span></summary>'+
+    '<div class="patBody">'+rows+why+out+
+    (p.outcome? '' : '<div class="rFoot" style="margin-top:9px"><button data-cancel="'+esc(p.id)+'">Cancel this projection</button></div>')+
+    '</div></details>';
+}
+function renderProjections(){
+  const el=$("projList"); if(!el) return;
+  const live=state.projections.filter(p=>["waiting","active","t1"].includes(p.status));
+  const done=state.projections.filter(p=>p.outcome).sort((a,b)=>(b.resolvedTime||0)-(a.resolvedTime||0));
+  $("projCount").textContent=String(live.length);
+  const wins=done.filter(p=>p.status==="success").length,
+        part=done.filter(p=>p.status==="partial").length,
+        loss=done.filter(p=>p.status==="failed").length;
+  let h='<div class="plain lead">A projection freezes the current read into four prices — entry zone, stop, two targets — '+
+    'draws them forward on the chart, and tracks the market against them until it is graded. '+
+    'Every outcome is stored <b>with its reasons</b>.</div>';
+  const mine=activeProjection(state.symbol, state.tf);
+  h+='<div class="wBar"><button class="btn primary" id="prjGen">'+
+     (mine? 'Tracking one on this chart already' : '🎯 Project this chart ('+state.symbol.replace("USDT","")+' '+state.tf+')')+
+     '</button></div><div id="prjMsg"></div>';
+  if(done.length) h+='<div class="cardNote" style="margin:2px 0 8px">Graded so far: <b class="g">'+wins+' success</b> · '+
+     '<b>'+part+' partial</b> · <b class="r">'+loss+' failed</b> · '+
+     done.filter(p=>/expired/.test(p.status)).length+' expired — '+
+     '<i>at this sample size these are anecdotes, not statistics.</i></div>';
+  if(live.length) h+='<div class="card"><div class="cardT">ACTIVE</div>'+live.map(projCard).join('')+'</div>';
+  if(done.length) h+='<div class="card"><div class="cardT">GRADED <span class="est">newest first</span></div>'+
+     done.slice(0,20).map(projCard).join('')+'</div>';
+  if(!live.length && !done.length)
+    h+='<div class="empty">Nothing projected yet. Run a ⚡ Read so the engines have a direction, then tap the button above.</div>';
+  el.innerHTML=h;
+  el.querySelectorAll("details.patX").forEach(d=>d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; }));
+  const g=$("prjGen");
+  if(g) g.onclick=()=>{
+    if(activeProjection(state.symbol, state.tf)){
+      $("prjMsg").innerHTML='<div class="flag warn">One projection per chart at a time — overlapping forecasts are a way to always have been right. Cancel the active one first.</div>';
+      return;
+    }
+    const r=generateProjection();
+    if(r.err){ $("prjMsg").innerHTML='<div class="flag warn">'+esc(r.err)+'</div>'; return; }
+    state.projections.push(r.proj);
+    saveProjections(); renderProjections(); render();
+    cmdSay("Projection armed: "+r.proj.dir+" "+state.symbol.replace("USDT","")+" — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi));
+  };
+  el.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{
+    const p=state.projections.find(x=>x.id===b.dataset.cancel);
+    if(p && !p.outcome){ p.status="cancelled"; p.outcome={result:"cancelled",plain:"Cancelled by you before resolution.",aligned:[],against:[]};
+      p.resolvedTime=Date.now(); saveProjections(); renderProjections(); render(); }
+  });
+}
+
 /* One place that runs the whole thing, so the two buttons can never drift. */
 async function runBacktestUI(btn, outEl, label){
   // The routine 4s refresh calls renderPane() -> renderRecord(), which rebuilds
@@ -6658,6 +7161,19 @@ function renderRecord(){
      : acc>=45? 'Around coin-flip. Not yet evidence of an edge.'
      : 'Worse than a coin flip. Either the weights need work or these levels are not tradable.')+'</div>';
 
+  h+='<div class="card"><div class="cardT">RECENT CALLS <span class="est">what it said, what happened</span></div>';
+  for(const v of st.done.slice(-10).reverse()){
+    const good=(v.lean>=0.5)===respected(v);
+    const ic=v.result==="held"?"✅":v.result==="false-break"?"🪤":"💥";
+    const said = v.lean>=0.5? "hold" : "break";
+    const did  = v.result==="held"? "held" : v.result==="false-break"? "trapped & held" : "broke";
+    h+='<div class="vRow2"><span class="vIc">'+ic+'</span>'+
+       '<span class="vLab">'+v.label+' <small>'+v.tf+(v.src==="backfill"?" · history":"")+'</small></span>'+
+       '<span class="vCall">said '+said+' '+Math.round(v.lean*100)+'% → '+did+'</span>'+
+       '<span class="tagS '+(good?"good":"bad")+'">'+(good?"✓ right":"✗ wrong")+'</span></div>';
+  }
+  h+='</div>';
+
   h+='<div class="card"><div class="cardT">IS THE PERCENTAGE HONEST?</div>'+
      '<div class="cardNote">Green bar = how often it actually held. Gold tick = what the engine predicted. Close together means the numbers can be trusted.</div>';
   for(const c of st.cal){
@@ -6711,22 +7227,17 @@ function renderRecord(){
   }
   h+='</div>';
 
-  h+='<div class="card"><div class="cardT">RECENT CALLS</div>';
-  for(const v of st.done.slice(-10).reverse()){
-    const good=(v.lean>=0.5)===respected(v);
-    const ic=v.result==="held"?"✅":v.result==="false-break"?"🪤":"💥";
-    h+='<div class="vRow2"><span class="vIc">'+ic+'</span>'+
-       '<span class="vLab">'+v.label+' <small>'+v.tf+'</small></span>'+
-       '<span class="vCall">called '+Math.round(v.lean*100)+'%</span>'+
-       '<span class="tagS '+(good?"good":"bad")+'">'+(good?"right":"wrong")+'</span></div>';
-  }
-  h+='</div>'+
-    '<div class="card"><div class="cardT">REALITY CHECK</div>'+
+  h+='<div class="card"><div class="cardT">REALITY CHECK</div>'+
     '<div class="cardNote">Run the rules backwards over the real history now loaded ('+state.candles.length+' '+state.tf+' bars). Every decision sees only the bars before it.</div>'+
     '<button class="sigBtn" id="btRun" style="margin-top:8px">Run walk-forward backtest</button>'+
     '<div id="btOut"></div></div>'+
     '<div class="fine">Session log — clears on reload until the database backend is wired in.</div>';
   el.innerHTML=h;
+  /* The complaint was a wall: headline, three dense statistics blocks and the
+     backtest all expanded at once. Same treatment as STRUCTURE — every card
+     becomes a section, the human ones open, the statistics fold away.        */
+  sectionise(el);
+  sectionTools(el);
   const rfA=$("rfApply");
   if(rfA) rfA.onclick=()=>{
     const RF2=refitWeights(state.verdicts, priorWeights());
@@ -6746,6 +7257,7 @@ function renderPane(){
   else if(state.tab==="signals") renderSignals();
   else if(state.tab==="coach") $("coachList").innerHTML=postMortem();
   else if(state.tab==="zones"){ renderZones(); if(!state.zones) loadZones().then(renderZones); }
+  else if(state.tab==="proj") renderProjections();
   else if(state.tab==="structure") renderStructure();
   else if(state.tab==="record") renderRecord();
   else if(state.tab==="trades") renderTrades();
@@ -6757,7 +7269,7 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   state.tab=b.dataset.tab;
   try{ if(hasStorage) window.storage.set("ui:tab", state.tab); }catch(e){}
   document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
-  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
+  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",proj:"projList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
   $("sheet").classList.add("open");
   /* The strip scrolls horizontally, so the tab you just chose can end up half
@@ -6857,7 +7369,10 @@ function backfillVerdicts(full, tf){
         state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
         let S; try{ S=computeStats(lvl); }catch(e){ continue; }
         lastFor[lvl.id]=i;
-        out.push({ id:uid(), lvlId:lvl.id, label:lvl.label||lineTitle(lvl), kind:lvl.kind,
+        /* Deterministic id: the same test in history always produces the same
+           row, so a re-seed under ANY race merges instead of duplicating.    */
+        out.push({ id:"bf:"+state.symbol+":"+tf+":"+lvl.id+":"+full[i].time,
+          lvlId:lvl.id, label:lvl.label||lineTitle(lvl), kind:lvl.kind,
           tf, symbol:state.symbol, src:"backfill",
           openedIdx:i, openedTime:full[i].time, openedPrice:px,
           linePrice:lp, isSupport:S.isSupport, lean:S.leanRespect,
@@ -6915,13 +7430,19 @@ async function loadVerdictFrames(){
 async function seedVerdicts(){
   if(state._seeding) return; state._seeding=true;
   try{
+    /* The seed decides whether a backfill already exists by looking at
+       state.verdicts — meaningless until the stored verdicts have actually
+       arrived. Racing this was how RECORD filled with duplicated history.   */
+    for(let w=0; w<100 && !HYD.verdicts; w++) await new Promise(r2=>setTimeout(r2,150));
+    if(!HYD.verdicts) return;
     await loadVerdictFrames();
     let added=0;
     for(const tf of VF_TFS){
       const C=vfSeries(tf); if(!C||C.length<80) continue;
-      if(state.verdicts.some(v=>v.src==="backfill" && v.tf===tf && v.symbol===state.symbol)) continue;
       const got=backfillVerdicts(C, tf);
-      if(got.length){ state.verdicts.push(...got); added+=got.length; }
+      const have=new Set(state.verdicts.map(v=>v.id));
+      const fresh=got.filter(v=>!have.has(v.id));       /* deterministic ids make this exact */
+      if(fresh.length){ state.verdicts.push(...fresh); added+=fresh.length; }
     }
     if(added){ saveVerdicts(); renderPane(); cmdSay("Backfilled "+added+" graded verdict"+(added===1?"":"s")+" from history (in-sample)."); }
   }catch(e){ /* never break boot */ }
@@ -7465,7 +7986,8 @@ async function boot(){
   try{
     await loadCandles();
     await loadLevels();
-    await loadPapers(); await loadVerdicts(); await loadMeasuredWeights();
+    await loadPapers(); await loadVerdicts(); await loadMeasuredWeights(); await loadWatch(); await loadProjections();
+    try{ updateProjections(); }catch(e){}   /* candles precede this load — replay NOW, not at the first poll */
     try{
       if(hasStorage){
         const tr=await window.storage.get("tabs:open");
