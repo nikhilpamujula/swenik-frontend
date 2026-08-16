@@ -1043,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-14c-sync";
+window.WB_BUILD = "2026-08-14d-payload";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1092,6 +1092,10 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
           return r;
         }
         lastErr = "HTTP " + r.status;
+        /* 413 is not a transport problem and retrying cannot fix it: the body
+           is larger than the server will accept. Retrying forever is what made
+           this look like an endless "syncing 1…". Fail it loudly instead. */
+        if (r.status === 413 || r.status === 431){ H.tooBig = key; break; }
       }catch(e){ lastErr = (e && e.message) || "network blocked"; }
     }
     H.ok = false; H.lastFail = Date.now(); H.lastErr = lastErr || "unreachable";
@@ -1115,7 +1119,14 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
                        body: JSON.stringify({ value: v }) });
         if (pending[k] === v) delete pending[k];     /* a newer write stays queued */
         H.wrote++;
-      }catch(e){ H.failed++; }
+        if (H.tooBig === k){ H.tooBig = null; H.rejected = null; }
+      }catch(e){
+        H.failed++;
+        if (H.tooBig === k){                          /* unfixable by retrying */
+          H.rejected = { key:k, bytes:(v||"").length };
+          if (pending[k] === v) delete pending[k];    /* stop the endless queue */
+        }
+      }
     }
     H.queued = Object.keys(pending).length;
     flushing = false;
@@ -1164,6 +1175,7 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
       return { ok:H.ok, route:H.route, queued:Object.keys(pending).length,
                wrote:H.wrote, failed:H.failed, lastOk:H.lastOk, lastFail:H.lastFail,
                lastErr:H.lastErr, reads:H.reads, fromServer:H.fromServer, healed:H.healed||0,
+               rejected:H.rejected||null,
                api: window.WB_API || (canRelative ? location.origin : null) };
     }
   };
@@ -3716,13 +3728,32 @@ function renderWatch(){
         (state.scanTf&&state.scanTf!==state.tf? ' ('+state.scanTf+')':'')+
         ' from <b>'+(mins<60? mins+' min' : (mins/60).toFixed(1)+' h')+' ago</b> — tap Scan to refresh.</div>';
     }
-    const sorted=rows.slice().sort((a,b)=>{
+    /* Sanitise BEFORE sorting. The comparator dereferences r.near, so a single
+       null or older-build row thrown into the sort takes down the whole tab
+       before any per-row guard can run — the same class of bug already fixed
+       in the trade ledger. Repair what is repairable, count the rest.       */
+    let skipped=0;
+    const clean=[];
+    for(const r of rows){
+      if(!r || typeof r!=="object" || (!r.sym && !r.symbol)){ skipped++; continue; }
+      if(!r.sym) r.sym=String(r.symbol).toUpperCase();
+      if(!isFinite(r.chg)) r.chg=0;
+      if(!r.bias) r.bias="neutral";
+      if(r.near && !isFinite(r.near.d)) r.near=null;
+      clean.push(r);
+    }
+    const sorted=clean.sort((a,b)=>{
       const rank=r=>r.near? (r.near.d<0.005?3:r.near.d<0.015?2:1):0;
       return rank(b)-rank(a) || (b.conviction||0)-(a.conviction||0);
     });
     h+='<div class="wGrid">';
+    /* One malformed row must never blank the whole tab. This is the same bug
+       already fixed once in the trade ledger: a stored scan written by an older
+       build has different field names, the first r.sym.replace() throws, and
+       the entire WATCH pane renders empty with nothing to explain it. Repair
+       what is repairable, skip what is not, and SAY how many were skipped. */
     for(const r of sorted){
-      if(!r.ok){ h+='<div class="wCard err"><b>'+r.sym.replace("USDT","")+'</b><span>could not load</span></div>'; continue; }
+      if(!r.ok){ h+='<div class="wCard err"><b>'+esc(r.sym.replace("USDT",""))+'</b><span>could not load</span></div>'; continue; }
       const bcls=r.bias==="bullish"?"good":r.bias==="bearish"?"bad":"warn";
       const state2 = r.near
         ? (r.near.d<0.005? {t:"AT A LEVEL",c:"good"} : r.near.d<0.015? {t:"CLOSE",c:"warn"} : {t:"WATCHING",c:"info"})
@@ -3736,11 +3767,13 @@ function renderWatch(){
         '<div class="wNote">'+
           (r.near? (r.near.above?"resistance":"support")+" at "+fmt(r.near.p)+" · "+(r.near.d*100).toFixed(2)+"% away ("+r.near.ev+" evidence)"
                  : "nothing proven within 3% of price")+
-          (r.rsi!=null? " · RSI "+r.rsi.toFixed(0):"")+
+          (isFinite(r.rsi)? " · RSI "+r.rsi.toFixed(0):"")+
         '</div>'+
       '</div>';
     }
     h+='</div>';
+    if(skipped) h+='<div class="cardNote">'+skipped+' saved row'+(skipped===1?" was":"s were")+
+      ' written by an older build and could not be read — tap Scan to rebuild them.</div>';
   }
   el.innerHTML=h;
   const sb=$("scanBtn");
@@ -5781,6 +5814,16 @@ async function loadVerdicts(){
     if(!prev.result && v.result){ Object.assign(prev, v); }
     return false;
   });
+  /* Shrink rows written by older builds: `reading` was saved on every factor
+     and never read back, and it is what pushed verdicts:all past the server's
+     body limit — after which NOTHING in this key could save. Strip it once, on
+     load, so the next save is ~42% smaller and gets through.                */
+  let slimmed=0;
+  for(const v of state.verdicts){
+    if(!Array.isArray(v.factors)) continue;
+    for(const f of v.factors) if(f && f.reading!==undefined){ delete f.reading; slimmed++; }
+  }
+  if(slimmed) try{ console.info("[wb] slimmed "+slimmed+" stored factor rows"); }catch(e){}
   HYD.verdicts=true;
 }
 function snapPrice(p){
@@ -7548,7 +7591,7 @@ function backfillVerdicts(full, tf){
           tf, symbol:state.symbol, src:"backfill",
           openedIdx:i, openedTime:full[i].time, openedPrice:px,
           linePrice:lp, isSupport:S.isSupport, lean:S.leanRespect,
-          factors:S.rows.map(r=>({name:r.name, reading:r.reading, pp:r.pp, vote:r.vote})),
+          factors:S.rows.map(r=>({name:r.name, pp:r.pp, vote:r.vote})),   /* no reading: stored but never read back, and 42% of the payload that broke the 100kb body limit */
           result:null, resolvedIdx:null, note:"" });
       }
     }
@@ -7655,7 +7698,7 @@ function openVerdictsOn(C, tf){
         openedIdx:iNow, openedTime:C[iNow].time, openedPrice:px,
         linePrice:lp, isSupport:S.isSupport,
         lean:S.leanRespect,
-        factors:S.rows.map(r=>({name:r.name, reading:r.reading, pp:r.pp, vote:r.vote})),
+        factors:S.rows.map(r=>({name:r.name, pp:r.pp, vote:r.vote})),   /* no reading: stored but never read back, and 42% of the payload that broke the 100kb body limit */
         result:null, resolvedIdx:null, note:""
       });
       dirty=true;
@@ -8125,6 +8168,14 @@ function syncState(){
   if(!s.api){ el.textContent="device only"; el.className="warn";
     el.title="No server configured. Work is saved on this device only and will not follow you to another phone or browser."; return; }
   if(s.ok===null){ el.textContent="saving…"; el.className=""; return; }
+  if(s.rejected){
+    const kb=Math.round(s.rejected.bytes/1024);
+    el.textContent="⚠ too big to save"; el.className="err";
+    el.title='The server refused "'+s.rejected.key+'" ('+kb+' KB) as too large — its body limit is smaller than your history. '+
+      'This is a BACKEND fix (raise the limit on /api/wb/kv), not something retrying can solve. '+
+      'Your data is safe on this device meanwhile.';
+    return;
+  }
   if(s.ok===false){
     el.textContent="⚠ not saved ("+s.queued+")"; el.className="err";
     el.title="The server is unreachable ("+(s.lastErr||"network")+"). Your work is safe on THIS device and "+
