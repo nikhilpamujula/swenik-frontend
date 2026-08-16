@@ -43,6 +43,12 @@
   }
   #status.ok{color:var(--up);border-color:rgba(45,212,160,.4)}
   #status.err{color:var(--down);border-color:rgba(242,73,92,.4)}
+  /* saved-state chip: "is my work actually persisted" must never be a feeling */
+  #sync{font-size:11px;padding:3px 9px;border-radius:20px;white-space:nowrap;cursor:pointer;
+    border:1px solid var(--line);color:var(--dim);}
+  #sync.ok{color:var(--up);border-color:rgba(45,212,160,.4)}
+  #sync.warn{color:#F5D77A;border-color:rgba(245,215,122,.45)}
+  #sync.err{color:var(--down);border-color:rgba(242,73,92,.5);background:rgba(242,73,92,.08)}
 
   .toolbar{
     display:flex;align-items:center;gap:6px;padding:8px 12px;
@@ -840,6 +846,7 @@
   <div id="chg" class="mono"></div>
   <div id="closeIn" class="mono" title="time until this candle closes">—</div>
   <button id="helpBtn" title="What is this?">?</button>
+  <div id="sync" title="Where your work is stored">saving…</div>
   <div id="status">connecting…</div>
 </header>
 
@@ -1036,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-14b-buyzone";
+window.WB_BUILD = "2026-08-14c-sync";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1053,25 +1060,111 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
   var apibase = null;
   try { apibase = new URLSearchParams(location.search).get("apibase"); } catch(e){}
   window.WB_API = apibase ? apibase.replace(/\/+$/,"") : null;
+  /* ── ROUTE FAILOVER ───────────────────────────────────────────────────────
+     track.html patches window.fetch to retry backend calls through the Vercel
+     same-origin proxy, because some Indian mobile ISPs block *.ondigitalocean
+     .app at the network level. That patch lives in the WRAPPER's document —
+     this workbench runs in an IFRAME with its own window and its own fetch, so
+     it never inherited the failover. Every save then died with "Failed to
+     fetch" inside a bare catch{} and fell back to localStorage, which looks
+     identical to working until you open the app on another device and find
+     nothing there. That is the "my charts are not saving" bug. Same two-route
+     self-healing logic, now inside the shim that actually does the saving. */
+  var canRelative = (location.protocol === "https:" || location.protocol === "http:");
+  var viaProxy = false;
+  var H = window.WB_SYNC = { ok:null, route:"direct", lastOk:0, lastFail:0,
+                             lastErr:null, wrote:0, failed:0, queued:0, reads:0, fromServer:0 };
+  function routesFor(key){
+    var path = "/api/wb/kv/" + encodeURIComponent(key);
+    var direct = window.WB_API ? window.WB_API + path : null;
+    var proxied = canRelative ? path : null;      /* vercel.json proxies /api/* */
+    var list = viaProxy ? [proxied, direct] : [direct, proxied];
+    return list.filter(function(u){ return !!u; });
+  }
+  async function hit(key, init){
+    var rs = routesFor(key), lastErr = null;
+    for (var i=0; i<rs.length; i++){
+      try{
+        var r = await fetch(rs[i], init);
+        if (r.ok){
+          if (i > 0){ viaProxy = !viaProxy; H.route = viaProxy ? "vercel proxy" : "direct"; }
+          H.ok = true; H.lastOk = Date.now(); H.lastErr = null;
+          return r;
+        }
+        lastErr = "HTTP " + r.status;
+      }catch(e){ lastErr = (e && e.message) || "network blocked"; }
+    }
+    H.ok = false; H.lastFail = Date.now(); H.lastErr = lastErr || "unreachable";
+    throw new Error(H.lastErr);
+  }
+
+  /* Writes are QUEUED, not fired and forgotten. A failed PUT stays queued and
+     is retried; last write per key wins. A lost network no longer means lost
+     data, it means data that lands late.                                    */
+  var pending = {}, timer = null, flushing = false;
+  function schedule(ms){ if (timer) return; timer = setTimeout(function(){ timer=null; flush(); }, ms); }
+  async function flush(){
+    if (flushing) return;
+    var keys = Object.keys(pending);
+    if (!keys.length) return;
+    flushing = true;
+    for (var i=0; i<keys.length; i++){
+      var k = keys[i], v = pending[k];
+      try{
+        await hit(k, { method:"PUT", headers:{ "Content-Type":"application/json" },
+                       body: JSON.stringify({ value: v }) });
+        if (pending[k] === v) delete pending[k];     /* a newer write stays queued */
+        H.wrote++;
+      }catch(e){ H.failed++; }
+    }
+    H.queued = Object.keys(pending).length;
+    flushing = false;
+    if (H.queued) schedule(15000);                   /* keep trying, quietly */
+  }
+  try{ window.addEventListener("online", function(){ flush(); }); }catch(e){}
+
   window.storage = {
     async get(key){
-      if (window.WB_API){
+      H.reads++;
+      if (window.WB_API || canRelative){
         try{
-          var r = await fetch(window.WB_API + "/api/wb/kv/" + encodeURIComponent(key));
-          if (r.ok){ var j = await r.json(); if (j && j.value != null){ try{ localStorage.setItem(NS+key, j.value); }catch(_){} return { value: j.value }; } }
+          var r = await hit(key, undefined);
+          var j = await r.json();
+          if (j && j.value != null){
+            H.fromServer++;
+            try{ localStorage.setItem(NS+key, j.value); }catch(_){}
+            return { value: j.value };
+          }
+          /* Server answered and has NOTHING for this key. Do not treat that as
+             "no data": while the backend was unreachable every save landed on
+             this device only, so the device copy is the newer one. Adopt it and
+             push it up — this is what recovers work stranded by the outage.  */
+          var local = null;
+          try{ local = localStorage.getItem(NS+key); }catch(_){}
+          if (local != null){
+            H.healed = (H.healed||0) + 1;
+            pending[key] = local; H.queued = Object.keys(pending).length; schedule(50);
+            return { value: local };
+          }
+          return null;
         }catch(e){}
       }
-      try{ var v = localStorage.getItem(NS+key); return v == null ? null : { value: v }; }catch(e){ return null; }
+      try{ var v = localStorage.getItem(NS+key); return v == null ? null : { value: v }; }
+      catch(e){ return null; }
     },
     async set(key, value){
       try{ localStorage.setItem(NS+key, value); }catch(e){}
-      if (window.WB_API){
-        try{
-          await fetch(window.WB_API + "/api/wb/kv/" + encodeURIComponent(key), {
-            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: value })
-          });
-        }catch(e){}
-      }
+      if (!window.WB_API && !canRelative) return;
+      pending[key] = value;
+      H.queued = Object.keys(pending).length;
+      return flush();
+    },
+    /* what the sync chip reads — never guesses, reports what actually happened */
+    health: function(){
+      return { ok:H.ok, route:H.route, queued:Object.keys(pending).length,
+               wrote:H.wrote, failed:H.failed, lastOk:H.lastOk, lastFail:H.lastFail,
+               lastErr:H.lastErr, reads:H.reads, fromServer:H.fromServer, healed:H.healed||0,
+               api: window.WB_API || (canRelative ? location.origin : null) };
     }
   };
 })();
@@ -4861,7 +4954,7 @@ function touchOutcomes(lvl){
      · Hard refusal below a sample floor — consistent with the rest of the app,
        which would rather say nothing than manufacture a number.                */
 const REFIT_MIN_TOTAL  = 30;   /* fewer resolved verdicts than this: say nothing */
-const REFIT_MIN_FACTOR = 20;   /* per-factor floor before it gets its own weight */
+const REFIT_MIN_FACTOR = 30;   /* per-factor floor before it gets its own weight */
 const REFIT_SHRINK_K   = 25;   /* n/(n+K) — weight placed on measurement vs prior */
 let MEASURED_W = null;         /* {factorName: weight} once applied, else null   */
 const PRIOR_W = {};            /* shipped priors, harvested the first time each   */
@@ -4890,38 +4983,85 @@ function zFor(alpha, k) {
   if(p<=1-pl){ q=p-0.5; r=q*q; return (((((A[0]*r+A[1])*r+A[2])*r+A[3])*r+A[4])*r+A[5])*q/(((((B[0]*r+B[1])*r+B[2])*r+B[3])*r+B[4])*r+1); }
   q=Math.sqrt(-2*Math.log(1-p)); return -(((((C[0]*q+C[1])*q+C[2])*q+C[3])*q+C[4])*q+C[5])/((((D[0]*q+D[1])*q+D[2])*q+D[3])*q+1);
 }
-function refitWeights(verdicts, priors) {
+/* ---- projections as factor evidence ----------------------------------------
+   Every graded projection ALREADY stores which factors pointed the way price
+   actually went (outcome.aligned) and which did not (outcome.against). That is
+   the same measurement the verdict log makes at a level — except taken on a
+   forecast that carried an entry, a stop and targets. It was being written on
+   every resolution and never read by anything. This reads it.
+
+   Cancelled rows are excluded: you ended those, the market did not, so they
+   carry no information about whether a factor was right.                     */
+function projFactorEvidence(projections){
+  const done=(projections||[]).filter(p => p && p.outcome && p.outcome.result!=='cancelled'
+    && (Array.isArray(p.outcome.aligned) || Array.isArray(p.outcome.against)));
+  const fm={}; let up=0;
+  for(const p of done){
+    if(p.outcome.actualDir==='up') up++;
+    for(const a of (p.outcome.aligned||[])){
+      if(!a||!a.src) continue;
+      const f=fm[a.src]||(fm[a.src]={n:0,hits:0}); f.n++; f.hits++;
+    }
+    for(const a of (p.outcome.against||[])){
+      if(!a||!a.src) continue;
+      const f=fm[a.src]||(fm[a.src]={n:0,hits:0}); f.n++;
+    }
+  }
+  const n=done.length, pUp = n? up/n : 0.5;
+  /* Same majority-class logic as the verdict benchmark: a factor with a fixed
+     opinion is "aligned" exactly as often as the market happens to move its
+     way, so the bar to clear is the majority direction, never a flat 50%.    */
+  return { n, factors:fm, benchmark: n? Math.max(pUp, 1-pUp) : 0.5, pUp };
+}
+
+function refitWeights(verdicts, priors, projections) {
   const done = (verdicts||[]).filter(v => v && v.result && v.result !== 'unclear' && Array.isArray(v.factors));
   const respected = v => v.result === 'held' || v.result === 'false-break';
-  const N = done.length;
+  const PE = projFactorEvidence(projections);
+  const NV = done.length, NP = PE.n, N = NV + NP;
   if (N < REFIT_MIN_TOTAL)
-    return { ok:false, n:N, need:REFIT_MIN_TOTAL,
-      reason:'Only '+N+' resolved prediction'+(N===1?'':'s')+'. Refitting on this little data would fit noise, not skill — '+(REFIT_MIN_TOTAL-N)+' more needed.' };
+    return { ok:false, n:N, nV:NV, nP:NP, need:REFIT_MIN_TOTAL,
+      reason:'Only '+N+' resolved prediction'+(N===1?'':'s')+
+        (NP? ' ('+NV+' level test'+(NV===1?'':'s')+' + '+NP+' graded projection'+(NP===1?'':'s')+')':'')+
+        '. Refitting on this little data would fit noise, not skill — '+(REFIT_MIN_TOTAL-N)+' more needed.' };
 
   const respects = done.filter(respected).length;
-  const baseRate = respects / N;
-  const benchmark = Math.max(baseRate, 1 - baseRate);   /* always-guess-majority */
+  const baseRate = NV ? respects / NV : null;
+  /* always-guess-majority, per source. A factor is judged against the blend of
+     the two, weighted by where ITS observations actually came from.          */
+  const benchV = NV ? Math.max(baseRate, 1 - baseRate) : 0.5;
+  const benchmark = benchV;
 
-  /* probabilistic accuracy, not just direction */
-  let brier = 0, brierBase = 0;
-  for (const v of done) {
-    const o = respected(v) ? 1 : 0;
-    brier     += Math.pow((v.lean ?? 0.5) - o, 2);
-    brierBase += Math.pow(baseRate - o, 2);
+  /* probabilistic accuracy, not just direction — verdicts only: a projection
+     stores no lean, so folding it in would silently dilute the Brier score. */
+  let brier = null, brierBase = null, skill = null;
+  if (NV) {
+    brier = 0; brierBase = 0;
+    for (const v of done) {
+      const o = respected(v) ? 1 : 0;
+      brier     += Math.pow((v.lean ?? 0.5) - o, 2);
+      brierBase += Math.pow(baseRate - o, 2);
+    }
+    brier /= NV; brierBase /= NV;
+    skill = brierBase > 0 ? 1 - brier / brierBase : 0;
   }
-  brier /= N; brierBase /= N;
-  const skill = brierBase > 0 ? 1 - brier / brierBase : 0;
 
-  /* per-factor directional accuracy */
+  /* per-factor directional accuracy, from BOTH logs */
   const fm = {};
+  const bucket = name => fm[name] || (fm[name] = { n:0, hits:0, nV:0, hitsV:0, nP:0, hitsP:0 });
   for (const v of done) {
     for (const fr of v.factors) {
       if (!fr || !fr.name || Math.abs(fr.pp || 0) < 1) continue;   /* no opinion */
-      const f = fm[fr.name] || (fm[fr.name] = { n:0, hits:0 });
-      f.n++;
-      if ((fr.pp > 0) === respected(v)) f.hits++;
+      const f = bucket(fr.name);
+      f.n++; f.nV++;
+      if ((fr.pp > 0) === respected(v)) { f.hits++; f.hitsV++; }
     }
   }
+  for (const name of Object.keys(PE.factors)) {
+    const s = PE.factors[name], f = bucket(name);
+    f.n += s.n; f.hits += s.hits; f.nP += s.n; f.hitsP += s.hits;
+  }
+
   const names = Object.keys(fm);
   const z = zFor(0.05, names.length);            /* family-wise corrected */
   const factors = names.map(name => {
@@ -4929,15 +5069,17 @@ function refitWeights(verdicts, priors) {
     const [lo, hi] = wilson(f.hits, f.n, z);
     const prior = priors && priors[name] != null ? priors[name] : null;
     const enough = f.n >= REFIT_MIN_FACTOR;
-    const better = enough && lo > benchmark;     /* beats guessing, after correction */
-    const worse  = enough && hi < benchmark;     /* measurably worse than guessing */
+    /* the bar this factor must clear, blended by where its evidence came from */
+    const bench = f.n ? (f.nV * benchV + f.nP * PE.benchmark) / f.n : 0.5;
+    const better = enough && lo > bench;         /* beats guessing, after correction */
+    const worse  = enough && hi < bench;         /* measurably worse than guessing */
     const shrink = enough ? f.n / (f.n + REFIT_SHRINK_K) : 0;
-    const rel = benchmark > 0 ? rate / benchmark : 1;
+    const rel = bench > 0 ? rate / bench : 1;
     const relC = Math.max(0.2, Math.min(2.0, rel));
     const newWeight = prior == null ? null
       : +(prior * ((1 - shrink) + shrink * relC)).toFixed(4);
     return { name, n:f.n, hits:f.hits, rate, ci:[lo,hi], prior, newWeight,
-      enough, better, worse,
+      enough, better, worse, bench, src:{ v:f.nV, p:f.nP },
       verdict: !enough ? 'not enough data'
              : better  ? 'earns its weight'
              : worse   ? 'hurting — shrunk'
@@ -4954,7 +5096,8 @@ function refitWeights(verdicts, priors) {
     const exp=set.reduce((s,v)=>s+(v.lean??0.5),0)/set.length;
     calErr += Math.abs(act-exp)*set.length; calN += set.length;
   }
-  return { ok:true, n:N, baseRate, benchmark, brier, brierBase, skill,
+  return { ok:true, n:N, nV:NV, nP:NP, baseRate, benchmark, projBenchmark:PE.benchmark,
+           brier, brierBase, skill,
            calibrationError: calN ? calErr/calN : null,
            factors, alpha:0.05, z,
            usable: factors.filter(f=>f.enough).length };
@@ -7168,7 +7311,10 @@ function renderRecord(){
     const said = v.lean>=0.5? "hold" : "break";
     const did  = v.result==="held"? "held" : v.result==="false-break"? "trapped & held" : "broke";
     h+='<div class="vRow2"><span class="vIc">'+ic+'</span>'+
-       '<span class="vLab">'+v.label+' <small>'+v.tf+(v.src==="backfill"?" · history":"")+'</small></span>'+
+       /* backfilled and legacy rows may carry no label — printing the literal
+          word "undefined" next to a real result reads like a broken record. */
+       '<span class="vLab">'+esc(v.label || (v.symbol? String(v.symbol).replace("USDT","") : "")+" level")+
+         ' <small>'+esc(v.tf||"")+(v.src==="backfill"?" · history":"")+'</small></span>'+
        '<span class="vCall">said '+said+' '+Math.round(v.lean*100)+'% → '+did+'</span>'+
        '<span class="tagS '+(good?"good":"bad")+'">'+(good?"✓ right":"✗ wrong")+'</span></div>';
   }
@@ -7190,7 +7336,7 @@ function renderRecord(){
      Replaces a raw hit-rate list that reported any factor with n>=3 against a
      50% line. Both were misleading: n=3 carries no information, and 50% is the
      wrong benchmark when levels do not respect half the time. */
-  const RF = refitWeights(state.verdicts, priorWeights());
+  const RF = refitWeights(state.verdicts, priorWeights(), state.projections);
   h+='<div class="card"><div class="cardT">DO THE FACTORS EARN THEIR WEIGHT?</div>';
   if(!RF.ok){
     h+='<div class="cardNote">'+RF.reason+'</div>'+
@@ -7199,30 +7345,56 @@ function renderRecord(){
        '<span class="cNum y">'+RF.n+'/'+RF.need+'</span></div>';
   } else {
     const pc=v=>Math.round(v*100);
-    h+='<div class="cardNote">Measured on <b>'+RF.n+'</b> resolved predictions. Your levels respect <b>'+pc(RF.baseRate)+'%</b> of the time, so always guessing the majority scores <b>'+pc(RF.benchmark)+'%</b> — that, not 50%, is the bar. Ranges are 95% confidence intervals corrected for testing '+RF.factors.length+' factors at once.</div>';
-    h+='<div class="calRow2"><span class="cLab wide">skill vs base rate</span>'+
-       '<span class="cNum '+(RF.skill>0.05?"g":RF.skill>-0.02?"y":"r")+'">'+(RF.skill>=0?"+":"")+(RF.skill*100).toFixed(1)+'%</span>'+
-       '<span class="cN">Brier '+RF.brier.toFixed(3)+' vs '+RF.brierBase.toFixed(3)+'</span></div>';
+    h+='<div class="cardNote">Measured on <b>'+RF.n+'</b> resolved predictions — <b>'+RF.nV+'</b> level test'+(RF.nV===1?'':'s')+
+       ' and <b>'+RF.nP+'</b> graded projection'+(RF.nP===1?'':'s')+'. '+
+       (RF.nV? 'Your levels respect <b>'+pc(RF.baseRate)+'%</b> of the time, so always guessing the majority scores <b>'+pc(RF.benchmark)+'%</b> — that, not 50%, is the bar. ':'')+
+       (RF.nP? 'On projections the majority direction came up <b>'+pc(RF.projBenchmark)+'%</b> of the time, which is the bar there. ':'')+
+       'Each factor is judged against the blend of the two, weighted by where its own evidence came from. Ranges are 95% confidence intervals corrected for testing '+RF.factors.length+' factors at once.</div>';
+    if(RF.skill!=null)
+      h+='<div class="calRow2"><span class="cLab wide">skill vs base rate</span>'+
+         '<span class="cNum '+(RF.skill>0.05?"g":RF.skill>-0.02?"y":"r")+'">'+(RF.skill>=0?"+":"")+(RF.skill*100).toFixed(1)+'%</span>'+
+         '<span class="cN">Brier '+RF.brier.toFixed(3)+' vs '+RF.brierBase.toFixed(3)+' · level tests only</span></div>';
     if(RF.calibrationError!=null)
       h+='<div class="calRow2"><span class="cLab wide">calibration error</span>'+
          '<span class="cNum '+(RF.calibrationError<0.08?"g":RF.calibrationError<0.15?"y":"r")+'">'+pc(RF.calibrationError)+'pp</span>'+
          '<span class="cN">avg |said − happened|</span></div>';
-    for(const fr of RF.factors){
+    /* Two engines, two vocabularies. The level engine's factors carry shipped
+       weights and can be refit; the read engine's factors (the ones that
+       actually generate projections) do not — they are measured and reported,
+       which is still the answer to "which of my factors is right". Saying so
+       beats showing one list where half the rows silently never update.     */
+    const frRow = fr => {
       const cls = fr.better?"g" : fr.worse?"r" : "y";
-      h+='<div class="calRow2"><span class="cLab wide">'+fr.name+'</span>'+
-         '<span class="calBar"><i class="'+(fr.better?"":"amber")+'" style="width:'+pc(fr.rate)+'%"></i>'+
-         '<u style="left:'+pc(RF.benchmark)+'%"></u></span>'+
-         '<span class="cNum '+cls+'">'+pc(fr.rate)+'%</span>'+
-         '<span class="cN">n='+fr.n+' · '+pc(fr.ci[0])+'–'+pc(fr.ci[1])+'%</span></div>'+
-         '<div class="fine" style="padding:0 0 6px 2px">'+fr.verdict+
-           (fr.newWeight!=null&&fr.enough? ' · weight '+fr.prior+' → <b>'+fr.newWeight+'</b>':'')+'</div>';
+      const split = fr.src ? [ fr.src.v? fr.src.v+' level test'+(fr.src.v===1?'':'s'):'',
+                               fr.src.p? fr.src.p+' projection'+(fr.src.p===1?'':'s'):'' ]
+                             .filter(Boolean).join(' + ') : '';
+      return '<div class="calRow2"><span class="cLab wide">'+esc(fr.name)+'</span>'+
+        '<span class="calBar"><i class="'+(fr.better?"":"amber")+'" style="width:'+pc(fr.rate)+'%"></i>'+
+        '<u style="left:'+pc(fr.bench!=null?fr.bench:RF.benchmark)+'%"></u></span>'+
+        '<span class="cNum '+cls+'">'+pc(fr.rate)+'%</span>'+
+        '<span class="cN">n='+fr.n+' · '+pc(fr.ci[0])+'–'+pc(fr.ci[1])+'%</span></div>'+
+        '<div class="fine" style="padding:0 0 6px 2px">'+fr.verdict+
+          ' · '+(fr.enough? 'bar to beat '+pc(fr.bench)+'%' : 'needs '+(REFIT_MIN_FACTOR-fr.n)+' more')+
+          (split? ' · from '+split : '')+
+          (fr.newWeight!=null&&fr.enough? ' · weight '+fr.prior+' → <b>'+fr.newWeight+'</b>':'')+'</div>';
+    };
+    /* Group by where the evidence CAME FROM, not by whether a prior exists:
+       PRIOR_W is populated lazily by factorVotes, so before any line has been
+       analysed it is empty and every factor would masquerade as read-only.  */
+    const refittable = RF.factors.filter(f=>!f.src || f.src.v>0);
+    const readOnly   = RF.factors.filter(f=>f.src && f.src.v===0 && f.src.p>0);
+    for(const fr of refittable) h+=frRow(fr);
+    if(readOnly.length){
+      h+='<div class="cardT" style="margin-top:10px">READ FACTORS — MEASURED, NOT REFIT</div>'+
+         '<div class="fine" style="padding:2px 0 6px 2px">These drive your projections but carry no shipped level weight, so nothing here changes a number automatically. Read them and decide yourself.</div>';
+      for(const fr of readOnly) h+=frRow(fr);
     }
     if(RF.usable>0)
       h+='<button class="sigBtn" id="rfApply" style="margin-top:8px">Apply measured weights ('+RF.usable+' factor'+(RF.usable===1?'':'s')+')</button>'+
          '<button class="sigBtn" id="rfReset" style="margin-top:8px;margin-left:6px">Back to shipped priors</button>'+
          '<div class="fine" style="margin-top:6px">Applying replaces the shipped guesses with what your own log measured, shrunk toward the prior by sample size. Reversible.</div>';
     else
-      h+='<div class="fine" style="margin-top:6px">No factor has reached n='+20+' yet, so nothing is safe to refit. Keep collecting.</div>';
+      h+='<div class="fine" style="margin-top:6px">No factor has reached n='+REFIT_MIN_FACTOR+' yet, so nothing is safe to refit. Keep collecting — every graded projection and every resolved level test adds to this.</div>';
     if(MEASURED_W) h+='<div class="flag good" style="margin-top:6px">Measured weights are ACTIVE for '+Object.keys(MEASURED_W).length+' factor(s).</div>';
   }
   h+='</div>';
@@ -7240,7 +7412,7 @@ function renderRecord(){
   sectionTools(el);
   const rfA=$("rfApply");
   if(rfA) rfA.onclick=()=>{
-    const RF2=refitWeights(state.verdicts, priorWeights());
+    const RF2=refitWeights(state.verdicts, priorWeights(), state.projections);
     const map={};
     for(const fr of (RF2.factors||[])) if(fr.enough && fr.newWeight!=null) map[fr.name]=fr.newWeight;
     applyMeasuredWeights(map);
@@ -7939,6 +8111,45 @@ function tickCountdown(){
   el.style.color = left<300 ? "#F2495C" : "#E8EAED";
 }
 setInterval(tickCountdown,1000);
+
+/* ---- sync chip -------------------------------------------------------------
+   "I don't feel the charts are saving" was unanswerable because a failed save
+   looked exactly like a good one. This reports what the shim actually did:
+   whether the server answered, which route worked, and how many writes are
+   still waiting. Tap it for the full diagnosis.                             */
+function syncState(){
+  const el=$("sync"); if(!el) return;
+  const s = (hasStorage && window.storage.health) ? window.storage.health() : null;
+  if(!s){ el.textContent="device only"; el.className="warn";
+    el.title="No storage backend on this page — nothing is being saved anywhere durable."; return; }
+  if(!s.api){ el.textContent="device only"; el.className="warn";
+    el.title="No server configured. Work is saved on this device only and will not follow you to another phone or browser."; return; }
+  if(s.ok===null){ el.textContent="saving…"; el.className=""; return; }
+  if(s.ok===false){
+    el.textContent="⚠ not saved ("+s.queued+")"; el.className="err";
+    el.title="The server is unreachable ("+(s.lastErr||"network")+"). Your work is safe on THIS device and "+
+      s.queued+" change(s) are queued — they upload automatically when the connection returns. Do not clear this browser's data until the chip turns green.";
+    return;
+  }
+  if(s.queued){ el.textContent="syncing "+s.queued+"…"; el.className="warn";
+    el.title=s.queued+" change(s) still uploading via "+s.route+"."; return; }
+  const secs = s.lastOk? Math.round((Date.now()-s.lastOk)/1000) : null;
+  el.textContent="✓ saved"; el.className="ok";
+  el.title="Saved to the server via "+s.route+
+    (secs!=null? " · last confirmed "+(secs<60? secs+"s":Math.round(secs/60)+"m")+" ago":"")+
+    " · "+s.wrote+" write(s) confirmed"+(s.failed? ", "+s.failed+" retried":"")+
+    (s.healed? " · "+s.healed+" key(s) recovered from this device and re-uploaded":"");
+}
+setInterval(syncState,2000);
+try{ $("sync").onclick=()=>{
+  const s=(hasStorage&&window.storage.health)? window.storage.health():null;
+  if(!s){ cmdSay("No storage backend on this page."); return; }
+  cmdSay((s.ok? "Saving to server ✓" : s.ok===false? "SERVER UNREACHABLE — device only" : "checking…")+
+    " · route "+s.route+" · "+s.wrote+" written, "+s.failed+" retried, "+s.queued+" queued"+
+    (s.lastErr? " · last error: "+s.lastErr : "")+
+    " · reads "+s.reads+" ("+s.fromServer+" from server)"+
+    (s.healed? " · "+s.healed+" recovered from device":""));
+}; }catch(e){}
 
 $("acctIn").onchange=e=>{
   state.risk.account=Math.max(1,+e.target.value||10000);
