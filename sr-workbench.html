@@ -1043,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-14f-heal";
+window.WB_BUILD = "2026-08-14g-chunk";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1119,14 +1119,13 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
     for (var i=0; i<keys.length; i++){
       var k = keys[i], v = pending[k];
       try{
-        await hit(k, { method:"PUT", headers:{ "Content-Type":"application/json" },
-                       body: JSON.stringify({ value: v }) });
+        await putValue(k, v);
         if (pending[k] === v) delete pending[k];     /* a newer write stays queued */
         H.wrote++;
-        if (H.tooBig === k){ H.tooBig = null; H.rejected = null; }
+        if (tooBigFor(k)){ H.tooBig = null; H.rejected = null; }
       }catch(e){
         H.failed++;
-        if (H.tooBig === k){
+        if (tooBigFor(k)){
           /* park it: out of the fast queue so it stops hammering, but KEPT so a
              server-side fix heals this by itself instead of needing a reload */
           H.rejected = { key:k, bytes:(v||"").length, tries:(H.rejected&&H.rejected.key===k? H.rejected.tries||1 : 1) };
@@ -1146,6 +1145,13 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
      diagnostic — if it stays red past a couple of re-tests, the deploy did not
      actually take, rather than the app simply not having noticed.           */
   var parked = {}, parkTimer = null, PARK_MS = 90000;
+  /* A chunk is refused under its OWN key ("verdicts:all~0"), but it is the
+     PARENT that failed to save. Comparing H.tooBig to the parent directly never
+     matched, so an oversized chunk fell through to the generic retry loop and
+     sat on "not saved" forever — the very failure chunking exists to end. */
+  function tooBigFor(k){
+    return H.tooBig === k || (typeof H.tooBig === "string" && H.tooBig.indexOf(k + "~") === 0);
+  }
   function scheduleParked(){
     if (parkTimer) return;
     parkTimer = setTimeout(async function(){
@@ -1156,10 +1162,9 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
       for (var i=0;i<keys.length;i++){
         var k = keys[i], v = parked[k];
         try{
-          await hit(k, { method:"PUT", headers:{ "Content-Type":"application/json" },
-                         body: JSON.stringify({ value: v }) });
+          await putValue(k, v);
           delete parked[k]; H.wrote++;
-          if (H.tooBig === k){ H.tooBig = null; H.rejected = null; }   /* healed */
+          if (tooBigFor(k)){ H.tooBig = null; H.rejected = null; }   /* healed */
         }catch(e){
           if (H.rejected && H.rejected.key===k) H.rejected.tries = (H.rejected.tries||1)+1;
         }
@@ -1169,17 +1174,68 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
   }
   try{ window.addEventListener("online", function(){ flush(); scheduleParked(); }); }catch(e){}
 
+  /* ── CHUNKING ──────────────────────────────────────────────────────────────
+     The verdict log outgrew the server's request-body limit, so that one key
+     stopped saving. Raising the limit on the backend is the obvious fix and it
+     WAS done — and the writes were still refused three re-tests running. So
+     something between this browser and Postgres (an old process that never
+     restarted, a proxy, a CDN) enforces a ceiling that cannot be verified from
+     the phone. Stop depending on it: never send a large body at all.
+
+     A value over CHUNK_MAX goes up as a small manifest plus N numbered pieces,
+     each comfortably under any 100kb default. Reads reassemble transparently.
+     Nothing above this line knows chunking exists.
+
+     Shrinking from 7 pieces to 3 orphans pieces 3-6 on the server; the manifest
+     records the count so they are never read. Harmless, and safer than deleting
+     keys that a half-finished write might still need.                       */
+  var CHUNK_MAX = 60000;
+  var CHUNK_TAG = "__wbchunks__";
+  function chunkKey(k,i){ return k+"~"+i; }
+  async function putRaw(key, value){
+    return hit(key, { method:"PUT", headers:{ "Content-Type":"application/json" },
+                      body: JSON.stringify({ value: value }) });
+  }
+  async function putValue(key, value){
+    if (value == null || value.length <= CHUNK_MAX) return putRaw(key, value);
+    var parts = [];
+    for (var i=0; i<value.length; i+=CHUNK_MAX) parts.push(value.slice(i, i+CHUNK_MAX));
+    /* pieces first, manifest last: if the run dies halfway the old manifest is
+       still pointing at a complete older set rather than a half-written new one */
+    for (var j=0; j<parts.length; j++) await putRaw(chunkKey(key,j), parts[j]);
+    H.chunked = H.chunked || {}; H.chunked[key] = parts.length;
+    return putRaw(key, JSON.stringify({ [CHUNK_TAG]: parts.length, len: value.length }));
+  }
+  async function getValue(key){
+    var r = await hit(key, undefined);
+    var j = await r.json();
+    if (!j || j.value == null) return null;
+    var man = null;
+    if (typeof j.value === "string" && j.value.length < 200 && j.value.indexOf(CHUNK_TAG) >= 0){
+      try{ man = JSON.parse(j.value); }catch(e){}
+    }
+    if (!man || !man[CHUNK_TAG]) return j.value;
+    var out = "";
+    for (var i=0; i<man[CHUNK_TAG]; i++){
+      var rr = await hit(chunkKey(key,i), undefined);
+      var jj = await rr.json();
+      if (!jj || jj.value == null) throw new Error("chunk "+i+" of "+key+" missing");
+      out += jj.value;
+    }
+    if (man.len && out.length !== man.len) throw new Error("chunk length mismatch on "+key);
+    return out;
+  }
+
   window.storage = {
     async get(key){
       H.reads++;
       if (window.WB_API || canRelative){
         try{
-          var r = await hit(key, undefined);
-          var j = await r.json();
-          if (j && j.value != null){
+          var v0 = await getValue(key);
+          if (v0 != null){
             H.fromServer++;
-            try{ localStorage.setItem(NS+key, j.value); }catch(_){}
-            return { value: j.value };
+            try{ localStorage.setItem(NS+key, v0); }catch(_){}
+            return { value: v0 };
           }
           /* Server answered and has NOTHING for this key. Do not treat that as
              "no data": while the backend was unreachable every save landed on
@@ -1210,7 +1266,7 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
       return { ok:H.ok, route:H.route, queued:Object.keys(pending).length,
                wrote:H.wrote, failed:H.failed, lastOk:H.lastOk, lastFail:H.lastFail,
                lastErr:H.lastErr, reads:H.reads, fromServer:H.fromServer, healed:H.healed||0,
-               rejected:H.rejected||null, parked:Object.keys(parked).length,
+               rejected:H.rejected||null, parked:Object.keys(parked).length, chunked:H.chunked||null,
                parkTried:H.parkTried||0, parkAt:H.parkAt||0,
                retryNow: function(){ H.parkAt=0; if(parkTimer){ clearTimeout(parkTimer); parkTimer=null; }
                                      PARK_MS=1; scheduleParked(); PARK_MS=90000; },
