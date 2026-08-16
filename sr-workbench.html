@@ -514,7 +514,7 @@
   }
   .tab.on .n{background:rgba(0,0,0,.25);color:#090B0F}
   /* live counts glow so you notice without opening the tab */
-  .tab[data-tab="signals"] .n.hot{background:var(--up);color:#04201C}
+  .tab[data-tab="now"] .n.hot{background:var(--up);color:#04201C}
   .tab[data-tab="trades"] .n.hot{background:var(--accent2);color:#04201C}
   #paneWrap{overflow-y:auto;display:none;touch-action:pan-y}
   #sheet.open #paneWrap{display:block}
@@ -1009,28 +1009,38 @@
 <div id="sheet" class="open">
   <div id="sheetHead">
     <div class="tabs">
-      <button class="tab" data-tab="watch">WATCH <span class="n" id="watchCount">0</span></button>
-      <button class="tab on" data-tab="signals">SIGNALS <span class="n" id="sigCount">0</span></button>
-      <button class="tab" data-tab="lines">LINES <span class="n" id="lvlCount">0</span></button>
-      <button class="tab" data-tab="zones">ZONES <span class="n" id="zoneCount">0</span></button>
-      <button class="tab" data-tab="proj">🎯 PROJECT <span class="n" id="projCount">0</span></button>
-      <button class="tab" data-tab="structure">STRUCTURE</button>
+      <!-- FOUR tabs, not nine. SIGNALS, ZONES and PROJECT all answered "what
+           should I trade" with three different arithmetics, which is exactly why
+           the app kept appearing to contradict itself. They are now one ranked
+           list under NOW, with the source panels collapsed beneath it. The old
+           per-tab count spans are kept (hidden) because their renderers write to
+           them by id; deleting them would throw. -->
+      <button class="tab on" data-tab="now">NOW <span class="n" id="nowCount">0</span>
+        <span id="sigCount" style="display:none"></span><span id="zoneCount" style="display:none"></span>
+        <span id="projCount" style="display:none"></span><span id="watchCount" style="display:none"></span></button>
+      <button class="tab" data-tab="chart">CHART <span class="n" id="lvlCount">0</span></button>
       <button class="tab" data-tab="trades">TRADES <span class="n" id="trdCount">0</span></button>
-      <button class="tab" data-tab="coach">COACH</button>
       <button class="tab" data-tab="record">RECORD <span class="n" id="recCount">0</span></button>
     </div>
     <button id="expandBtn" title="Read full screen">⤢</button>
     <span id="caret">▾</span>
   </div>
   <div id="paneWrap">
-    <div id="watchList" class="pane"></div>
-    <div id="sigList" class="pane on"></div>
-    <div id="levelList" class="pane"></div>
-    <div id="zoneList" class="pane"></div>
-    <div id="projList" class="pane"></div>
-    <div id="structList" class="pane"></div>
-    <div id="tradeList" class="pane"></div>
-    <div id="coachList" class="pane"></div>
+    <div id="nowPane" class="pane on">
+      <div id="nowList"></div>
+      <details class="secX"><summary>🎯 PROJECTIONS — armed forecasts and their grades</summary><div id="projList"></div></details>
+      <details class="secX"><summary>ZONES — multi-timeframe, computed on the server</summary><div id="zoneList"></div></details>
+      <details class="secX"><summary>SIGNALS — every setup from your own lines</summary><div id="sigList"></div></details>
+      <details class="secX"><summary>OTHER COINS — your watch scan</summary><div id="watchList"></div></details>
+    </div>
+    <div id="chartPane" class="pane">
+      <div id="levelList"></div>
+      <div id="structList"></div>
+    </div>
+    <div id="tradesPane" class="pane">
+      <div id="tradeList"></div>
+      <details class="secX"><summary>COACH — which rules you kept, and which you overrode</summary><div id="coachList"></div></details>
+    </div>
     <div id="recordList" class="pane"></div>
   </div>
 </div>
@@ -1043,7 +1053,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-14f-heal";
+window.WB_BUILD = "2026-08-15a-four-tabs";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1259,7 +1269,7 @@ const state = {
   funding:{rate:null},
   prefs:{vol:true, proj:true, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false,
          ma:false, boll:false, rsi:false, macd:false},
-  verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
+  verdicts:[], tab:"now", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
   papers:[], menu:null, patterns:[], htfPats:[], pending:null, read:null, combine:false,
   readAlt:null,                             /* the same read with 🔗 flipped — for the compare block */
@@ -2465,7 +2475,7 @@ function showTrades(){
   state.tab="trades";
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab==="trades"));
   document.querySelectorAll(".pane").forEach(x=>x.classList.remove("on"));
-  $("tradeList").classList.add("on");
+  $("tradesPane").classList.add("on");   /* tradeList is nested now, not a pane */
   $("sheet").classList.add("open");
   renderTrades();
 }
@@ -3642,7 +3652,7 @@ async function switchSymbol(sym){
   state.symbol=sym; SYMBOL=sym;
   restoreSymbol(sym);
   state.read=null; state.readAlt=null; state.readSignal=null; state.analysis=null; state.patterns=[]; state.htfPats=[];
-  state.zones=null; if(state.tab==="zones") loadZones().then(renderZones);
+  state.zones=null; if(state.tab==="now") loadZones().then(()=>{ renderZones(); try{ renderNow(); }catch(e){} });
   state.vf={}; setTimeout(()=>{ try{ seedVerdicts(); }catch(e){} }, 1200);
   state.readHidden=false;
   if(state.combineAll) state.combine=true;      /* "combined everywhere" survives a coin switch */
@@ -6945,8 +6955,9 @@ function renderStructure(){
 function openPatternInfo(name){
   state.patOpen[name]=true;
   const sheet=$("sheet"); if(sheet) sheet.classList.add("open");
-  const tab=[...document.querySelectorAll(".tab")].find(t=>t.dataset.tab==="structure");
-  if(tab) tab.click(); else { state.tab="structure"; renderPane(); }
+  /* the structure read lives under CHART since the four-tab merge */
+  const tab=[...document.querySelectorAll(".tab")].find(t=>t.dataset.tab==="chart");
+  if(tab) tab.click(); else { state.tab="chart"; renderPane(); }
   renderStructure();
   setTimeout(()=>{
     const d=$("structList").querySelector('details.patX[data-p="'+esc(name).replace(/"/g,'\\"')+'"]');
@@ -7271,7 +7282,14 @@ function updateProjections(){
     if(!C) continue;
     if(trackProjection(p, C)) dirty=true;
   }
-  if(dirty){ saveProjections(); try{ renderProjections(); }catch(e){} }
+  /* The CHART must be redrawn too. Re-rendering only the panel left the forward
+     boxes missing after a reload: the boot replay advanced the projection from
+     waiting to active, the card updated, and the canvas still showed the state
+     from before the replay — so the projection looked like it had vanished. */
+  if(dirty){ saveProjections();
+    try{ renderProjections(); }catch(e){}
+    try{ renderNow(); }catch(e){}
+    try{ render(); }catch(e){} }
 }
 function saveProjections(){
   if(!hasStorage || !HYD.proj) return;
@@ -7421,17 +7439,7 @@ function renderProjections(){
   el.innerHTML=h;
   el.querySelectorAll("details.patX").forEach(d=>d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; }));
   const g=$("prjGen");
-  if(g) g.onclick=()=>{
-    if(activeProjection(state.symbol, state.tf)){
-      $("prjMsg").innerHTML='<div class="flag warn">One projection per chart at a time — overlapping forecasts are a way to always have been right. Cancel the active one first.</div>';
-      return;
-    }
-    const r=generateProjection();
-    if(r.err){ $("prjMsg").innerHTML='<div class="flag warn">'+esc(r.err)+'</div>'; return; }
-    state.projections.push(r.proj);
-    saveProjections(); renderProjections(); render();
-    cmdSay("Projection armed: "+r.proj.dir+" "+state.symbol.replace("USDT","")+" — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi));
-  };
+  if(g) g.onclick=armProjection;
   el.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{
     const p=state.projections.find(x=>x.id===b.dataset.cancel);
     if(p && !p.outcome){ p.status="cancelled"; p.outcome={result:"cancelled",plain:"Cancelled by you before resolution.",aligned:[],against:[]};
@@ -7632,15 +7640,128 @@ function renderRecord(){
   if(btn) btn.onclick=()=>runBacktestUI(btn, $("btOut"), "Run walk-forward backtest");
   if(state._btHtml && $("btOut")){ $("btOut").innerHTML=state._btHtml; if(btn) btn.style.display="none"; }
 }
+/* ---- NOW: one list, one arithmetic ------------------------------------------
+   Three engines were each answering "what should I trade" in their own units —
+   the zone board quoted net R:R, the signal cards quoted GROSS R:R, and the
+   projection quoted net again. Comparing them was impossible, so the app looked
+   like it was contradicting itself when it was really just speaking three
+   dialects. Everything below is recomputed through ONE function, net of the
+   same round-trip cost, and ranked by it. The source is a label, not a
+   different standard.                                                        */
+function netRR(entry, stop, target){
+  if(![entry,stop,target].every(isFinite)) return null;
+  const risk=Math.abs(entry-stop), rew=Math.abs(target-entry);
+  if(!(risk>0) || !(rew>0)) return null;
+  const c=(typeof costPct==="function"? costPct() : 0.0012)*entry;
+  const net=Math.max(0, rew-c)/(risk+c);
+  return { net, be: net>0? 1/(1+net) : 1, risk, rew };
+}
+function collectSetups(){
+  const out=[];
+  const px=state.candles&&state.candles.length? state.candles[state.candles.length-1].close : null;
+  /* 1 — the armed projection on this chart */
+  for(const p of (state.projections||[])){
+    if(p.symbol!==state.symbol || p.tf!==state.tf) continue;
+    if(!["waiting","active","t1"].includes(p.status)) continue;
+    const mid=(p.entryLo+p.entryHi)/2, m=netRR(mid,p.stop,p.t1);
+    if(!m) continue;
+    out.push({ src:"projection", tag:"🎯 projection", dir:p.dir, entry:mid,
+      band:[p.entryLo,p.entryHi], stop:p.stop, target:p.t1, ...m,
+      state:p.status==="waiting"? "waiting for the zone" : "live, tracking",
+      why:(p.reasons&&p.reasons.summary)||"" });
+  }
+  /* 2 — the server zone board's current stance */
+  const Z=state.zones;
+  if(Z && Z.stance && Z.stance.plan && Z.stance.dir){
+    const P=Z.stance.plan, m=netRR(P.entry,P.stop,P.target);
+    if(m) out.push({ src:"zone", tag:"zone "+(Z.stance.label||Z.stance.code), dir:Z.stance.dir,
+      entry:P.entry, stop:P.stop, target:P.target, ...m,
+      state:/APPROACH/i.test(Z.stance.code||"")? "approaching" : "price is in it",
+      why:(Z.stance.why||"")+" — agreed across timeframes" });
+  }
+  /* 3 — setups from your own lines */
+  try{
+    const R=generateSignals();
+    for(const s of (R.signals||[])){
+      if(s.grade==="D" || !s.plan) continue;
+      const m=netRR(s.plan.entry, s.plan.stop, s.plan.target);
+      if(!m) continue;
+      out.push({ src:"signal", tag:"line · "+(s.label||"level"), dir:s.dir,
+        entry:s.plan.entry, stop:s.plan.stop, target:s.plan.target, ...m,
+        state:(s.status&&s.status.txt)||"", grade:s.grade,
+        away: px&&isFinite(s.plan.entry)? (s.plan.entry-px)/px : null,
+        why:(s.conf||[]).slice(0,2).map(c=>c.src).join(" + ") });
+    }
+  }catch(e){}
+  out.sort((a,b)=> b.net-a.net);
+  return out;
+}
+/* Arming a projection is a PRIMARY action. Collapsing the projections panel
+   into a details buried it two taps deep — the button existed but could not be
+   reached, which the suites caught by timing out on it. One handler, reachable
+   from the top of NOW and from inside the panel.                            */
+function armProjection(){
+  const msg=el2=>{ const m=$("prjMsg"); if(m) m.innerHTML=el2; const n=$("nowMsg"); if(n) n.innerHTML=el2; };
+  if(activeProjection(state.symbol, state.tf)){
+    msg('<div class="flag warn">One projection per chart at a time — overlapping forecasts are a way to always have been right. Cancel the active one first.</div>');
+    return;
+  }
+  const r=generateProjection();
+  if(r.err){ msg('<div class="flag warn">'+esc(r.err)+'</div>'); return; }
+  state.projections.push(r.proj);
+  saveProjections(); renderProjections(); try{ renderNow(); }catch(e){} render();
+  cmdSay("Projection armed: "+r.proj.dir+" "+state.symbol.replace("USDT","")+" — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi));
+}
+
+function renderNow(){
+  const el=$("nowList"); if(!el) return;
+  const S=collectSetups();
+  const worth=S.filter(s=>s.net>=1);
+  const cnt=$("nowCount");
+  if(cnt){ cnt.textContent=String(worth.length); cnt.className="n"+(worth.length?" hot":""); }
+  const armed=activeProjection(state.symbol, state.tf);
+  let h='<div class="plain lead">Everything the app can see on this chart, ranked by <b>reward against risk after costs</b> — one yardstick, whichever engine found it. The percentage is how often you would have to be right just to break even.</div>'+
+    '<div class="wBar"><button class="btn primary" id="nowGen">'+
+      (armed? 'Tracking one on this chart already' : '🎯 Project this chart ('+state.symbol.replace("USDT","")+' '+state.tf+')')+
+    '</button></div><div id="nowMsg"></div>';
+  if(!S.length){
+    h+='<div class="empty">Nothing to act on. Tap <b>✨ Levels</b> or <b>⚡ Read</b> to give the engines something to work with — and waiting is a position.</div>';
+    el.innerHTML=h;
+    const g0=$("nowGen"); if(g0) g0.onclick=armProjection;   /* reachable even when the board is empty */
+    return;
+  }
+  for(const s of S){
+    const good=s.net>=1.5, ok2=s.net>=1;
+    const cls=good?"good":ok2?"warn":"bad";
+    h+='<div class="card"><div class="kv"><span><b class="'+(s.dir==="long"?"g":"r")+'">'+
+        (s.dir==="long"?"▲ LONG":"▼ SHORT")+'</b> <small>'+esc(s.tag)+'</small></span>'+
+        '<b class="'+(good?"g":ok2?"":"r")+'">'+s.net.toFixed(2)+':1</b></div>'+
+      '<div class="kv"><span>needs to be right</span><b class="'+(s.be<=0.45?"g":s.be<=0.55?"":"r")+'">'+
+        Math.round(s.be*100)+'% of the time</b></div>'+
+      '<div class="kv"><span>'+(s.band? "zone":"entry")+'</span><b>'+
+        (s.band? fmt(s.band[0])+' – '+fmt(s.band[1]) : fmt(s.entry))+'</b></div>'+
+      '<div class="kv"><span>stop</span><b class="r">'+fmt(s.stop)+'</b></div>'+
+      '<div class="kv"><span>target</span><b class="g">'+fmt(s.target)+'</b></div>'+
+      '<div class="fine" style="padding:4px 0 0 2px">'+esc(s.state||"")+
+        (s.away!=null? ' · '+pct(s.away)+' away':'')+
+        (s.why? ' · '+esc(s.why.slice(0,90)):'')+
+        (s.net<1? ' · <b style="color:#F2495C">skip: you lose more than you make when wrong</b>':'')+
+      '</div></div>';
+  }
+  if(!worth.length) h+='<div class="cardNote">Nothing here pays better than 1:1 after costs. That is a "wait" board, not a "pick the least bad" board.</div>';
+  el.innerHTML=h;
+  const g=$("nowGen"); if(g) g.onclick=armProjection;
+}
+
 function renderPane(){
-  if(state.tab==="watch") renderWatch();
-  else if(state.tab==="signals") renderSignals();
-  else if(state.tab==="coach") $("coachList").innerHTML=postMortem();
-  else if(state.tab==="zones"){ renderZones(); if(!state.zones) loadZones().then(renderZones); }
-  else if(state.tab==="proj") renderProjections();
-  else if(state.tab==="structure") renderStructure();
-  else if(state.tab==="record") renderRecord();
-  else if(state.tab==="trades") renderTrades();
+  const t=state.tab;
+  if(t==="now"){
+    renderNow(); renderProjections(); renderSignals(); renderWatch();
+    renderZones(); if(!state.zones) loadZones().then(()=>{ renderZones(); renderNow(); });
+  }
+  else if(t==="chart"){ renderStructure(); }
+  else if(t==="trades"){ renderTrades(); $("coachList").innerHTML=postMortem(); }
+  else if(t==="record") renderRecord();
 }
 document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   e.stopPropagation();
@@ -7649,7 +7770,11 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   state.tab=b.dataset.tab;
   try{ if(hasStorage) window.storage.set("ui:tab", state.tab); }catch(e){}
   document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
-  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",proj:"projList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
+  /* nine tab names collapsed to four panes; the old names still arrive from a
+     stored ui:tab or a deep link, so they are aliased rather than ignored */
+  const map={ now:"nowPane", chart:"chartPane", trades:"tradesPane", record:"recordList",
+              watch:"nowPane", signals:"nowPane", zones:"nowPane", proj:"nowPane",
+              lines:"chartPane", structure:"chartPane", coach:"tradesPane" };
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
   $("sheet").classList.add("open");
   /* The strip scrolls horizontally, so the tab you just chose can end up half
@@ -8424,6 +8549,7 @@ async function boot(){
     await loadLevels();
     await loadPapers(); await loadVerdicts(); await loadMeasuredWeights(); await loadWatch(); await loadProjections();
     try{ updateProjections(); }catch(e){}   /* candles precede this load — replay NOW, not at the first poll */
+    try{ render(); }catch(e){}              /* and put the loaded projection on the canvas */
     try{
       if(hasStorage){
         const tr=await window.storage.get("tabs:open");
@@ -8443,7 +8569,10 @@ async function boot(){
     try{                                   /* reopen the tab he was last using */
       if(hasStorage){
         const tb=await window.storage.get("ui:tab");
-        const want=tb&&tb.value;
+        /* a tab name saved by the nine-tab build must still land somewhere */
+        const ALIAS={watch:"now",signals:"now",zones:"now",proj:"now",
+                     lines:"chart",structure:"chart",coach:"trades"};
+        const want=ALIAS[tb&&tb.value] || (tb&&tb.value);
         if(want && want!==state.tab){
           const el=[...document.querySelectorAll(".tab")].find(x=>x.dataset.tab===want);
           if(el) el.click();
