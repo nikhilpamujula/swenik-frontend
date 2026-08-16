@@ -1043,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-14e-sampler";
+window.WB_BUILD = "2026-08-14f-heal";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1092,9 +1092,13 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
           return r;
         }
         lastErr = "HTTP " + r.status;
-        /* 413 is not a transport problem and retrying cannot fix it: the body
-           is larger than the server will accept. Retrying forever is what made
-           this look like an endless "syncing 1…". Fail it loudly instead. */
+        /* 413 means the body is larger than the server will accept. An
+           IMMEDIATE retry cannot fix that — hammering it is what produced the
+           endless "syncing 1…". But it is not permanent either: raising the
+           server's limit fixes it, which is exactly what a deploy does. An
+           earlier version of this treated 413 as final and left the chip red
+           forever after the backend had already been repaired. So: drop out of
+           the fast loop, and re-test on a slow timer instead. */
         if (r.status === 413 || r.status === 431){ H.tooBig = key; break; }
       }catch(e){ lastErr = (e && e.message) || "network blocked"; }
     }
@@ -1122,9 +1126,13 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
         if (H.tooBig === k){ H.tooBig = null; H.rejected = null; }
       }catch(e){
         H.failed++;
-        if (H.tooBig === k){                          /* unfixable by retrying */
-          H.rejected = { key:k, bytes:(v||"").length };
-          if (pending[k] === v) delete pending[k];    /* stop the endless queue */
+        if (H.tooBig === k){
+          /* park it: out of the fast queue so it stops hammering, but KEPT so a
+             server-side fix heals this by itself instead of needing a reload */
+          H.rejected = { key:k, bytes:(v||"").length, tries:(H.rejected&&H.rejected.key===k? H.rejected.tries||1 : 1) };
+          parked[k] = v;
+          if (pending[k] === v) delete pending[k];
+          scheduleParked();
         }
       }
     }
@@ -1132,7 +1140,34 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
     flushing = false;
     if (H.queued) schedule(15000);                   /* keep trying, quietly */
   }
-  try{ window.addEventListener("online", function(){ flush(); }); }catch(e){}
+  /* Parked payloads: rejected as too large, kept so that raising the server's
+     limit heals them automatically. Re-tested every PARK_MS; the moment the
+     backend accepts one the chip turns green on its own. This is also the
+     diagnostic — if it stays red past a couple of re-tests, the deploy did not
+     actually take, rather than the app simply not having noticed.           */
+  var parked = {}, parkTimer = null, PARK_MS = 90000;
+  function scheduleParked(){
+    if (parkTimer) return;
+    parkTimer = setTimeout(async function(){
+      parkTimer = null;
+      var keys = Object.keys(parked);
+      if (!keys.length) return;
+      H.parkTried = (H.parkTried||0) + 1; H.parkAt = Date.now();
+      for (var i=0;i<keys.length;i++){
+        var k = keys[i], v = parked[k];
+        try{
+          await hit(k, { method:"PUT", headers:{ "Content-Type":"application/json" },
+                         body: JSON.stringify({ value: v }) });
+          delete parked[k]; H.wrote++;
+          if (H.tooBig === k){ H.tooBig = null; H.rejected = null; }   /* healed */
+        }catch(e){
+          if (H.rejected && H.rejected.key===k) H.rejected.tries = (H.rejected.tries||1)+1;
+        }
+      }
+      if (Object.keys(parked).length) scheduleParked();
+    }, PARK_MS);
+  }
+  try{ window.addEventListener("online", function(){ flush(); scheduleParked(); }); }catch(e){}
 
   window.storage = {
     async get(key){
@@ -1175,7 +1210,10 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
       return { ok:H.ok, route:H.route, queued:Object.keys(pending).length,
                wrote:H.wrote, failed:H.failed, lastOk:H.lastOk, lastFail:H.lastFail,
                lastErr:H.lastErr, reads:H.reads, fromServer:H.fromServer, healed:H.healed||0,
-               rejected:H.rejected||null,
+               rejected:H.rejected||null, parked:Object.keys(parked).length,
+               parkTried:H.parkTried||0, parkAt:H.parkAt||0,
+               retryNow: function(){ H.parkAt=0; if(parkTimer){ clearTimeout(parkTimer); parkTimer=null; }
+                                     PARK_MS=1; scheduleParked(); PARK_MS=90000; },
                api: window.WB_API || (canRelative ? location.origin : null) };
     }
   };
@@ -8297,10 +8335,14 @@ function syncState(){
   if(s.ok===null){ el.textContent="saving…"; el.className=""; return; }
   if(s.rejected){
     const kb=Math.round(s.rejected.bytes/1024);
-    el.textContent="⚠ too big to save"; el.className="err";
-    el.title='The server refused "'+s.rejected.key+'" ('+kb+' KB) as too large — its body limit is smaller than your history. '+
-      'This is a BACKEND fix (raise the limit on /api/wb/kv), not something retrying can solve. '+
-      'Your data is safe on this device meanwhile.';
+    const tries=s.rejected.tries||1;
+    const ago=s.parkAt? Math.round((Date.now()-s.parkAt)/1000) : null;
+    el.textContent="⚠ too big to save"+(tries>1? " ("+tries+")":""); el.className="err";
+    el.title='The server refused "'+s.rejected.key+'" ('+kb+' KB) as too large. Fix is on the BACKEND — raise the body limit on /api/wb/kv, then redeploy.\n'+
+      'This retries itself every 90s, so once the backend is updated the chip turns green on its own'+
+      (tries>1? ' — it has re-tested '+tries+' times and is still being refused, so the deploy has not taken effect yet.' : '.')+
+      (ago!=null? ' Last re-test '+(ago<90? ago+'s':Math.round(ago/60)+'m')+' ago.':'')+
+      '\nYour data is safe on this device meanwhile. Tap to re-test now.';
     return;
   }
   if(s.ok===false){
@@ -8322,6 +8364,11 @@ setInterval(syncState,2000);
 try{ $("sync").onclick=()=>{
   const s=(hasStorage&&window.storage.health)? window.storage.health():null;
   if(!s){ cmdSay("No storage backend on this page."); return; }
+  if(s.rejected && typeof s.retryNow==="function"){
+    s.retryNow();
+    cmdSay("Re-testing "+s.rejected.key+" against the server now — if the backend limit was raised this clears within a few seconds.");
+    setTimeout(syncState, 2500); return;
+  }
   cmdSay((s.ok? "Saving to server ✓" : s.ok===false? "SERVER UNREACHABLE — device only" : "checking…")+
     " · route "+s.route+" · "+s.wrote+" written, "+s.failed+" retried, "+s.queued+" queued"+
     (s.lastErr? " · last error: "+s.lastErr : "")+
