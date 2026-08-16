@@ -1043,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-14d-payload";
+window.WB_BUILD = "2026-08-14e-sampler";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -6944,12 +6944,111 @@ function projHB(tf){ return (VF_HB[tf]||8); }
 
 /* Build a projection from the CURRENT chart: the read supplies direction and
    objectives, readStop supplies the stop, the nearest level supplies the band. */
+/* ---- THE SAMPLER ------------------------------------------------------------
+   Every other engine in this file is an Estimator: it collapses each question
+   to one expectation value — one bias, one lean, one entry price. That hides
+   the question worth asking before arming money: would this same projection
+   exist if I had asked with a slightly different window, or one bar earlier?
+
+   So re-run the read across several perturbed VIEWS OF THE SAME HISTORY and
+   count how often the answer survives.
+
+   READ THIS AS FRAGILITY, NEVER AS ODDS. A quantum sampler draws real i.i.d.
+   shots from a real distribution, so more shots means better knowledge of a
+   true probability. There is only ONE realisation of market history; you
+   cannot re-run last Tuesday. Resampling your own past therefore measures how
+   sensitive the MODEL is to where you clicked — not how likely the trade is to
+   win. 11 of 12 means "not an artifact", it does not mean 92%.
+
+   WHAT IS PERTURBED, AND WHY IT IS NOT THE DATA WINDOW. The first version of
+   this varied history depth (210 bars vs 500) and re-ran the read. Measured
+   across six synthetic markets — clean trends, a regime flip, chop, and a pure
+   RANDOM WALK — it returned 100% agreement every single time. The read is
+   dominated by recent bars, so depth barely moves it. A gate that never fires
+   is decoration, and a "stability 10/10" badge on a random walk is worse than
+   no badge: it manufactures confidence. That version was deleted.
+
+   This engine decides by WEIGHTED VOTE with a 1.4x margin rule, so the real
+   fragility question is whether the call survives losing a factor. So: leave
+   one vote out at a time (jackknife), then jitter every weight, and re-run the
+   SAME tally. A 4-0 read survives everything; a read sitting just past the 1.4x
+   margin collapses the moment one supporter leaves. That discriminates.
+
+   READ THIS AS FRAGILITY, NEVER AS ODDS. A quantum sampler draws real i.i.d.
+   shots from a real distribution, so more shots means better knowledge of a
+   true probability. There is only ONE realisation of market history; you
+   cannot re-run last Tuesday. Resampling your own inputs therefore measures how
+   sensitive the MODEL is — not how likely the trade is to win. 11 of 12 means
+   "not carried by a single factor", it does not mean 92%.                    */
+const PRJ_MIN_AGREE = 0.75;    /* below this the projection is refused        */
+/* MIRROR of the tally in fullRead. It is duplicated on purpose — re-running
+   fullRead cannot answer "what if this vote were absent". Duplication invites
+   drift, so biasFrom() is checked against the live read before its verdict is
+   trusted, and the sampler abstains if the two ever disagree.                */
+function biasFrom(votes){
+  let up=0, down=0;
+  for(const v of votes){ if(v.dir==="up") up+=v.w; else if(v.dir==="down") down+=v.w; }
+  const total=up+down;
+  return total<2? "neutral" : up>down*1.4? "bullish" : down>up*1.4? "bearish" : "mixed";
+}
+function projectionStability(R){
+  if(!R || !Array.isArray(R.votes)) return null;
+  const votes=R.votes.filter(v=>v && (v.dir==="up"||v.dir==="down") && isFinite(v.w) && v.w>0);
+  if(votes.length<2) return null;
+  /* drift guard: if the mirror cannot reproduce the live read, say nothing */
+  if(biasFrom(votes)!==R.bias) return { drift:true, n:0, agreed:0, agree:0, dir:R.bias, spread:null };
+  const res=[];
+  /* 1 — jackknife: remove each factor in turn */
+  for(let i=0;i<votes.length;i++)
+    res.push({ tag:"without "+votes[i].src, bias:biasFrom(votes.filter((_,k)=>k!==i)) });
+  /* 2 — weight jitter: seeded, so the same read always scores the same */
+  let seed=1013904223 ^ votes.length;
+  const rnd=()=>{ seed=(Math.imul(seed,1664525)+1013904223)>>>0; return seed/4294967296; };
+  for(let s=0;s<8;s++)
+    res.push({ tag:"weights jittered #"+(s+1),
+      bias: biasFrom(votes.map(v=>({...v, w: v.w*(0.7+rnd()*0.6) }))) });
+  const agreed=res.filter(r=>r.bias===R.bias).length;
+  const flips =res.filter(r=>r.bias!==R.bias && r.bias!=="mixed" && r.bias!=="neutral").length;
+  /* which single factor, if removed, kills the call — the thing worth naming */
+  const critical=res.filter(r=>/^without /.test(r.tag) && r.bias!==R.bias)
+                    .map(r=>r.tag.slice(8));
+  return { n:res.length, agreed, agree: agreed/res.length, dir:R.bias,
+           flips, critical, spread:null, samples:res };
+}
+
+/* Refusals are LOGGED, not just thrown away. You chose to have the engine
+   decline unstable setups — but a threshold nobody can audit is a superstition.
+   Every refusal keeps its score so you can look back and ask whether 75% was
+   the right line, or whether the trades it blocked would have worked.        */
+function logProjRefusal(rec){
+  if(!Array.isArray(state.prjRefused)) state.prjRefused=[];
+  state.prjRefused.unshift(rec);
+  if(state.prjRefused.length>100) state.prjRefused.length=100;
+  try{ if(hasStorage && HYD.proj) window.storage.set("prjrefused:all", JSON.stringify(state.prjRefused)); }catch(e){}
+}
+
 function generateProjection(){
   let R=null;
   try{ R=fullRead(state.combine); }catch(e){}
   if(!R) return { err:"Not enough candles for a read yet." };
   if(R.bias!=="bullish" && R.bias!=="bearish")
     return { err:"The engines disagree ("+R.up+" up vs "+R.down+" down) — refusing to project a coin flip. Wait for alignment, or change timeframe." };
+  /* the Sampler gate: does this read survive being asked slightly differently? */
+  const ST = projectionStability(R);
+  if(ST && ST.drift)
+    return { err:"Stability check could not verify itself against the live read — refusing rather than reporting a score I cannot stand behind." };
+  if(ST && ST.agree < PRJ_MIN_AGREE){
+    logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px:R.px,
+                     dir:R.bias, agree:+ST.agree.toFixed(3), n:ST.n, agreed:ST.agreed,
+                     bull:ST.bull, bear:ST.bear, spread:ST.spread });
+    return { err:"Unstable read — it held in only "+ST.agreed+" of "+ST.n+
+      " sampled views of the same history ("+Math.round(ST.agree*100)+"%, floor is "+
+      Math.round(PRJ_MIN_AGREE*100)+"%). "+
+      (ST.critical && ST.critical.length
+        ? "Remove "+ST.critical.slice(0,3).join(" or ")+" and the call reverses — one factor is carrying it."
+        : "Nudge the factor weights and the call reverses; it is sitting right on the decision margin.")+
+      " Logged in the refusal list so you can check later whether that was the right call." };
+  }
   const long = R.bias==="bullish";
   const px=R.px, a=(R.atr||atrPct());
   /* entry band: anchor to the nearest level if one sits close enough to be the
@@ -6994,6 +7093,8 @@ function generateProjection(){
       votes:R.votes.filter(v=>v.txt).map(v=>({src:v.src, dir:v.dir, txt:v.txt})),
       anchor: anchor? anchor.label+" at "+fmt(anchor.p) : "no nearby level — band drawn around price",
       combined:!!R.combined, rrNet:+rrNet.toFixed(2),
+      stability: ST? { n:ST.n, agreed:ST.agreed, agree:+ST.agree.toFixed(3),
+                       critical: (ST.critical||[]).slice(0,3) } : null,
       be: rrNet>0? +(1/(1+rrNet)).toFixed(2) : 1,
       warning: rrNet<0.8? "thin shape — needs "+Math.round(100/(1+rrNet))+"% winners to break even" : null,
       summary: (long?"Long":"Short")+" from the "+(anchor?anchor.label:"current price")+" band. "+
@@ -7150,6 +7251,10 @@ async function loadProjections(){
       }
     }
   }catch(e){}
+  try{
+    const rr=await window.storage.get("prjrefused:all");
+    if(rr&&rr.value){ const a=JSON.parse(rr.value); if(Array.isArray(a)) state.prjRefused=a; }
+  }catch(e){}
   HYD.proj=true;
 }
 
@@ -7212,7 +7317,12 @@ function projCard(p){
   const why='<div class="pSec"><span>Why it was generated</span>'+esc(p.reasons.summary)+
     (p.reasons.warning? ' <b style="color:#F5D77A">⚠ '+esc(p.reasons.warning)+'</b>':'')+'</div>'+
     '<div class="pFacts">'+esc(p.reasons.anchor)+' · '+p.reasons.up+' up vs '+p.reasons.down+' down'+
-    (p.reasons.combined? ' · 🔗 combined':'')+'</div>';
+    (p.reasons.combined? ' · 🔗 combined':'')+'</div>'+
+    (p.reasons.stability? '<div class="pFacts">stability '+p.reasons.stability.agreed+'/'+
+      p.reasons.stability.n+' perturbations held ('+Math.round(p.reasons.stability.agree*100)+'%)'+
+      ((p.reasons.stability.critical||[]).length
+        ? ' · hinges on '+esc(p.reasons.stability.critical.join(', ')) : ' · no single factor carries it')+
+      ' — fragility, not odds</div>':'');
   const out = p.outcome?
     '<div class="pSec"><span>'+(p.status==="success"?"Why it worked":p.status==="failed"?"Why it failed":"What happened")+
     '</span>'+esc(p.outcome.plain)+'</div>'+
@@ -7248,6 +7358,23 @@ function renderProjections(){
      '<b>'+part+' partial</b> · <b class="r">'+loss+' failed</b> · '+
      done.filter(p=>/expired/.test(p.status)).length+' expired — '+
      '<i>at this sample size these are anecdotes, not statistics.</i></div>';
+  /* what the stability gate BLOCKED — so the threshold stays auditable */
+  const ref = Array.isArray(state.prjRefused)? state.prjRefused : [];
+  if(ref.length){
+    h+='<details class="patX"><summary><b>'+ref.length+' refused for instability</b>'+
+       ' <span class="est">the gate is '+Math.round(PRJ_MIN_AGREE*100)+'% — check whether it was right</span></summary>'+
+       '<div class="fine" style="padding:4px 0 6px 2px">Each of these survived too few sampled views of the same history to be armed. '+
+       'Look up what price actually did afterwards: if these would have worked, the floor is too high.</div>';
+    for(const r of ref.slice(0,15)){
+      const mins=Math.max(0,Math.round((Date.now()-r.at)/60000));
+      h+='<div class="calRow2"><span class="cLab wide">'+esc(String(r.symbol||"").replace("USDT",""))+
+         ' <small>'+esc(r.tf||"")+'</small></span>'+
+         '<span class="cNum '+(r.dir==="bullish"?"g":"r")+'">'+(r.dir==="bullish"?"▲ long":"▼ short")+'</span>'+
+         '<span class="cN">'+r.agreed+'/'+r.n+' ('+Math.round((r.agree||0)*100)+'%) · '+
+         (mins<60? mins+"m":(mins/60).toFixed(1)+"h")+' ago · at '+fmt(r.px)+'</span></div>';
+    }
+    h+='</details>';
+  }
   if(live.length) h+='<div class="card"><div class="cardT">ACTIVE</div>'+live.map(projCard).join('')+'</div>';
   if(done.length) h+='<div class="card"><div class="cardT">GRADED <span class="est">newest first</span></div>'+
      done.slice(0,20).map(projCard).join('')+'</div>';
