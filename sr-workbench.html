@@ -1043,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-14g-chunk";
+window.WB_BUILD = "2026-08-17a-gates";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1118,6 +1118,7 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
     flushing = true;
     for (var i=0; i<keys.length; i++){
       var k = keys[i], v = pending[k];
+      if (H.badRead && H.badRead[k]) continue;       /* protect the server copy */
       try{
         await putValue(k, v);
         if (pending[k] === v) delete pending[k];     /* a newer write stays queued */
@@ -1161,6 +1162,7 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
       H.parkTried = (H.parkTried||0) + 1; H.parkAt = Date.now();
       for (var i=0;i<keys.length;i++){
         var k = keys[i], v = parked[k];
+        if (H.badRead && H.badRead[k]) continue;     /* protect the server copy */
         try{
           await putValue(k, v);
           delete parked[k]; H.wrote++;
@@ -1215,15 +1217,25 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
       try{ man = JSON.parse(j.value); }catch(e){}
     }
     if (!man || !man[CHUNK_TAG]) return j.value;
-    var out = "";
-    for (var i=0; i<man[CHUNK_TAG]; i++){
-      var rr = await hit(chunkKey(key,i), undefined);
-      var jj = await rr.json();
-      if (!jj || jj.value == null) throw new Error("chunk "+i+" of "+key+" missing");
-      out += jj.value;
-    }
-    if (man.len && out.length !== man.len) throw new Error("chunk length mismatch on "+key);
-    return out;
+    /* From here the server IS reachable and the manifest was read: any failure
+       below is an INTEGRITY problem with the stored pieces, not a dead network.
+       The distinction matters — a network outage must queue-and-retry like any
+       other outage, while an integrity failure must lock the key read-only so
+       a half-downloaded view can never overwrite a healthy server copy.     */
+    try{
+      var out = "";
+      for (var i=0; i<man[CHUNK_TAG]; i++){
+        var jj = null;
+        for (var att=0; att<2; att++){               /* one retry: 4G flakes mid-download */
+          try{ var rr = await hit(chunkKey(key,i), undefined); jj = await rr.json(); break; }
+          catch(e){ if (att===1) throw e; }
+        }
+        if (!jj || jj.value == null) throw new Error("chunk "+i+" of "+key+" missing");
+        out += jj.value;
+      }
+      if (man.len && out.length !== man.len) throw new Error("chunk length mismatch on "+key);
+      return out;
+    }catch(ie){ ie.integrity = true; throw ie; }
   }
 
   window.storage = {
@@ -1231,7 +1243,29 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
       H.reads++;
       if (window.WB_API || canRelative){
         try{
-          var v0 = await getValue(key);
+          /* A chunked value that fails to REASSEMBLE (one piece unreadable on a
+             flaky connection) is NOT an absent key. Treating it as absent is
+             how a bad boot re-seeds and overwrites a healthy server copy —
+             the third face of the same data-wipe bug. Flag the key: reads fall
+             back to the device copy, and every WRITE of it is blocked until a
+             clean read succeeds. Better a stale view than a destroyed log.  */
+          var v0, readFailed = false;
+          try{ v0 = await getValue(key); }
+          catch(re){
+            if (re && re.integrity){                 /* pieces broken, server fine */
+              H.badRead = H.badRead || {}; H.badRead[key] = Date.now();
+              var lr = null;
+              try{ lr = localStorage.getItem(NS+key); }catch(_){}
+              return lr == null ? null : { value: lr };
+            }
+            readFailed = true;                       /* transport: old behaviour */
+          }
+          if (readFailed){
+            var lr2 = null;
+            try{ lr2 = localStorage.getItem(NS+key); }catch(_){}
+            return lr2 == null ? null : { value: lr2 };
+          }
+          if (H.badRead) delete H.badRead[key];      /* clean read heals the flag */
           if (v0 != null){
             H.fromServer++;
             try{ localStorage.setItem(NS+key, v0); }catch(_){}
@@ -1267,6 +1301,7 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
                wrote:H.wrote, failed:H.failed, lastOk:H.lastOk, lastFail:H.lastFail,
                lastErr:H.lastErr, reads:H.reads, fromServer:H.fromServer, healed:H.healed||0,
                rejected:H.rejected||null, parked:Object.keys(parked).length, chunked:H.chunked||null,
+               badRead:Object.keys(H.badRead||{}),
                parkTried:H.parkTried||0, parkAt:H.parkAt||0,
                retryNow: function(){ H.parkAt=0; if(parkTimer){ clearTimeout(parkTimer); parkTimer=null; }
                                      PARK_MS=1; scheduleParked(); PARK_MS=90000; },
@@ -1353,6 +1388,7 @@ const pct = x => (x>=0?"+":"")+(x*100).toFixed(2)+"%";
 /* read-only debug accessors — state is script-scoped, and every "why is the
    chart drawing THAT" question needs eyes on it from the console            */
 window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view,
+  gen:()=>generateProjection(), refusals:()=>state.prjRefused||[],
   projections:()=>state.projections, symbol:()=>state.symbol, tf:()=>state.tf };
 
 /* ---------- sizing ---------- */
@@ -7121,6 +7157,49 @@ function logProjRefusal(rec){
   try{ if(hasStorage && HYD.proj) window.storage.set("prjrefused:all", JSON.stringify(state.prjRefused)); }catch(e){}
 }
 
+/* ---- REFUSAL GATES --------------------------------------------------------
+   Built from a graded log that read: 11 of 13 projections short, armed inside
+   three days, across coins that all move with BTC — seven stopped out on the
+   same rally. The reads were near-unanimous (0/7, 1/12) and still wrong,
+   because every factor reads the same recent candles: eight votes are one
+   opinion in eight costumes, and unanimity peaks exactly at the low of a dip.
+   No forecasting model fixes taking one bad bet seven times; refusals do.
+
+   One PURE function so every gate is table-testable. Each check runs only
+   when its input is provided (generateProjection knows rrNet late).
+   Every refusal is LOGGED with its kind — a gate nobody can audit is a
+   superstition (same contract as the stability sampler).                    */
+const PRJ_RR_FLOOR = 1.0;            /* below this a win pays less than a loss costs */
+const PRJ_COOLDOWN_S = 12*3600;      /* stand-aside after two same-direction stop-outs */
+function projGates(g){
+  if (g.anchor !== undefined){
+    if (!g.anchor)
+      return { kind:"anchor", err:"No structure to lean on — nothing within reach to anchor a "+
+        (g.long?"long (support below)":"short (resistance above)")+
+        ". A band drawn around price is a coin toss at a random height; that is the shape most of the failed projections had. Run ✨ Levels or draw a line, then project the retest." };
+    if (g.long===false && g.anchor.p < g.px*0.999)
+      return { kind:"anchor", err:"The only level in reach is BELOW price — shorting under support is chasing the dip's low. Wait for the pullback into resistance and project there." };
+    if (g.long===true && g.anchor.p > g.px*1.001)
+      return { kind:"anchor", err:"The only level in reach is ABOVE price — buying under resistance is chasing. Wait for the pullback into support and project there." };
+  }
+  if (g.openSameDir !== undefined && g.openSameDir)
+    return { kind:"correlation", err:"Already tracking a "+(g.long?"long":"short")+" on "+
+      String(g.openSameDir.symbol||"").replace("USDT","")+" "+(g.openSameDir.tf||"")+
+      " — these coins move together, so a second "+(g.long?"long":"short")+
+      " is the same bet taken twice, not a second opinion. One directional bet at a time; cancel it or let it grade." };
+  if (g.fails2 !== undefined && g.fails2 && g.sinceFailSec < PRJ_COOLDOWN_S){
+    const left=Math.max(1, Math.ceil((PRJ_COOLDOWN_S-g.sinceFailSec)/3600));
+    return { kind:"cooldown", err:"The last two "+(g.long?"longs":"shorts")+
+      " both stopped out (−2R). Standing aside from "+(g.long?"longs":"shorts")+
+      " for ~"+left+"h — re-taking the same bet after two full-risk losses is how −2R becomes −7R." };
+  }
+  if (g.rrNet !== undefined && g.rrNet !== null && g.rrNet < PRJ_RR_FLOOR)
+    return { kind:"rr", err:"Thin shape — net R:R "+g.rrNet.toFixed(2)+":1 to the first target means you need "+
+      Math.round(100/(1+g.rrNet))+"% winners just to break even. The floor is "+PRJ_RR_FLOOR.toFixed(0)+
+      ":1: a win must pay at least what a loss costs. The one \"success\" in the log earned +0.22R while every failure cost −1R." };
+  return null;
+}
+
 function generateProjection(){
   let R=null;
   try{ R=fullRead(state.combine); }catch(e){}
@@ -7133,7 +7212,7 @@ function generateProjection(){
     return { err:"Stability check could not verify itself against the live read — refusing rather than reporting a score I cannot stand behind." };
   if(ST && ST.agree < PRJ_MIN_AGREE){
     logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px:R.px,
-                     dir:R.bias, agree:+ST.agree.toFixed(3), n:ST.n, agreed:ST.agreed,
+                     dir:R.bias, kind:"stability", agree:+ST.agree.toFixed(3), n:ST.n, agreed:ST.agreed,
                      bull:ST.bull, bear:ST.bear, spread:ST.spread });
     return { err:"Unstable read — it held in only "+ST.agreed+" of "+ST.n+
       " sampled views of the same history ("+Math.round(ST.agree*100)+"%, floor is "+
@@ -7151,9 +7230,30 @@ function generateProjection(){
   for(const l of state.levels){
     if(l.kind!=="h" || !isFinite(l.price)) continue;
     const d=Math.abs(l.price-px)/px;
-    if(d<=a*0.9 && (!anchor || d<anchor.d)) anchor={p:l.price, d, label:l.label||"level"};
+    /* only levels on the CORRECT side anchor a trade: a short sells the retest
+       of resistance, so its band must sit at/above price — not under it     */
+    const sideOk = long ? l.price <= px*1.001 : l.price >= px*0.999;
+    if(sideOk && d<=a*0.9 && (!anchor || d<anchor.d)) anchor={p:l.price, d, label:l.label||"level"};
   }
-  const mid = anchor? anchor.p : px;
+  {
+    const dirWord = long? "long":"short";
+    const openSameDir = state.projections.find(q=>q && q.dir===dirWord &&
+      ["waiting","active","t1"].includes(q.status)) || null;
+    const graded = state.projections
+      .filter(q=>q && q.dir===dirWord && q.outcome && q.outcome.result!=="cancelled" && isFinite(q.resolvedTime))
+      .sort((x,y)=>y.resolvedTime-x.resolvedTime);
+    const nowT = state.candles[state.candles.length-1].time;
+    const fails2 = graded.length>=2 && graded[0].outcome.result==="failed" && graded[1].outcome.result==="failed";
+    const G = projGates({ long, px, anchor,
+      openSameDir: openSameDir? {symbol:openSameDir.symbol, tf:openSameDir.tf} : null,
+      fails2, sinceFailSec: fails2? Math.max(0, nowT - graded[0].resolvedTime) : Infinity });
+    if(G){
+      logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
+                       dir:R.bias, kind:G.kind, note:G.err.slice(0,140) });
+      return { err:G.err+" Logged in the refusal list." };
+    }
+  }
+  const mid = anchor.p;
   const half = Math.max(mid*0.0012, a*0.35*mid);
   const entryLo=mid-half, entryHi=mid+half;
   const S=readStop(R);
@@ -7172,6 +7272,14 @@ function generateProjection(){
   if(!long && t2>=t1) t2=t1-risk;
   const c=(typeof costPct==="function"?costPct():0.0012)*mid;
   const rrNet=Math.max(0,(Math.abs(t1-mid)-c))/(risk+c);
+  {
+    const G = projGates({ long, px, rrNet });
+    if(G){
+      logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
+                       dir:R.bias, kind:G.kind, note:G.err.slice(0,140) });
+      return { err:G.err+" Logged in the refusal list." };
+    }
+  }
   const now=state.candles[state.candles.length-1];
   const proj={
     id:"prj:"+state.symbol+":"+state.tf+":"+now.time,
@@ -7455,16 +7563,17 @@ function renderProjections(){
   /* what the stability gate BLOCKED — so the threshold stays auditable */
   const ref = Array.isArray(state.prjRefused)? state.prjRefused : [];
   if(ref.length){
-    h+='<details class="patX"><summary><b>'+ref.length+' refused for instability</b>'+
-       ' <span class="est">the gate is '+Math.round(PRJ_MIN_AGREE*100)+'% — check whether it was right</span></summary>'+
-       '<div class="fine" style="padding:4px 0 6px 2px">Each of these survived too few sampled views of the same history to be armed. '+
-       'Look up what price actually did afterwards: if these would have worked, the floor is too high.</div>';
+    const KIND={stability:"unstable read", correlation:"same bet already open", anchor:"no anchor",
+                cooldown:"cooldown", rr:"thin R:R"};
+    h+='<details class="patX"><summary><b>'+ref.length+' refused</b>'+
+       ' <span class="est">every no is written down — audit whether the gates were right</span></summary>'+
+       '<div class="fine" style="padding:4px 0 6px 2px">Look up what price did after each refusal: if the blocked trades would have worked, a gate is too tight. That check is the only way a threshold earns trust.</div>';
     for(const r of ref.slice(0,15)){
       const mins=Math.max(0,Math.round((Date.now()-r.at)/60000));
       h+='<div class="calRow2"><span class="cLab wide">'+esc(String(r.symbol||"").replace("USDT",""))+
-         ' <small>'+esc(r.tf||"")+'</small></span>'+
+         ' <small>'+esc(r.tf||"")+' · '+(KIND[r.kind]||"unstable read")+'</small></span>'+
          '<span class="cNum '+(r.dir==="bullish"?"g":"r")+'">'+(r.dir==="bullish"?"▲ long":"▼ short")+'</span>'+
-         '<span class="cN">'+r.agreed+'/'+r.n+' ('+Math.round((r.agree||0)*100)+'%) · '+
+         '<span class="cN">'+(r.kind==="stability"||!r.kind? r.agreed+'/'+r.n+' ('+Math.round((r.agree||0)*100)+'%) · ':'')+
          (mins<60? mins+"m":(mins/60).toFixed(1)+"h")+' ago · at '+fmt(r.px)+'</span></div>';
     }
     h+='</details>';
@@ -8389,6 +8498,13 @@ function syncState(){
   if(!s.api){ el.textContent="device only"; el.className="warn";
     el.title="No server configured. Work is saved on this device only and will not follow you to another phone or browser."; return; }
   if(s.ok===null){ el.textContent="saving…"; el.className=""; return; }
+  if(s.badRead && s.badRead.length){
+    el.textContent="⚠ read failed — protecting saved data"; el.className="err";
+    el.title="Could not read "+s.badRead.join(", ")+" back from the server — a piece of the download failed (flaky connection). "+
+      "The server copy looks intact, so this device is REFUSING to save over it with the partial view it has. "+
+      "History may look empty until a reload on a stable connection. Nothing has been lost.";
+    return;
+  }
   if(s.rejected){
     const kb=Math.round(s.rejected.bytes/1024);
     const tries=s.rejected.tries||1;
