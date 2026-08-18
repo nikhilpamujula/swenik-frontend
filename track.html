@@ -8662,6 +8662,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     function bfFetch() {
       if (bfInFlight || !bfActive()) return;
       bfInFlight = true;
+      // DELIBERATELY SPOT: these are the scanner's Spot-vs-Perp basis tabs —
+      // the spot price here is the spot LEG of the premium arithmetic, not a
+      // chart. Priced on the perp it would compare the perp to itself. The
+      // futures-only rule covers the workbench + research, never this math.
       var spotP = fetch('https://api.binance.com/api/v3/ticker/price').then(function (r) {
         if (!r.ok) throw new Error('spot ' + r.status); return r.json();
       }).catch(function () {
@@ -8759,7 +8763,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // token below changes the URL on every release (so the cache misses once and
     // then caches normally), and after load we compare the frame's own stamp and
     // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
-    var WB_VER = '2026-08-18b-futures';   // a NEWER workbench is fine; only an older one is an error
+    var WB_VER = '2026-08-18d-allfut';   // a NEWER workbench is fine; only an older one is an error
 
     function wbMount() {
       if (document.getElementById('wbFull')) return;      // already up → never rebuild
@@ -9078,10 +9082,33 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     function rsJson(url) {
       return fetch(url).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     }
-    function rsSpot(path) {
-      return rsJson('https://api.binance.com' + path).catch(function () {
-        return rsJson('https://data-api.binance.vision' + path);
-      });
+    function rsPerp(path) {
+      // USDT-M futures — the only market he trades. Every research and
+      // holdings series comes from here so verdicts describe a market he can
+      // touch. His scope rule: everything on futures EXCEPT the scanner and
+      // the Spot-vs-Perp basis tabs (whose spot fetch is the basis math's
+      // own leg). rsSpot is gone — no other spot reads exist in this file.
+      return rsJson('https://fapi.binance.com' + path);
+    }
+    function rsPerpKl(sym, mult, interval, limit) {
+      // Perp klines rescaled to COIN units. A 1000PEPE candle is 1000 PEPE —
+      // judged raw against a buy price in plain PEPE it reads as +99,900%
+      // (the same trap bfBuild documents). Divide OHLC by the multiplier so
+      // every downstream number speaks the units his buy price speaks.
+      return rsPerp('/fapi/v1/klines?symbol=' + sym + '&interval=' + interval + '&limit=' + (limit || 300))
+        .then(function (kl) {
+          if (!mult || mult === 1) return kl;
+          return kl.map(function (k) {
+            var r = k.slice();
+            r[1] = +k[1] / mult; r[2] = +k[2] / mult; r[3] = +k[3] / mult; r[4] = +k[4] / mult;
+            return r;
+          });
+        });
+    }
+    function rsPerpMult(coin, sym) {
+      // exact-match against the tries rsPerpSym makes — prefix-sniffing would
+      // misread coins whose NAME starts with a digit (1INCH is not 1×INCH)
+      return sym === coin + 'USDT' ? 1 : sym === '1000' + coin + 'USDT' ? 1000 : 1e6;
     }
     function rsPerpSym(coin) { // resolve perp symbol incl. 1000x variants
       var tries = [coin + 'USDT', '1000' + coin + 'USDT', '1M' + coin + 'USDT'];
@@ -9104,46 +9131,54 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       try { localStorage.setItem('swenik-rs-coin', coin); } catch (e) {}
       rsRender();
       var out = { coin: coin, at: Date.now(), tfs: {}, news: {} };
-      var jobs = [];
-      RS_TFS.forEach(function (T) {
-        jobs.push(rsSpot('/api/v3/klines?symbol=' + coin + 'USDT&interval=' + T.tf + '&limit=400')
-          .then(function (kl) { out.tfs[T.tf] = rsSeries(kl); })
-          .catch(function (e) { out.tfs[T.tf] = null; out.klErr = e.message; }));
-      });
-      jobs.push(rsSpot('/api/v3/ticker/24hr?symbol=' + coin + 'USDT')
-        .then(function (t) { out.day = t; }).catch(function () {}));
-      // BTC context: the tide every alt swims in. 4h for trend, 1h for correlation.
-      jobs.push(rsSpot('/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=300')
-        .then(function (kl) { out.btc4 = rsSeries(kl); }).catch(function () {}));
-      if (coin !== 'BTC') jobs.push(rsSpot('/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=300')
-        .then(function (kl) { out.btc1 = rsSeries(kl); }).catch(function () {}));
-      jobs.push(rsJson('https://api.coingecko.com/api/v3/global')
-        .then(function (g) { out.global = g && g.data; }).catch(function () {}));
-      jobs.push(rsPerpSym(coin).then(function (p) {
+      // FUTURES-FIRST: resolve which USDT-M perpetual this coin trades as
+      // (PEPE → 1000PEPEUSDT and friends), THEN pull every price series from
+      // that perp. He trades futures only — a dossier built on spot klines
+      // would describe a market he cannot touch. Coingecko and fear&greed
+      // stay: they are market-wide context, not price series.
+      rsPerpSym(coin).then(function (p) {
         out.perp = p;
-        if (!p) return;
-        return Promise.all([
-          rsJson('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + p.sym + '&period=15m&limit=96')
-            .then(function (x) { out.oi = x; }).catch(function () {}),
-          rsJson('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=' + p.sym + '&period=1h&limit=2')
-            .then(function (x) { out.ls = x; }).catch(function () {}),
-          rsJson('https://fapi.binance.com/futures/data/takerlongshortRatio?symbol=' + p.sym + '&period=1h&limit=2')
-            .then(function (x) { out.taker = x; }).catch(function () {})
-        ]);
-      }).catch(function () {}));
-      jobs.push(rsJson('https://api.alternative.me/fng/?limit=2')
-        .then(function (x) { out.fng = x && x.data; }).catch(function () {}));
-      jobs.push(rsJson('https://api.coingecko.com/api/v3/search?query=' + coin)
-        .then(function (s) {
-          var hit = (s.coins || []).filter(function (c) { return String(c.symbol).toUpperCase() === coin; })[0] || (s.coins || [])[0];
-          if (!hit) return;
-          out.cgId = hit.id;
-          return rsJson('https://api.coingecko.com/api/v3/coins/' + hit.id + '?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false')
-            .then(function (c) { out.cg = c; });
-        }).catch(function () {}));
-      Promise.all(jobs).then(function () {
+        var sym = p ? p.sym : coin + 'USDT';   // no perp resolved → try the plain name; the error below stays honest
+        out.sym = sym;
+        var jobs = [];
+        RS_TFS.forEach(function (T) {
+          jobs.push(rsPerp('/fapi/v1/klines?symbol=' + sym + '&interval=' + T.tf + '&limit=400')
+            .then(function (kl) { out.tfs[T.tf] = rsSeries(kl); })
+            .catch(function (e) { out.tfs[T.tf] = null; out.klErr = e.message; }));
+        });
+        jobs.push(rsPerp('/fapi/v1/ticker/24hr?symbol=' + sym)
+          .then(function (t) { out.day = t; }).catch(function () {}));
+        // BTC context: the tide every alt swims in. 4h for trend, 1h for correlation.
+        jobs.push(rsPerp('/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=300')
+          .then(function (kl) { out.btc4 = rsSeries(kl); }).catch(function () {}));
+        if (coin !== 'BTC') jobs.push(rsPerp('/fapi/v1/klines?symbol=BTCUSDT&interval=1h&limit=300')
+          .then(function (kl) { out.btc1 = rsSeries(kl); }).catch(function () {}));
+        jobs.push(rsJson('https://api.coingecko.com/api/v3/global')
+          .then(function (g) { out.global = g && g.data; }).catch(function () {}));
+        if (p) {
+          jobs.push(Promise.all([
+            rsJson('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + p.sym + '&period=15m&limit=96')
+              .then(function (x) { out.oi = x; }).catch(function () {}),
+            rsJson('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=' + p.sym + '&period=1h&limit=2')
+              .then(function (x) { out.ls = x; }).catch(function () {}),
+            rsJson('https://fapi.binance.com/futures/data/takerlongshortRatio?symbol=' + p.sym + '&period=1h&limit=2')
+              .then(function (x) { out.taker = x; }).catch(function () {})
+          ]));
+        }
+        jobs.push(rsJson('https://api.alternative.me/fng/?limit=2')
+          .then(function (x) { out.fng = x && x.data; }).catch(function () {}));
+        jobs.push(rsJson('https://api.coingecko.com/api/v3/search?query=' + coin)
+          .then(function (s) {
+            var hit = (s.coins || []).filter(function (c) { return String(c.symbol).toUpperCase() === coin; })[0] || (s.coins || [])[0];
+            if (!hit) return;
+            out.cgId = hit.id;
+            return rsJson('https://api.coingecko.com/api/v3/coins/' + hit.id + '?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false')
+              .then(function (c) { out.cg = c; });
+          }).catch(function () {}));
+        return Promise.all(jobs);
+      }).then(function () {
         var any = RS_TFS.some(function (T) { return out.tfs[T.tf]; });
-        if (!any) { rsErr = 'No Binance spot market found for ' + coin + '/USDT' + (out.klErr ? ' (' + out.klErr + ')' : ''); }
+        if (!any) { rsErr = 'No Binance USDT-M perpetual found for ' + coin + (out.klErr ? ' (' + out.klErr + ')' : ''); }
         else rsReport = out;
       }).catch(function (e) { rsErr = e.message; })
         .then(function () { rsBusy = false; rsRender(); });
@@ -9844,11 +9879,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       function nextCoin() {
         if (idx >= list.length) { hcBusy = false; hcRender(); try { updateVenueTabCounts(); } catch (e) {} return; }
         var h = list[idx++];
-        Promise.all([
-          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=15m&limit=300'),
-          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=1h&limit=300'),
-          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=4h&limit=300')
-        ]).then(function (r) {
+        // FUTURES, per his scope rule ("except the scanner and the basis
+        // tabs"). The perp symbol is resolved per coin and its series is
+        // rescaled to coin units so h.buy compares like-for-like. Caveat he
+        // accepted with the rule: the P&L is now measured against the perp
+        // price, which sits a basis away from any spot venue he bought on.
+        rsPerpSym(h.coin).then(function (p) {
+          if (!p) throw new Error('no USDT-M perpetual for ' + h.coin);
+          var mult = rsPerpMult(h.coin, p.sym);
+          return Promise.all([
+            rsPerpKl(p.sym, mult, '15m'),
+            rsPerpKl(p.sym, mult, '1h'),
+            rsPerpKl(p.sym, mult, '4h')
+          ]);
+        }).then(function (r) {
           hcState[h.coin + '@' + h.buy] = hcJudge(h, rsSeries(r[0]), rsSeries(r[1]), rsSeries(r[2]));
         }).catch(function (e) {
           hcState[h.coin + '@' + h.buy] = { err: e.message, at: Date.now() };
