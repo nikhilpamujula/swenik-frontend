@@ -1118,7 +1118,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18l-route";
+window.WB_BUILD = "2026-08-18m-why";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -7876,7 +7876,12 @@ async function wbApi(path, init){
          screen recording). Six seconds, then the failover runs. */
       const r=await fetch(u, Object.assign({signal:AbortSignal.timeout(6000)}, init||{}));
       if(r.ok) return await r.json();
-      lastErr="HTTP "+r.status;
+      /* the backend explains every refusal in words ({error:"…"}). Throwing a
+         bare "HTTP 400" threw that sentence away and left the sheet showing a
+         status code — the user then cannot know a cap was hit. */
+      let why=null;
+      try{ const j=await r.json(); why=j && (j.error||j.message); }catch(e){}
+      lastErr = why || ("HTTP "+r.status);
     }catch(e){ lastErr=(e&&e.message)||"network blocked"; }
   }
   throw new Error(lastErr||"backend unreachable");
@@ -7964,9 +7969,15 @@ function fillLiveSheet(p){
   const calc=()=>{
     const usdt=+amtEl.value||0, lev=state.wbLev||1;
     const risk=zoneEdge>0? usdt*Math.abs(zoneEdge-p.stop)/zoneEdge : 0;
-    document.getElementById("wbCalc").innerHTML=
-      'margin ≈ <b>'+(usdt/lev).toFixed(2)+' USDT</b> at '+lev+'x · at the stop you lose ≈ <b class="r">'+
-      risk.toFixed(2)+' USDT</b> (leverage moves margin, NOT this risk) · legs ≈ '+(usdt/2).toFixed(2)+' USDT each';
+    const over = usdt > cap*1.0001;
+    const go=document.getElementById("wbGo");
+    if(go){ go.disabled=over; go.style.opacity=over?0.5:1; }
+    document.getElementById("wbCalc").innerHTML= over
+      ? '<span style="color:var(--down)"><b>'+usdt.toFixed(2)+' USDT is over the '+cap+' USDT server cap.</b> '+
+        'Reduce the volume to '+(cap/zoneEdge).toPrecision(4)+' '+esc(base)+' or less, or raise WB_MAX_ORDER_USDT on the backend. '+
+        'The cap is refused, never silently shrunk — a size you did not choose is not a size you agreed to.</span>'
+      : 'margin ≈ <b>'+(usdt/lev).toFixed(2)+' USDT</b> at '+lev+'x · at the stop you lose ≈ <b class="r">'+
+        risk.toFixed(2)+' USDT</b> (leverage moves margin, NOT this risk) · legs ≈ '+(usdt/2).toFixed(2)+' USDT each';
   };
   const syncFromAmt=()=>{ const u=+amtEl.value||0; qtyEl.value=u>0? (u/zoneEdge).toPrecision(5) : ""; calc(); };
   const syncFromQty=()=>{ const q=+qtyEl.value||0; amtEl.value=q>0? (q*zoneEdge).toFixed(2) : ""; calc(); };
