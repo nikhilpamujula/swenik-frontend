@@ -517,6 +517,7 @@
   /* live counts glow so you notice without opening the tab */
   .tab[data-tab="signals"] .n.hot{background:var(--up);color:#04201C}
   .tab[data-tab="trades"] .n.hot{background:var(--accent2);color:#04201C}
+  .tab[data-tab="live"] .n.hot{background:#F5D77A;color:#241C00}
   #paneWrap{overflow-y:auto;display:none;touch-action:pan-y}
   #sheet.open #paneWrap{display:block}
   .pane{display:none;padding:0 10px 10px}
@@ -841,6 +842,12 @@
   .tbtn.danger{color:var(--down);border-color:rgba(242,73,92,.45);background:rgba(242,73,92,.07)}
   .tbtn.go{color:#04201C;background:var(--up);border-color:var(--up)}
   .tbtn.ghost{background:none;color:var(--dim)}
+  /* 🎯 arm-a-projection button — appears in ZONES, SIGNALS, STRUCTURE and LINES.
+     Same look everywhere so it reads as one action wherever it is met. */
+  .tbtn.armB{padding:4px 8px;font-size:10px;border-color:rgba(45,212,160,.4);
+    color:var(--up);background:rgba(45,212,160,.07);margin-left:auto;flex:none}
+  .lvl .tbtn.armB{margin-left:4px}
+  .sFoot .tbtn.armB{margin-left:0;margin-right:6px;padding:8px 10px;font-size:11px}
   .pane .rFoot{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
   .pane .rFoot button,.pane #prjMsg button,.pane .patBody button{background:var(--panel2,#151A24);
     border:1px solid var(--line);color:var(--text);border-radius:9px;padding:8px 12px;
@@ -1015,6 +1022,7 @@
       <div class="gRow"><b>WATCH</b><span>All the coins you follow, scanned at once — which ones are near a level that matters.</span></div>
       <div class="gRow"><b>SIGNALS</b><span>The only tab you need most days: is anything worth acting on right now?</span></div>
       <div class="gRow"><b>TRADES</b><span>Practice trades with fake money, tracked properly.</span></div>
+      <div class="gRow"><b>⚡ LIVE</b><span>Real orders only — never mixed with practice. Position P&amp;L, wallet margin, and every amendment the manager makes or proposes.</span></div>
       <div class="gRow"><b>COACH</b><span>After a few trades, it tells you which of your own habits cost you money.</span></div>
       <div class="gRow"><b>RECORD</b><span>Checks whether this app's percentages are actually honest. Run the backtest there.</span></div>
       <p class="gWarn">It will often say <b>"nothing actionable"</b>. That is the app working, not failing — most of the time there genuinely is no good trade.</p>
@@ -1061,6 +1069,7 @@
       <button class="tab" data-tab="proj">🎯 PROJECT <span class="n" id="projCount">0</span></button>
       <button class="tab" data-tab="structure">STRUCTURE</button>
       <button class="tab" data-tab="trades">TRADES <span class="n" id="trdCount">0</span></button>
+      <button class="tab" data-tab="live">⚡ LIVE <span class="n" id="lvCount">0</span></button>
       <button class="tab" data-tab="coach">COACH</button>
       <button class="tab" data-tab="record">RECORD <span class="n" id="recCount">0</span></button>
     </div>
@@ -1075,6 +1084,7 @@
     <div id="projList" class="pane"></div>
     <div id="structList" class="pane"></div>
     <div id="tradeList" class="pane"></div>
+    <div id="liveList" class="pane"></div>
     <div id="coachList" class="pane"></div>
     <div id="recordList" class="pane"></div>
   </div>
@@ -1088,7 +1098,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18f-liveui";
+window.WB_BUILD = "2026-08-18i-anywhere";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1452,7 +1462,9 @@ window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view,
   placeOrders:(p)=>placeProjOrders(p), ordersFor:(id)=>projOrdersFor(id),
   reconcile:()=>reconcileProjOrders(), updatePapers:()=>updatePapers(),
   updateProjections:()=>updateProjections(),
-  candlesSym:(v)=>{ if(v!==undefined) state.candlesSym=v; return state.candlesSym; } };
+  candlesSym:(v)=>{ if(v!==undefined) state.candlesSym=v; return state.candlesSym; },
+  lvRefresh:()=>{ if(state.lv) state.lv.at=0; return renderLive(); },
+  renderLevels:()=>renderLevelList() };
 
 /* ---------- sizing ---------- */
 function resize(){
@@ -2769,20 +2781,10 @@ function renderTrades(){
   const nlive=state.papers.filter(t=>t.status==="open"||t.status==="pending").length;
   $("trdCount").textContent=nlive;
   $("trdCount").className="n"+(nlive>0?" hot":"");
-  /* server-side sequences (LIVE / SHADOW twins of projections) \u2014 read-only
-     here; the watcher is their manager and the projection card their home */
-  if(!state.wbo) state.wbo={status:null, rows:[], at:0};
-  if(Date.now()-state.wbo.at>30000){
-    wboRefresh().then(()=>{ if(state.tab==="trades"){ try{ renderTrades(); }catch(e){} } }).catch(()=>{});
-  }
-  const wrows=((state.wbo&&state.wbo.rows)||[]).filter(o=>o&&o.state);
-  let wliveHtml='';
-  if(wrows.length){
-    wliveHtml='<div class="card"><div class="cardT">SERVER SEQUENCES <span class="est">placed from projections \u2014 the watcher manages them 24/7</span></div>'+
-      wrows.slice(0,12).map(o=>'<div class="calRow2"><span class="cLab wide">'+(o.mode==="live"?"\u26a1":"\ud83d\udc7b")+' '+
-        esc(String(o.symbol||"").replace("USDT",""))+' <small>'+esc(o.tf||"")+' \u00b7 '+esc(o.side||"")+' \u00b7 '+(+o.usdt||0)+' USDT</small></span>'+
-        '<span class="cN">'+esc(String(o.state||""))+(o.note? ' \u00b7 '+esc(String(o.note)) :'')+'</span></div>').join('')+'</div>';
-  }
+  /* NOTE: server sequences used to live here. They now have their own
+     ⚡ LIVE tab — real money and practice money must never share a
+     surface, because a glance that confuses the two mis-sizes a trade. */
+  const wliveHtml='';
   if(!state.papers.length){
     el.innerHTML=wliveHtml+'<div class="empty"><b>Long-press the chart</b> at any price and pick \u25b2 long or \u25bc short \u2014 or tap <b>\ud83d\udccb Paper order</b> on a projection card to place its whole sequence.<br><br>At current price it opens immediately; away from price it becomes a <b>pending limit order</b> that fills when price arrives. Stops go just beyond your nearest line, target at 2R, size from \u2699.<br><br>Once open you can amend stop and target, move to break-even, trail the stop, or cancel.</div>';
     return;
@@ -4327,6 +4329,7 @@ function renderSignals(){
       /* coloured footer, scanner style */
       '<div class="sFoot '+(isLong?"long":"short")+'">'+
         '<div class="sFootL"><b>1 : '+s.rr.toFixed(2)+'</b><small>risk : reward · lean '+Math.round(s.lean*100)+'%</small></div>'+
+        armBtn('signal', s.dir, s.plan.entry, s.label)+
         '<button class="sGo '+rrCls+'" data-sig="'+s.id+'" data-dir="'+s.dir+'">'+
           (isLong?"▲ Long":"▼ Short")+' this</button>'+
       '</div>'+
@@ -4340,6 +4343,7 @@ function renderSignals(){
     const sig=R.signals.find(x=>x.id===b.dataset.sig);
     if(sig) askPreTrade(sig.dir==="long", sig.plan.entry);
   });
+  bindArm(el, "sigArmMsg");
   el.querySelectorAll(".sExpand").forEach(b=>b.onclick=()=>{
     const body=$("cx-"+b.dataset.x);
     const open=body.classList.toggle("open");
@@ -6216,6 +6220,9 @@ function renderLevelList(){
       <span class="dot" style="background:${lvl.color}" title="Change color"></span>
       <span class="kind" title="${lvl.tier?('auto · '+lvl.tier):(lvl.auto?'auto-detected':'')}">${lvl.auto?(lvl.tier==="weak"?"⚠":"✨"):KIND_GLYPH[lvl.kind]}</span>
       <span class="price mono" title="${(lvl.why||"").replace(/"/g,"")}">${lineTitle(lvl)}</span>
+      ${lvl.kind==="h"&&state.candles.length
+        ? armBtn('line', lvl.price<=state.candles[state.candles.length-1].close?'long':'short', lvl.price, lvl.label||lineTitle(lvl))
+        : ""}
       <input value="${lvl.label??""}" placeholder="label…" maxlength="24">
       <span class="touches" data-id="${lvl.id}"></span>
       <span class="ev" data-ev="${lvl.id}"></span>
@@ -6240,6 +6247,7 @@ function renderLevelList(){
     };
     list.appendChild(row);
   }
+  bindArm(list);          /* 🎯 on each horizontal line — the classic anchor */
   refreshTouchCounts(); refreshEvidence();
 }
 
@@ -7022,6 +7030,7 @@ function zoneRow(z, px, dir){
       '<span>'+z.touches+' touches</span>'+
       '<span class="zBar"><i style="width:'+Math.max(4,z.score)+'%"></i></span>'+
       '<span>confluence '+z.score+'/100</span>'+
+      armBtn('zone', dir, z.mid, (dir==="long"?"buy":"sell")+" zone "+(z.tfs||[]).join("+"))+
     '</div></div>';
 }
 function renderZones(){
@@ -7090,7 +7099,8 @@ function renderZones(){
      ' · price at scan '+fmt(Z.px)+'</div>'+
      '<div id="secTools"><button data-a="rescan">Rescan now</button>'+
      '<button data-a="full">Full screen</button></div>';
-  el.innerHTML=h;
+  el.innerHTML='<div id="zoneArmMsg"></div>'+h;
+  bindArm(el, "zoneArmMsg");
   sectionise(el);
   el.querySelectorAll('#secTools button').forEach(b=>b.onclick=async()=>{
     if(b.dataset.a==='full'){ setSheetFull(!$("sheet").classList.contains("full")); return; }
@@ -7145,7 +7155,8 @@ function sectionTools(root, onAll){
 }
 function renderStructure(){
   const root=$("structList");
-  root.innerHTML = structureRead();
+  root.innerHTML = '<div id="structArmMsg"></div>' + structureRead();
+  bindArm(root, "structArmMsg");
   sectionise(root);
   sectionTools(root, want=>{
     /* expand-all should also open the pattern explanations, not just the shells */
@@ -7364,7 +7375,20 @@ function generateProjection(opts){
     }
     return best;
   };
-  let anchor=scanAnchor();
+  /* AN ANCHOR FROM ANOTHER SURFACE ────────────────────────────────────────
+     ZONES, SIGNALS, STRUCTURE and LINES all know a price worth leaning on.
+     They may hand it in here — but they may NOT skip a single gate: the read
+     still supplies direction, the sampler still tests stability, and the
+     anchor-side rule still applies. If the caller's side contradicts the
+     read, that disagreement is the answer and the projection is refused. */
+  let anchor=null;
+  if(opts.anchor && isFinite(+opts.anchor.p)){
+    if(opts.anchor.side && opts.anchor.side!==(long?"long":"short"))
+      return { err:"That is a "+esc(opts.anchor.side)+" setup but the read here is "+R.bias+
+        " ("+R.up+" up vs "+R.down+" down). The level and the engines disagree — that is information, not a trade.", kind:"side" };
+    anchor={ p:+opts.anchor.p, d:Math.abs(+opts.anchor.p-px)/px, label:opts.anchor.label||"level" };
+  }
+  if(!anchor) anchor=scanAnchor();
   /* THINK before refusing: if there is no anchor, the machine knows exactly
      what is missing and how to look for it — so it looks, instead of telling
      the user to go tap a different button. Detected levels are kept (they are
@@ -7889,8 +7913,17 @@ function fillLiveSheet(p){
       '<div class="tc-cell"><span>T1 / T2</span><b class="g">'+fmt(p.t1)+'</b><small>then '+fmt(p.t2)+' · BE at T1</small></div>'+
     '</div>'+
     '<div class="fine" style="margin:2px 0 9px">USDT-M futures · half exits at T1, half runs to T2 with the stop moved to break-even at T1 · '+
-      'margin used = position notional ÷ your account leverage'+
-      (willLive?'':' · <b>shadow because:</b> '+esc(st.note||"WB_LIVE is not on"))+'</div>'+
+      'margin used = position notional ÷ your account leverage</div>'+
+    /* SHADOW must never be mistaken for a placed order again. "Placed" plus a
+       green tick read as "it is on the exchange" — it is not, and the only
+       cure is saying so in the loudest element on the sheet. */
+    (willLive
+      ? '<div class="flag warn" style="margin:0 0 9px"><b>⚡ This sends REAL orders to Binance USDT-M futures.</b></div>'
+      : '<div class="flag bad" style="margin:0 0 9px"><b>👻 SIMULATION — nothing is sent to Binance.</b>'+
+        '<div class="fine" style="margin-top:4px">You will NOT find this in the Binance app. It is tracked here at real perp '+
+        'prices so the sequence can be judged before real money rides on it.<br>Reason: '+esc(st.note||"WB_LIVE is not on")+'</div>'+
+        '<div style="margin-top:7px"><button class="tbtn" id="wbPre">🔑 Check my Binance keys</button></div>'+
+        '<div id="wbPreOut"></div></div>')+
     '<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:9px">'+
       '<label class="fine" style="display:block">volume ('+esc(base)+')<br>'+
         '<input id="wbQty" class="wbAmt" type="number" inputmode="decimal" min="0" step="any"></label>'+
@@ -7902,7 +7935,7 @@ function fillLiveSheet(p){
       LEVS.map(l=>'<button class="tbtn'+(l===state.wbLev?' go':'')+'" data-lev="'+l+'">'+l+'x</button>').join('')+'</div>'+
     '<div class="cardNote" id="wbCalc" style="margin:0 0 10px"></div>'+
     '<button class="tbtn go" id="wbGo" style="width:100%;padding:13px">'+
-      (willLive?'⚡ Place LIVE sequence':'👻 Place shadow sequence')+'</button>';
+      (willLive?'⚡ Place LIVE sequence on Binance':'👻 Simulate (no exchange order)')+'</button>';
   const qtyEl=document.getElementById("wbQty"), amtEl=document.getElementById("wbAmt");
   const calc=()=>{
     const usdt=+amtEl.value||0, lev=state.wbLev||1;
@@ -7916,6 +7949,27 @@ function fillLiveSheet(p){
   amtEl.oninput=syncFromAmt; qtyEl.oninput=syncFromQty;
   syncFromAmt();
   document.getElementById("wbNo").onclick=closeLiveSheet;
+  const preBtn=document.getElementById("wbPre");
+  if(preBtn) preBtn.onclick=async()=>{
+    const out=document.getElementById("wbPreOut");
+    preBtn.disabled=true; preBtn.textContent="asking Binance…";
+    try{
+      const r=await wbApi("/api/wb/orders/preflight");
+      const rows=[
+        ['WB_LIVE=on', r.armed],
+        ['API keys on the server', r.keysPresent],
+        ['Binance accepts the key for FUTURES', r.keysWork && r.futuresEnabled],
+        ['margin in the USDT-M wallet', r.usdtAvailable!=null? r.usdtAvailable>0 : null],
+      ];
+      out.innerHTML='<div class="fine" style="margin-top:7px">'+
+        rows.map(x=>(x[1]===true?'✅ ':x[1]===false?'❌ ':'— ')+esc(x[0])+
+          (x[0][0]==='m'&&r.usdtAvailable!=null? ' ('+r.usdtAvailable+' USDT)':'')).join('<br>')+
+        (r.error? '<br><span style="color:var(--down)">Binance said: '+esc(r.error)+'</span>':'')+
+        (r.hint? '<br>'+esc(r.hint):'')+
+        (r.egressIp? '<br>this server reaches Binance from <b>'+esc(r.egressIp)+'</b>':'')+'</div>';
+    }catch(e){ out.innerHTML='<div class="fine" style="color:var(--down);margin-top:7px">'+esc((e&&e.message)||"could not reach the backend")+'</div>'; }
+    preBtn.disabled=false; preBtn.textContent="🔑 Check my Binance keys";
+  };
   /* chip click updates in place — a full re-render here would wipe the volume
      he just typed */
   document.querySelectorAll("#wbLevs [data-lev]").forEach(b=>b.onclick=()=>{
@@ -7935,8 +7989,9 @@ function fillLiveSheet(p){
           entry:zoneEdge, entryLo:p.entryLo, entryHi:p.entryHi, stop:p.stop, t1:p.t1, t2:p.t2,
           usdt:usdt||undefined, qty:qty||undefined, leverage:state.wbLev})});
       if(r&&r.error) msg=r.error;
-      else{ ok=true; msg=(r&&r.mode==="live"?"⚡ LIVE":"👻 SHADOW")+" sequence created — "+
-        ((r&&r.note)||"the watcher advances it every minute; state shows on the card."); }
+      else{ ok=true; msg=(r&&r.mode==="live")
+        ? "⚡ LIVE sequence created — the watcher places the entry on Binance within a minute."
+        : "👻 SIMULATED — nothing was sent to Binance. Tracked here at real perp prices."; }
     }catch(e){ msg=(e&&e.message)||"failed"; }
     if(ok){
       el.innerHTML='<div class="flag good" style="margin:0">✓ '+esc(msg)+'</div>';
@@ -7945,10 +8000,224 @@ function fillLiveSheet(p){
       const m=$("prjMsg"); if(m) m.innerHTML='<div class="flag good">'+esc(msg)+'</div>';
       setTimeout(closeLiveSheet, 1600);
     } else {
-      go.disabled=false; go.textContent=(willLive?'⚡ Place LIVE sequence':'👻 Place shadow sequence');
+      go.disabled=false; go.textContent=(willLive?'⚡ Place LIVE sequence on Binance':'👻 Simulate (no exchange order)');
       const c=document.getElementById("wbCalc"); if(c) c.innerHTML='<span style="color:var(--down)">'+esc(msg)+'</span>';
     }
   };
+}
+
+/* ---- arming from any surface ------------------------------------------------
+   ZONES, SIGNALS, STRUCTURE and LINES can all start a trade — but never their
+   OWN kind of order. Every one of them funnels through generateProjection, so
+   the four refusal gates, the stability sampler and the grading loop apply
+   identically no matter which tab the idea came from. A tab that could place
+   an order directly would be a second, ungraded, ungated trading path, and the
+   learning loop would go blind exactly where volume was added.            */
+function armFromAnchor(spec){
+  const msgAt=(html)=>{
+    const m=$(spec.msgId||"prjMsg"); if(m){ m.innerHTML=html; return; }
+    cmdSay(String(html).replace(/<[^>]+>/g,""));
+  };
+  if(activeProjection(state.symbol, state.tf)){
+    msgAt('<div class="flag warn">One projection per chart at a time — cancel the active one in PROJECT first.</div>');
+    return;
+  }
+  const opts={ anchor:{ p:spec.price, label:spec.label, side:spec.dir } };
+  const done=(r)=>{
+    state.projections.push(r.proj);
+    saveProjections(); try{ renderProjections(); }catch(e){} try{ render(); }catch(e){}
+    cmdSay("Projection armed from "+spec.source+(r.proj.echo?" as an ECHO":"")+": "+r.proj.dir+" "+
+           state.symbol.replace("USDT","")+" — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+
+           fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi));
+    msgAt('<div class="flag good"><b>Projected from '+esc(spec.source)+'</b> — '+
+      (r.proj.dir==="long"?"buy":"sell")+' zone '+fmt(r.proj.entryLo)+'–'+fmt(r.proj.entryHi)+
+      ' · stop '+fmt(r.proj.stop)+' · T1 '+fmt(r.proj.t1)+' · T2 '+fmt(r.proj.t2)+
+      '<div style="margin-top:7px"><button class="tbtn go" id="armOrder">⚡ Place the order sequence</button>'+
+      '<button class="tbtn ghost" id="armOpen">open PROJECT</button></div></div>');
+    const go=$("armOrder"); if(go) go.onclick=()=>openLiveSheet(r.proj);
+    const op=$("armOpen"); if(op) op.onclick=()=>{ const t=[...document.querySelectorAll(".tab")].find(x=>x.dataset.tab==="proj"); if(t) t.click(); };
+  };
+  const r=generateProjection(opts);
+  if(r.err){
+    const soft = r.kind==="correlation" || r.kind==="cooldown";
+    msgAt('<div class="flag warn">'+esc(r.err)+
+      (soft? '<div style="margin-top:8px"><button class="tbtn" id="armEcho">Arm anyway — tracked as an ECHO, not an independent outcome</button></div>':'')+'</div>');
+    const eb=$("armEcho");
+    if(eb) eb.onclick=()=>{ const r2=generateProjection(Object.assign({override:true}, opts));
+      if(r2.err){ msgAt('<div class="flag warn">'+esc(r2.err)+'</div>'); return; }
+      done(r2); };
+    return;
+  }
+  done(r);
+}
+/* every pane binds the same way, so a new surface only needs the attributes */
+function bindArm(el, msgId){
+  if(!el) return;
+  el.querySelectorAll("[data-arm]").forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    armFromAnchor({ dir:b.dataset.dir, price:+b.dataset.px,
+                    label:b.dataset.label||"level", source:b.dataset.arm, msgId:msgId });
+  });
+}
+/* the button itself — one look everywhere it appears */
+function armBtn(source, dir, price, label){
+  return '<button class="tbtn armB" data-arm="'+esc(source)+'" data-dir="'+esc(dir)+'" data-px="'+
+    (+price)+'" data-label="'+esc(label||"")+'" title="Project this, then place its order">🎯 '+
+    (dir==="long"?"long":"short")+'</button>';
+}
+
+/* ============================================================================
+   THE ⚡ LIVE DESK — real money, kept on its own surface.
+
+   Deliberately NOT part of TRADES. Paper trades exist to be wrong cheaply;
+   these exist to be right expensively, and one glance that confuses the two is
+   one mis-sized position. Everything here is exchange truth where the exchange
+   knows it (position, mark, unrealised P&L, liquidation, wallet margin) and
+   server truth otherwise.
+
+   The manager's proposals surface here too: exits it already took are reported
+   as history, stop changes it WANTS to make wait for an Apply.
+   ========================================================================== */
+async function lvRefresh(force){
+  if(!state.lv) state.lv={at:0, data:null, err:null};
+  if(!force && Date.now()-state.lv.at<20000) return;
+  state.lv.at=Date.now();
+  try{ state.lv.data=await wbApi("/api/wb/orders/portfolio"); state.lv.err=null; }
+  catch(e){ state.lv.err=(e&&e.message)||"backend unreachable"; }
+}
+/* Shadow rows have no exchange position, so their P&L is computed the same way
+   the projection tracker computes progress — from the perp price this chart is
+   already holding. Only ever for the coin on screen; anything else says so
+   rather than quoting a number from the wrong market. */
+function lvShadowPL(o){
+  const onChart = String(o.symbol||"").toUpperCase()===String(state.symbol).toUpperCase();
+  if(!onChart || !state.candles.length) return null;
+  if(o.state!=="bracketed" && o.state!=="t1-done") return null;
+  const px=state.candles[state.candles.length-1].close;
+  const qty=(o.qtyT1||0)+(o.qtyT2||0) || (o.usdt/o.entry);
+  const dir=o.side==="long"?1:-1;
+  return { px, pnl:(px-o.entry)*dir*qty };
+}
+const LV_STATE={ 'pending-entry':['⏳ waiting to be placed','info'], 'entry-live':['⏳ entry resting','info'],
+  'bracketed':['● in position','good'], 't1-done':['🎯 T1 done · runner','good'],
+  'done-success':['✅ both targets','good'], 'done-partial-be':['◐ partial','warn'],
+  'done-stopped':['🛑 stopped','bad'], 'done-flat':['⌛ flat','info'],
+  'done-managed':['🛡 closed by manager','warn'], 'cancelled':['✖ cancelled','info'], 'error':['⚠ error','bad'] };
+function renderLive(){
+  const el=$("liveList"); if(!el) return;
+  if(!state.lv) state.lv={at:0, data:null, err:null};
+  if(Date.now()-state.lv.at>20000)
+    lvRefresh().then(()=>{ if(state.tab==="live"){ try{ renderLive(); }catch(e){} } }).catch(()=>{});
+  const D=state.lv.data||{};
+  const rows=(D.rows||[]).filter(o=>o&&o.state);
+  const open=rows.filter(o=>!/^(done-|cancelled|error)/.test(o.state));
+  const done=rows.filter(o=>/^(done-|cancelled|error)/.test(o.state));
+  const props=open.filter(o=>o.proposal);
+  const nlive=open.length;
+  const badge=$("lvCount");
+  if(badge){ badge.textContent=String(nlive); badge.className="n"+(props.length?" hot":""); }
+
+  let h='';
+  /* the honest header: armed or rehearsing, and why */
+  const armed=!!D.live;
+  h+='<div class="flag '+(armed?'warn':'good')+'" style="margin:0 0 10px">'+
+     (armed? '<b>⚡ LIVE desk armed</b> — sequences below are real orders on Binance USDT-M futures.'
+           : '<b>👻 Rehearsal mode</b> — WB_LIVE is off, so nothing here exists on Binance. The manager still runs, so you can watch its decisions before money is under them.')+
+     (D.error? '<div class="fine" style="margin-top:4px;color:var(--down)">Binance said: '+esc(D.error)+'</div>':'')+
+     (state.lv.err? '<div class="fine" style="margin-top:4px;color:var(--down)">'+esc(state.lv.err)+'</div>':'')+'</div>';
+
+  /* PORTFOLIO — wallet first, because margin is the real constraint */
+  const positions=D.positions||[];
+  const unreal=positions.reduce((a,p)=>a+(+p.unrealized||0),0);
+  const shadowPL=open.filter(o=>o.mode!=="live").map(lvShadowPL).filter(Boolean).reduce((a,x)=>a+x.pnl,0);
+  const riskAtStops=open.filter(o=>o.state==="bracketed"||o.state==="t1-done")
+    .reduce((a,o)=>{ const q=(o.qtyT1||0)+(o.qtyT2||0)||(o.usdt/o.entry);
+      return a+Math.abs(o.entry-(o.state==="t1-done"?o.entry:o.stop))*q; },0);
+  const money=v=>(v>=0?"+":"")+(+v).toFixed(2);
+  h+='<div class="dash">'+
+    '<div class="dcell"><span>Unrealised</span><b class="'+((armed?unreal:shadowPL)>=0?"up":"down")+'">'+
+      money(armed?unreal:shadowPL)+'</b><small>'+(armed?'exchange':'simulated')+'</small></div>'+
+    '<div class="dcell"><span>Wallet</span><b>'+(D.balance? (+D.balance.total).toFixed(2) : '—')+'</b><small>'+
+      (D.balance? (+D.balance.available).toFixed(2)+' free' : 'not armed')+'</small></div>'+
+    '<div class="dcell"><span>Open</span><b>'+open.length+'</b><small>'+positions.length+' on exchange</small></div>'+
+    '<div class="dcell"><span>Risk at stops</span><b class="down">'+riskAtStops.toFixed(2)+'</b><small>USDT if every stop hits</small></div>'+
+    '</div>';
+
+  /* APPROVALS — the manager asking, never acting, on stop changes */
+  if(props.length){
+    h+='<div class="cardT" style="padding:6px 2px">NEEDS YOUR APPROVAL</div>';
+    for(const o of props){
+      h+='<div class="tcard pend"><div class="tc-h">'+
+        '<span class="tc-side '+(o.side==="long"?"up":"down")+'">'+(o.side==="long"?"▲ LONG":"▼ SHORT")+'</span>'+
+        '<span class="tc-sym">'+esc(String(o.symbol).replace("USDT",""))+'<em>'+esc(o.tf||"")+'</em></span>'+
+        '<span class="tagS warn">❓ '+esc(o.proposal.kind)+'</span></div>'+
+        '<div class="ldg-x">'+esc(o.proposal.why||"")+'</div>'+
+        '<div class="ldg-a">'+
+          '<button class="tbtn go" data-apply="'+esc(o.id)+'">Apply — move stop to '+fmt(o.proposal.newStop)+'</button>'+
+          '<button class="tbtn ghost" data-dismiss="'+esc(o.id)+'">dismiss</button></div></div>';
+    }
+  }
+
+  /* OPEN SEQUENCES */
+  const card=(o)=>{
+    const st=LV_STATE[o.state]||[o.state,'info'];
+    const pos=positions.find(p=>p.symbol===o.symbol);
+    const sp=o.mode!=="live"? lvShadowPL(o) : null;
+    const pnl = pos? +pos.unrealized : (sp? sp.pnl : null);
+    const mark = pos? +pos.mark : (sp? sp.px : null);
+    const stopNow = o.trailStop!=null? o.trailStop : (o.state==="t1-done"? o.entry : o.stop);
+    return '<div class="tcard '+(o.state==="bracketed"||o.state==="t1-done"?"live":"pend")+'">'+
+      '<div class="tc-h">'+
+        '<span class="tc-side '+(o.side==="long"?"up":"down")+'">'+(o.side==="long"?"▲ LONG":"▼ SHORT")+'</span>'+
+        '<span class="tc-sym">'+esc(String(o.symbol).replace("USDT",""))+'<em>'+esc(o.tf||"")+
+          (o.leverage? ' · '+o.leverage+'x':'')+'</em></span>'+
+        '<span class="tagS '+st[1]+'">'+st[0]+'</span>'+
+        '<span class="tagS '+(o.mode==="live"?"warn":"info")+'">'+(o.mode==="live"?"⚡ real":"👻 sim")+'</span>'+
+        (pnl!=null? '<b class="tc-r '+(pnl>=0?"up":"down")+'">'+money(pnl)+'<small>USDT</small></b>'
+                  : '<b class="tc-r"><small>'+(o.mode==="live"?"no position yet":"open its chart")+'</small></b>')+
+      '</div>'+
+      '<div class="tc-px">'+
+        '<div class="tc-cell"><span>Entry</span><b>'+fmt(o.entry)+'</b><small>'+(+o.usdt||0)+' USDT'+
+          (o.qtyReq? ' · '+o.qtyReq+'':'')+'</small></div>'+
+        '<div class="tc-cell"><span>Stop now</span><b class="r">'+fmt(stopNow)+'</b><small>'+
+          (o.trailStop!=null?'trailed':(o.state==="t1-done"?"at break-even":"initial"))+'</small></div>'+
+        '<div class="tc-cell"><span>Mark</span><b>'+(mark!=null? fmt(mark):'—')+'</b><small>'+
+          (pos&&pos.liq? 'liq '+fmt(pos.liq) : 'T2 '+fmt(o.t2))+'</small></div>'+
+      '</div>'+
+      '<div class="ldg-x">'+esc(o.note||"")+
+        (o.managedBy? ' · <b>manager: '+esc(o.managedBy)+'</b>':'')+'</div>'+
+      (/^(pending-entry|entry-live)$/.test(o.state)
+        ? '<div class="ldg-a"><button class="tbtn danger" data-lvcancel="'+esc(o.id)+'">✖ cancel this entry</button></div>'
+        : '')+
+      '</div>';
+  };
+  if(open.length){ h+='<div class="cardT" style="padding:8px 2px 6px">WORKING</div>'+open.map(card).join(''); }
+  else h+='<div class="empty">No live sequences. Place one from a projection card in PROJECT — it appears here, not in TRADES.</div>';
+
+  /* what the manager DID — the audit trail he asked to be notified about */
+  const acted=done.filter(o=>o.managedBy);
+  if(done.length){
+    h+='<div class="card" style="margin-top:10px"><details class="patX" data-p="lvhist"'+(state.patOpen["lvhist"]?' open':'')+'>'+
+      '<summary><b>🗂 CLOSED — '+done.length+'</b> <span class="est">'+acted.length+' closed by the manager</span></summary>'+
+      done.slice(0,25).map(card).join('')+'</details></div>';
+  }
+  h+='<div class="fine" style="margin-top:10px">The manager may only ever REDUCE risk: it can tighten a stop, close early or '+
+     'cancel an unfilled entry. It can never widen a stop, add size, or re-enter. Exits happen immediately and tell you after; '+
+     'stop changes wait for your Apply above. Every action also goes to Telegram.</div>';
+  el.innerHTML=h;
+  el.querySelectorAll("details.patX").forEach(d=>d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; }));
+  const post=async(id,path,body,btn)=>{
+    if(btn){ btn.disabled=true; btn.textContent="…"; }
+    try{
+      const r=await wbApi("/api/wb/orders/"+encodeURIComponent(id)+path,{method:"POST",
+        headers:{"Content-Type":"application/json"}, body:JSON.stringify(body||{})});
+      cmdSay((r&&r.note)||"done");
+    }catch(e){ cmdSay("failed: "+((e&&e.message)||"")); }
+    await lvRefresh(true); try{ renderLive(); }catch(e){}
+  };
+  el.querySelectorAll("[data-apply]").forEach(b=>b.onclick=()=>post(b.dataset.apply,"/proposal",{action:"apply"},b));
+  el.querySelectorAll("[data-dismiss]").forEach(b=>b.onclick=()=>post(b.dataset.dismiss,"/proposal",{action:"dismiss"},b));
+  el.querySelectorAll("[data-lvcancel]").forEach(b=>b.onclick=()=>post(b.dataset.lvcancel,"/cancel",{},b));
 }
 
 /* ---- the PROJECT tab -------------------------------------------------------
@@ -7993,8 +8262,10 @@ function projCard(p){
   const paperPlaced = projOrdersFor(p.id).length>0;
   const wboRow=((state.wbo&&state.wbo.rows)||[]).find(o=>o&&o.projId===p.id);
   const ordChip = (paperPlaced? '<div class="cardNote">🎯 paper sequence in TRADES — leg 1 exits at T1, leg 2 runs to T2 (stop→BE at T1)</div>':'')+
-    (wboRow? '<div class="cardNote">'+(wboRow.mode==="live"?"⚡ LIVE":"👻 SHADOW")+' sequence on server: <b>'+
-      esc(String(wboRow.state||"?"))+'</b>'+(wboRow.note? ' — '+esc(String(wboRow.note)) :'')+'</div>':'');
+    (wboRow? '<div class="cardNote">'+(wboRow.mode==="live"
+        ? '⚡ LIVE sequence on Binance: <b>'+esc(String(wboRow.state||"?"))+'</b>'
+        : '👻 SIMULATED sequence — <b>not on Binance</b> ('+esc(String(wboRow.state||"?"))+')')+
+      (wboRow.note? ' — '+esc(String(wboRow.note)) :'')+'</div>':'');
   return '<details class="patX" data-p="prj:'+esc(p.id)+'"'+(open?' open':'')+'>'+
     '<summary><b class="'+(long?'g':'r')+'">'+(long?'▲ LONG':'▼ SHORT')+' '+esc(p.symbol.replace("USDT",""))+
     ' <em style="font-style:normal;color:var(--dim)">'+p.tf+'</em></b>'+
@@ -8319,6 +8590,7 @@ function renderPane(){
   else if(state.tab==="structure") renderStructure();
   else if(state.tab==="record") renderRecord();
   else if(state.tab==="trades") renderTrades();
+  else if(state.tab==="live") renderLive();
 }
 document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   e.stopPropagation();
@@ -8327,8 +8599,11 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   state.tab=b.dataset.tab;
   try{ if(hasStorage) window.storage.set("ui:tab", state.tab); }catch(e){}
   document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
-  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",proj:"projList",structure:"structList",record:"recordList",trades:"tradeList",coach:"coachList"};
+  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",proj:"projList",structure:"structList",record:"recordList",trades:"tradeList",live:"liveList",coach:"coachList"};
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
+  /* Opening the money screen always pulls fresh exchange state — a 20s-stale
+     position, P&L or pending approval is worse than a half-second wait. */
+  if(state.tab==="live" && state.lv) state.lv.at=0;
   $("sheet").classList.add("open");
   /* The strip scrolls horizontally, so the tab you just chose can end up half
      under the caret and expand button — which is how STRUCTURE read as "STR".
@@ -8682,7 +8957,7 @@ function structureRead(){
   if(state.depth.ok){
     const imb=state.depth.imbalance;
     chips+=chip("ORDER BOOK", imb>0.12?"Bid heavy":imb<-0.12?"Ask heavy":"Balanced",
-      imb>0.12?"good":imb<-0.12?"bad":"warn", (imb*100).toFixed(0)+"% imbalance · Binance spot only");
+      imb>0.12?"good":imb<-0.12?"bad":"warn", (imb*100).toFixed(0)+"% imbalance · Binance perp book");
   }
   if(CR){
     chips+=chip("VS "+CR.peer.replace("USDT",""), CR.diff>0.005?"Stronger":CR.diff<-0.005?"Weaker":"In line",
@@ -8700,7 +8975,10 @@ function structureRead(){
       '<span class="lName">'+o.label+'</span>'+
       '<span class="tagS '+evc+'">'+ev.level+'</span>'+
       '<span class="lPx mono">'+fmt(o.p)+'</span>'+
-      '<span class="lD '+(Math.abs(d)<0.006?"y":"k")+'">'+pct(d)+'</span></div>';
+      '<span class="lD '+(Math.abs(d)<0.006?"y":"k")+'">'+pct(d)+'</span>'+
+      /* a level BELOW price can only anchor a long, one above only a short —
+         the same side rule the anchor gate enforces, shown before you tap */
+      armBtn('structure', o.p>px?"short":"long", o.p, o.label)+'</div>';
   };
   const shown=[...above.slice(0,3).reverse(), ...below.slice(0,3)];
   out+='<div class="card"><div class="cardT">LEVELS AROUND PRICE</div>'+shown.map(lvlRow).join("")+'</div>';
