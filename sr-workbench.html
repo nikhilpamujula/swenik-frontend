@@ -615,6 +615,127 @@
   .pane .pRR.bad{border:1px solid rgba(242,73,92,.5)}     .pane .pRR.bad b{color:var(--down)}
   .pane .pCaveat{margin-top:10px;padding:7px 9px;border-radius:8px;font-size:10.5px;line-height:1.5;
     color:#A7B1C4;background:rgba(242,73,92,.06);border:1px solid rgba(242,73,92,.22)}
+  /* ---- STRUCTURE: graphics instead of paragraphs -------------------------
+     Every mark here is status or identity, never decoration. Direction is
+     carried by a GLYPH as well as a hue, so the panel still reads with the
+     colour stripped out (colour-blind, screenshot, printed).                 */
+  .pane .secSum{margin-left:auto;display:flex;align-items:center;gap:6px;
+    font-size:11px;font-weight:700;letter-spacing:0;text-transform:none;
+    color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:52%}
+  .pane .secSum .sg{font-size:12px;line-height:1}
+  .pane .secSum.up{color:var(--up)} .pane .secSum.down{color:var(--down)}
+  .pane .secSum.warn{color:var(--accent)} .pane .secSum.dim{color:var(--dim);font-weight:600}
+  .pane details.secX[open]>summary .secSum{opacity:.45}
+  .pane details.secX>summary::after{margin-left:6px}
+
+  /* section jump chips — 12 cards is a scroll, not a menu */
+  .pane .secNav{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 9px}
+  .pane .secNav button{background:var(--panel2);border:1px solid var(--line);color:var(--dim);
+    border-radius:999px;padding:5px 10px;font-size:10.5px;font-weight:700;cursor:pointer;
+    display:inline-flex;align-items:center;gap:5px;line-height:1.2}
+  .pane .secNav button.on{border-color:rgba(45,212,191,.55);color:var(--text);background:rgba(45,212,191,.10)}
+  .pane .secNav button .nx{font-size:11px}
+
+  /* horizontal magnitude meter: one hue, light→dark, value at the end */
+  .pane .mtr{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim);
+    font-variant-numeric:tabular-nums}
+  .pane .mtr .mBar{flex:1;height:6px;border-radius:3px;background:#1A2030;overflow:hidden;position:relative;min-width:44px}
+  .pane .mtr .mBar>i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+  .pane .mtr .mBar>i.lo{background:#1F6F7E} .pane .mtr .mBar>i.hi{background:#5FE6D2}
+  .pane .mtr b{color:var(--text);font-weight:700;min-width:30px;text-align:right}
+
+  /* the price rail: where price sits between the two edges that matter */
+  .pane .rail{margin:9px 0 4px}
+  .pane .railT{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-bottom:3px}
+  .pane .railB{position:relative;height:26px}
+  .pane .railB .track{position:absolute;left:0;right:0;top:11px;height:4px;border-radius:2px;
+    background:linear-gradient(90deg,#1F9BB3 0%,#233042 46%,#233042 54%,#B8891A 100%)}
+  .pane .railB .zone{position:absolute;top:8px;height:10px;border-radius:3px;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10)}
+  .pane .railB .mk{position:absolute;top:0;transform:translateX(-50%);text-align:center;width:0}
+  .pane .railB .mk u{display:block;width:2px;height:26px;margin:0 auto;background:currentColor;
+    border-radius:1px;text-decoration:none}
+  .pane .railB .mk s{position:absolute;top:-3px;left:50%;transform:translateX(-50%);
+    font-size:10px;font-weight:800;text-decoration:none;line-height:1;
+    font-family:ui-monospace,Menlo,monospace}
+  .pane .railB .mk.now{color:#E8EAED;z-index:3}
+  .pane .railB .mk.sup{color:#1F9BB3} .pane .railB .mk.res{color:#B8891A}
+  .pane .railB .mk.tup{color:var(--up)} .pane .railB .mk.tdn{color:var(--down)}
+  .pane .railL{display:flex;justify-content:space-between;font-size:10px;
+    color:var(--dim);font-variant-numeric:tabular-nums;margin-top:2px}
+
+  /* the two-sided outcome grid — break up / break down, side by side */
+  .pane .oGrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  .pane .oGrid.one{grid-template-columns:1fr}
+  .pane .oCell{border:1px solid var(--line);border-radius:10px;padding:7px 9px;background:rgba(11,14,20,.4)}
+  .pane .oCell .oH{font-size:9px;letter-spacing:.6px;font-weight:800;color:#8C96A8;display:flex;gap:4px;align-items:center}
+  .pane .oCell .oP{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;margin:2px 0 1px}
+  .pane .oCell .oT{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .pane .oCell .oT b{font-weight:700}
+  .pane .oCell.up{border-color:rgba(45,212,160,.40)} .pane .oCell.up .oP{color:var(--up)}
+  .pane .oCell.dn{border-color:rgba(242,73,92,.40)}  .pane .oCell.dn .oP{color:var(--down)}
+
+  /* the verdict line — one sentence, never two */
+  .pane .vLine{display:flex;gap:7px;align-items:flex-start;font-size:12px;line-height:1.45;
+    margin:8px 0 2px;color:var(--text)}
+  .pane .vLine .vg{font-size:13px;line-height:1.3}
+
+  /* fact pills replace the monospace run-on line */
+  .pane .pills{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0 2px}
+  .pane .pill{font-size:10px;font-weight:700;color:#A7B1C4;background:var(--panel2);
+    border:1px solid var(--line);border-radius:999px;padding:3px 8px;
+    font-variant-numeric:tabular-nums;display:inline-flex;gap:4px;align-items:center}
+
+  /* the teaching text, folded away but never deleted */
+  .pane details.whyX{margin-top:9px}
+  .pane details.whyX>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px;
+    font-size:10.5px;font-weight:700;color:var(--dim);border:1px solid var(--line);
+    border-radius:999px;padding:4px 10px;background:var(--panel2)}
+  .pane details.whyX>summary::-webkit-details-marker{display:none}
+  .pane details.whyX[open]>summary{color:var(--accent);border-color:rgba(45,212,191,.45)}
+
+  /* the unscored badge: small, permanent, and it opens the full warning */
+  .pane .risk{margin-top:9px;font-size:10px;font-weight:700;color:#FFB3BE;
+    background:rgba(242,73,92,.08);border:1px solid rgba(242,73,92,.30);
+    border-radius:999px;padding:4px 9px;display:inline-flex;gap:5px;align-items:center;cursor:pointer}
+  .pane details.riskX>summary{list-style:none}
+  .pane details.riskX>summary::-webkit-details-marker{display:none}
+
+  /* RSI-style bounded gauge with its zones drawn in */
+  .pane .gau{margin:2px 0 0}
+  .pane .gauB{position:relative;height:8px;border-radius:4px;overflow:hidden;
+    background:linear-gradient(90deg,rgba(45,212,160,.34) 0 30%,#1A2030 30% 70%,rgba(242,73,92,.34) 70% 100%)}
+  .pane .gauB>i{position:absolute;top:-3px;width:3px;height:14px;background:#E8EAED;border-radius:2px;transform:translateX(-50%)}
+  .pane .gauL{display:flex;justify-content:space-between;font-size:9px;color:#6A6E75;margin-top:3px}
+
+  /* mini volume-at-price profile — magnitude by length, POC called out */
+  .pane .vpMini{display:flex;flex-direction:column;gap:2px;margin:6px 0 2px}
+  .pane .vpRow{display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--dim);
+    font-variant-numeric:tabular-nums}
+  .pane .vpRow .vpP{width:58px;text-align:right}
+  .pane .vpRow .vpB{flex:1;height:7px;background:#161B24;border-radius:0 3px 3px 0;position:relative}
+  .pane .vpRow .vpB>i{display:block;height:100%;border-radius:0 3px 3px 0;background:#2A6E7C}
+  .pane .vpRow.va .vpB>i{background:#1F9BB3}
+  .pane .vpRow.poc .vpB>i{background:#5FE6D2}
+  .pane .vpRow.here .vpP{color:#E8EAED;font-weight:800}
+  .pane .vpRow.here .vpB{outline:1px solid rgba(232,234,237,.55);outline-offset:1px;border-radius:0 3px 3px 0}
+  .pane .vpKey{display:flex;gap:10px;font-size:9px;color:#6A6E75;margin-top:4px;flex-wrap:wrap}
+  .pane .vpKey i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+  /* the swing chain: structure as a sequence you can read left to right */
+  .pane .chain{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 0 2px}
+  .pane .chain b{font-size:10.5px;font-weight:800;padding:3px 7px;border-radius:7px;border:1px solid}
+  .pane .chain b.hh,.pane .chain b.hl{color:var(--up);border-color:rgba(45,212,160,.42)}
+  .pane .chain b.lh,.pane .chain b.ll{color:var(--down);border-color:rgba(242,73,92,.42)}
+  .pane .chain span{color:#4C525C;font-size:11px}
+
+  /* the live candle, drawn rather than described */
+  .pane .cndl{display:flex;gap:10px;align-items:center;margin:2px 0 6px}
+  .pane .cndl svg{flex:none}
+  .pane .cndlF{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums;line-height:1.6}
+  .pane .cndlF b{color:var(--text)}
+
   /* coach habit bars */
   .pane .habit{padding:9px 0;border-bottom:1px solid #1A2030}
   .pane .habit:last-child{border-bottom:none}
@@ -752,7 +873,9 @@
     text-transform:none;font-size:10px;flex:1 1 auto;min-width:0}
   .pane details.secX>summary>*:first-child{flex:none}
   .pane .secBody{padding-top:9px}
-  .pane details.secX:not([open])>summary{opacity:.8}
+  .pane details.secX:not([open])>summary{opacity:.86}
+  /* a shut card shows its title and its number — the caveat is for when it is open */
+  .pane details.secX:not([open])>summary .est{display:none}
   /* ---- ZONES: the multi-timeframe board ---------------------------------- */
   .zBanner{border-radius:12px;padding:13px 15px;margin-bottom:12px;border:1px solid}
   .zBanner .zt{font-size:17px;font-weight:800;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
@@ -974,6 +1097,7 @@
     <div class="pTitle">⚙ DISPLAY & BEHAVIOR</div>
     <div class="sw on" data-pref="vol"><span>Volume bars</span><span class="tr"></span></div>
     <div class="sw on" data-pref="proj"><span>Projection paths</span><span class="tr"></span></div>
+    <div class="sw" data-pref="projDone"><span>Keep finished projections on the chart</span><span class="tr"></span></div>
     <div class="sw on" data-pref="sound"><span>Sound + vibration alerts</span><span class="tr"></span></div>
     <div class="sw on" data-pref="snap"><span>Snap drawing to wicks</span><span class="tr"></span></div>
     <div class="sw" data-pref="teach"><span>Written explanations (off = compact app view)</span><span class="tr"></span></div>
@@ -1079,7 +1203,7 @@
   </div>
 </div>
 
-<div id="sheet" class="open">
+<div id="sheet" class="open" data-paneclose="1">
   <div id="sheetHead">
     <div class="tabs">
       <button class="tab" data-tab="watch">WATCH <span class="n" id="watchCount">0</span></button>
@@ -1118,7 +1242,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18m-why";
+window.WB_BUILD = "2026-08-18q-struct";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1426,6 +1550,9 @@ const C_TL ="#8560D6";   /* trendline— violet */
 const baseOf = sym => String(sym||"").replace(/USDT$/,"") || "units";
 const C_N1="#E8EAED", C_N2="#A3A7AD", C_N3="#6A6E75";   /* neutral, brightest first */
 let SYMBOL = "BTCUSDT";   /* current pair — changed by the picker */
+/* >0 when this workbench is one of several tiled on a desktop monitor */
+const IS_PANE = (function(){ try{ const q=new URLSearchParams(location.search);
+  return q.get("tile")==="1" || !!+(q.get("pane")||0); }catch(e){ return false; } })();
 const COLORS = ["#1F9BB3","#B8891A","#8560D6","#E8EAED","#A3A7AD","#7FE3C4"];
 const AXIS_W = 82, TIME_H = 24, VOL_FRAC = 0.16;
 const INTERVAL_SEC = {"15m":900,"1h":3600,"4h":14400,"1d":86400};
@@ -1436,7 +1563,7 @@ const state = {
   drawMode:null, pending:null,
   pollTimer:null, fundTimer:null,
   funding:{rate:null},
-  prefs:{vol:true, proj:true, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false,
+  prefs:{vol:true, proj:true, projDone:false, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false,
          ma:false, boll:false, rsi:false, macd:false, teach:false},   /* teach=false → compact app view by default */
   verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
@@ -1719,6 +1846,10 @@ function render(){
     for(const P3 of state.projections){
       if(P3.symbol!==state.symbol || P3.tf!==state.tf) continue;
       if(!["waiting","active","t1","success","partial","failed"].includes(P3.status)) continue;
+      /* A graded projection has nothing left to tell the chart — its boxes just
+         sit there overlapping the live one. Off by default; the history is
+         still intact in PROJECT, and the switch brings them back. */
+      if(P3.outcome && !state.prefs.projDone) continue;
       if(P3.outcome && (!P3.resolvedTime || state.candles.length<2 ||
           P3.resolvedTime < state.candles[Math.max(0,state.candles.length-90)].time)) continue;
       let i0=state.candles.findIndex(c=>c.time>=P3.createdTime);
@@ -6683,62 +6814,161 @@ function explainPattern(P){
 
   return { P, I, facts, plan, away, quality:q, bars };
 }
-/* One collapsible block per pattern. Everything above is prose; this is layout. */
+/* ---------- STRUCTURE GRAPHICS -----------------------------------------
+   Every card used to answer in paragraphs. These four primitives answer in
+   shapes instead: a rail for "where does price sit between the two prices
+   that matter", a meter for magnitude, a gauge for a bounded reading, a
+   sequence for order. Direction is a GLYPH first and a colour second, so
+   nothing here depends on being able to tell teal from gold.               */
+function gMeter(frac, label, val){
+  const f=Math.max(0,Math.min(1,+frac||0));
+  const cls=f<0.34?"lo":f>0.66?"hi":"";
+  return '<div class="mtr"><span>'+esc(label)+'</span>'+
+    '<span class="mBar"><i class="'+cls+'" style="width:'+(f*100).toFixed(0)+'%"></i></span>'+
+    '<b>'+esc(String(val))+'</b></div>';
+}
+/* marks: [{p, cls:'now|sup|res|tup|tdn', glyph}] — the band between sup and res
+   is shaded so "inside the shape" is visible at a glance. */
+function priceRail(marks){
+  const ok=marks.filter(m=>m&&isFinite(m.p));
+  if(ok.length<2) return "";
+  let lo=Math.min(...ok.map(m=>m.p)), hi=Math.max(...ok.map(m=>m.p));
+  if(!(hi>lo)) return "";
+  const pad=(hi-lo)*0.08; lo-=pad; hi+=pad;
+  const at=v=>((v-lo)/(hi-lo))*100;
+  const s=ok.find(m=>m.cls==="sup"), r=ok.find(m=>m.cls==="res");
+  let zone="";
+  if(s&&r){ const a=at(Math.min(s.p,r.p)), b=at(Math.max(s.p,r.p));
+            zone='<div class="zone" style="left:'+a.toFixed(1)+'%;width:'+(b-a).toFixed(1)+'%"></div>'; }
+  const key='<div class="railT"><span>◉ price now</span><span>S floor · R ceiling</span><span>◆ objective</span></div>';
+  return '<div class="rail">'+key+'<div class="railB"><div class="track"></div>'+zone+
+    ok.map(m=>'<div class="mk '+m.cls+'" style="left:'+at(m.p).toFixed(1)+'%">'+
+              '<s>'+m.glyph+'</s><u></u></div>').join("")+
+    '</div><div class="railL"><span>'+fmtAxis(lo)+'</span><span>'+fmtAxis(hi)+'</span></div></div>';
+}
+function gaugeBar(v, lo, hi, loLab, hiLab){
+  const f=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
+  return '<div class="gau"><div class="gauB"><i style="left:'+(f*100).toFixed(1)+'%"></i></div>'+
+    '<div class="gauL"><span>'+esc(loLab)+'</span><span>'+esc(hiLab)+'</span></div></div>';
+}
+const DIR_GLYPH = d => d==="bullish"?"▲": d==="bearish"?"▼":"◆";
+
+/* One collapsible block per pattern. Numbers and shapes on the surface; the
+   teaching text is one tap away, never deleted — a shape with no measured hit
+   rate that LOOKS like a signal is exactly how this panel would start lying. */
 function patternCard(P, idx){
   const E=explainPattern(P); if(!E) return "";
   const col = P.dir==="bullish"?"g": P.dir==="bearish"?"r":"y";
-  const dirWord = P.dir==="bilateral"? "direction undecided" : P.dir;
-  const st = P.status==="confirmed"? ['✅ confirmed on volume','good']
-    : P.status==="broken-weak"? ['⚠ broke on weak volume','warn'] : ['still forming','info'];
+  const G   = DIR_GLYPH(P.dir);
+  const st = P.status==="confirmed"? ['✅ confirmed','good']
+    : P.status==="broken-weak"? ['⚠️ weak break','warn'] : ['⏳ forming','info'];
   const open = state.patOpen && state.patOpen[P.name];
   const sec = (t,b)=> b? '<div class="pSec"><span>'+t+'</span>'+b+'</div>' : '';
+  const H = (P.upper!=null&&P.lower!=null)? Math.abs(P.upper-P.lower) : null;
+  const px = state.candles.length? state.candles[state.candles.length-1].close : null;
+  const rel = v => (px&&isFinite(v))? pct((v-px)/px) : "";
+
+  /* ---- one line, never two: what this shape is actually claiming ---- */
+  const verdict = P.dir==="bilateral"
+    ? "No direction implied. The edge that breaks decides — trading the middle is guessing."
+    : (P.dir==="bullish"?"Leans up":"Leans down")+" — it only becomes a claim on a close "+
+      (P.dir==="bullish"?"above ":"below ")+fmtAxis(P.trigger!=null?P.trigger:(P.dir==="bullish"?P.upper:P.lower))+".";
+
+  /* ---- the rail: price against the edges that matter ---- */
+  const marks=[];
+  if(px!=null) marks.push({p:px, cls:"now", glyph:"◉"});
+  if(P.lower!=null) marks.push({p:P.lower, cls:"sup", glyph:"S"});
+  if(P.upper!=null) marks.push({p:P.upper, cls:"res", glyph:"R"});
+  if(P.trigger!=null && P.upper==null && P.lower==null)
+    marks.push({p:P.trigger, cls:P.dir==="bearish"?"res":"sup", glyph:"T"});
+  if(P.target!=null) marks.push({p:P.target, cls:P.dir==="bearish"?"tdn":"tup", glyph:"◆"});
+  if(H!=null && P.trigger==null){
+    marks.push({p:P.upper+H, cls:"tup", glyph:"◆"});
+    marks.push({p:P.lower-H, cls:"tdn", glyph:"◆"});
+  }
+
+  /* ---- outcomes, side by side rather than stacked as sentences ---- */
+  let grid="";
+  if(H!=null && P.trigger==null){
+    grid='<div class="oGrid">'+
+      '<div class="oCell up"><div class="oH">▲ BREAK UP · CLOSE ABOVE</div>'+
+        '<div class="oP">'+fmtAxis(P.upper)+'</div>'+
+        '<div class="oT">🎯 <b>'+fmtAxis(P.upper+H)+'</b> · '+rel(P.upper+H)+'</div></div>'+
+      '<div class="oCell dn"><div class="oH">▼ BREAK DOWN · CLOSE BELOW</div>'+
+        '<div class="oP">'+fmtAxis(P.lower)+'</div>'+
+        '<div class="oT">🎯 <b>'+fmtAxis(P.lower-H)+'</b> · '+rel(P.lower-H)+'</div></div>'+
+    '</div>';
+  } else if(P.trigger!=null){
+    const up = P.dir!=="bearish";
+    grid='<div class="oGrid">'+
+      '<div class="oCell '+(up?"up":"dn")+'"><div class="oH">'+(up?"▲":"▼")+' TRIGGER · CLOSE '+(up?"ABOVE":"BELOW")+'</div>'+
+        '<div class="oP">'+fmtAxis(P.trigger)+'</div>'+
+        '<div class="oT">'+(E.away!=null? (E.away>0?"▲ ":"▼ ")+pct(E.away)+" away" : "&nbsp;")+'</div></div>'+
+      (P.target!=null
+        ? '<div class="oCell '+(up?"up":"dn")+'"><div class="oH">🎯 OBJECTIVE</div>'+
+          '<div class="oP">'+fmtAxis(P.target)+'</div><div class="oT">'+rel(P.target)+' from here</div></div>'
+        : '')+
+    '</div>'+
+    (P.invalid!=null
+      ? '<div class="vLine"><span class="vg">🛑</span><span>Dead on a close '+
+        (P.dir==="bearish"?"above ":"below ")+'<b class="mono">'+fmtAxis(P.invalid)+'</b> — that is the whole shape gone, not a drawdown.</span></div>'
+      : "");
+  }
+
+  /* ---- the measurements, as pills instead of a monospace run-on ---- */
+  const pills='<div class="pills">'+
+    (E.bars!=null? '<span class="pill">📏 '+E.bars+' × '+state.tf+'</span>':'')+
+    (P.key&&P.key.length? '<span class="pill">📍 '+P.key.length+' swings</span>':'')+
+    (P.scale? '<span class="pill">🔍 sensitivity '+P.scale+'</span>':'')+
+    (H!=null? '<span class="pill">📐 height '+fmtAxis(H)+'</span>':'')+
+    '</div>'+
+    gMeter(E.quality/100, "fit quality", E.quality+"%");
+
   const rr = E.plan
     ? '<div class="pRR '+(E.plan.net>=1.8?"good":E.plan.net>=1?"thin":"bad")+'">'+
-      'If it triggers: <b>'+E.plan.net.toFixed(2)+':1</b> net of costs · needs '+
+      '⚖️ If it triggers: <b>'+E.plan.net.toFixed(2)+':1</b> net of costs · needs '+
       (E.plan.be*100).toFixed(0)+'% winners to break even</div>' : '';
+
   return '<details class="patX" data-p="'+esc(P.name)+'"'+(open?" open":"")+'>'+
-    '<summary><b class="'+col+'">'+P.name+'</b>'+
+    '<summary><b class="'+col+'">'+G+' '+P.name+'</b>'+
       '<span class="tagS '+st[1]+'">'+st[0]+'</span>'+
-      (E.away!=null? '<span class="pAway">'+pct(E.away)+' to trigger</span>':'')+
+      (E.away!=null? '<span class="pAway">'+(E.away>0?"▲":"▼")+' '+pct(E.away)+' to trigger</span>':'')+
     '</summary>'+
     '<div class="patBody">'+
-      '<div class="pWhat">'+E.I.shape+'</div>'+
-      '<div class="pFacts">'+E.facts.join(" · ")+'</div>'+
-      (P.trigger!=null? '<div class="kv"><span>Triggers on a close '+(P.dir==="bearish"?"below":P.dir==="bullish"?"above":"outside")+'</span><b>'+fmtAxis(P.trigger)+'</b></div>':'')+
-      (P.target!=null?  '<div class="kv"><span>Measured objective</span><b>'+fmtAxis(P.target)+'</b></div>':'')+
-      (P.invalid!=null? '<div class="kv"><span>Dead if price closes '+(P.dir==="bearish"?"above":"below")+'</span><b class="r">'+fmtAxis(P.invalid)+'</b></div>':'')+
-      /* A bilateral shape has no single trigger — but it does have two edges and
-         a height, and hiding those left the card with nothing actionable at all. */
-      (P.trigger==null && P.upper!=null && P.lower!=null
-        ? '<div class="kv"><span>Breaks up on a close above</span><b class="g">'+fmtAxis(P.upper)+'</b></div>'+
-          '<div class="kv"><span>Breaks down on a close below</span><b class="r">'+fmtAxis(P.lower)+'</b></div>'+
-          '<div class="kv"><span>Height, projected either way</span><b>'+fmtAxis(Math.abs(P.upper-P.lower))+'</b></div>'+
-          '<div class="cardNote">Objectives: <b>'+fmtAxis(P.upper+Math.abs(P.upper-P.lower))+'</b> if it breaks up, '+
-          '<b>'+fmtAxis(P.lower-Math.abs(P.upper-P.lower))+'</b> if it breaks down. No direction is implied — this shape does not have one.</div>'
-        : '')+
+      '<div class="vLine"><span class="vg '+col+'">'+G+'</span><span>'+verdict+'</span></div>'+
+      priceRail(marks)+
+      grid+
+      pills+
       rr+
-      sec("Why it is drawn here", E.I.why+' <i>'+esc(P.note||"")+'</i>')+
-      sec("Where it leads", E.I.leads)+
-      sec("How it fails", E.I.fails)+
-      (E.I.play? sec("How it is usually traded", E.I.play) : "")+
-      '<div class="pCaveat">This app has <b>no measured hit rate for patterns yet</b> — unlike your levels, which are scored in RECORD. Treat the objective as a distance the shape implies, not a probability. '+
-      (state._pnCache? 'For scale: the same detector finds <b>'+state._pnCache.val.toFixed(1)+'</b> patterns per scan in shuffled, meaningless data.' : '')+
-      '</div>'+
+      '<details class="whyX" data-p="'+esc(P.name)+'"><summary>❔ why this shape is here · how it fails</summary>'+
+        '<div class="pWhat" style="margin-top:8px">'+E.I.shape+'</div>'+
+        sec("Why it is drawn here", E.I.why+' <i>'+esc(P.note||"")+'</i>')+
+        sec("Where it leads", E.I.leads)+
+        sec("How it fails", E.I.fails)+
+        (E.I.play? sec("How it is usually traded", E.I.play) : "")+
+      '</details>'+
+      '<details class="riskX"><summary><span class="risk">⚠️ unscored shape'+
+        (state._pnCache? ' · noise finds '+state._pnCache.val.toFixed(1)+'/scan':'')+' — tap</span></summary>'+
+        '<div class="pCaveat">This app has <b>no measured hit rate for patterns</b> — unlike your levels, which are scored in RECORD. Treat the objective as a distance the shape implies, not a probability. '+
+        (state._pnCache? 'For scale: the same detector finds <b>'+state._pnCache.val.toFixed(1)+'</b> patterns per scan in shuffled, meaningless data.' : '')+
+        '</div></details>'+
     '</div></details>';
 }
 /* The PATTERNS section, standalone so it renders whether or not lines exist. */
 function patternsBlock(){
   if(!(state.patterns && state.patterns.length)){
     if(!state.prefs.pat)
-      return '<div class="card"><div class="cardT">PATTERNS</div>'+
+      return '<div class="card" data-sum="off" data-sumcls="dim"><div class="cardT">🔺 PATTERNS</div>'+
         '<div class="cardNote">Pattern detection is off. Turn it on in ⚙️ Settings, or tick <b>Chart patterns</b> when you run a ⚡ Read.</div></div>';
-    return '<div class="card"><div class="cardT">PATTERNS</div>'+
+    return '<div class="card" data-sum="none" data-sumcls="dim"><div class="cardT">🔺 PATTERNS</div>'+
       '<div class="cardNote">Nothing recognisable on the '+state.tf+' right now. That is the common case — a detector that always finds something is a detector finding noise.</div></div>';
   }
   const noise=state._pnCache? state._pnCache.val : null;
-  let out='<div class="card"><div class="cardT">PATTERNS'+
-    (noise!==null?' <span class="est">random data averages '+noise.toFixed(1)+' per scan</span>':'')+'</div>'+
-    '<div class="cardNote">Tap any pattern to see what it is claiming, why it landed here, and what would kill it.</div>';
+  const nP=state.patterns.length;
+  let out='<div class="card" data-sum="'+nP+' shape'+(nP===1?"":"s")+
+      (noise!==null? ' · noise '+noise.toFixed(1):'')+'" data-sumcls="dim">'+
+    '<div class="cardT">🔺 PATTERNS'+
+    (noise!==null?' <span class="est">unscored</span>':'')+'</div>';
   state.patterns.forEach((P,i)=>{ out+=patternCard(P,i); });
   return out+'</div>';
 }
@@ -7082,12 +7312,17 @@ function renderZones(){
     '</div>'+
     '<div class="zRR '+rrCls+'"><b>'+P.net.toFixed(2)+':1</b> net of costs — needs <b>'+
       (P.be*100).toFixed(0)+'%</b> winners to break even'+
-      /* the stance IS the trade idea — arm it from here, through the same gates */
-      (/BUY/.test(S.code||"")||/SELL/.test(S.code||"")
-        ? ' '+armBtn('zone stance', /BUY/.test(S.code)?'long':'short', P.entry, S.label||'zone stance')
-        : '')+'</div>';
+      /* The stance IS the trade idea, so it is always armable — even when the
+         board says WAIT. A low score is a warning, not a lock: the gates still
+         speak, and an override is still labelled. */
+      ' '+armBtn('zone stance',
+                 /SELL/.test(S.code||"")? 'short'
+               : /BUY/.test(S.code||"")?  'long'
+               : (P.target!=null && P.target<P.entry? 'short':'long'),
+                 P.entry, S.label||'zone stance')+'</div>';
   } else if(P && P.why){
-    h+='<div class="zw" style="margin-top:8px">No tradeable shape: '+esc(P.why)+'.</div>';
+    h+='<div class="zw" style="margin-top:8px">No tradeable shape from the stance: '+esc(P.why)+
+       '. The individual zones below can still be projected — each row has its own 🎯.</div>';
   }
   h+='</div>';
 
@@ -7138,7 +7373,12 @@ function renderZones(){
    on the rendered DOM: exact, and it automatically covers any card added later.
    Which sections you leave open is remembered, so a new bar does not slam shut
    the one you were mid-way through.                                          */
-const SEC_OPEN_BY_DEFAULT = /^(WHERE PRICE SITS|CONDITIONS|PATTERNS|RECENT CALLS)/;
+/* Titles now carry a leading emoji, so the emoji is stripped before matching —
+   and the match is anchored, or "1D PATTERNS" would open itself by borrowing
+   the rule meant for "PATTERNS". */
+const SEC_OPEN_NAMES = ["WHERE PRICE SITS","CONDITIONS","PATTERNS","RECENT CALLS"];
+const secKeyName = k => String(k||"").replace(/^[^A-Z]+/,"").trim();
+const SEC_OPEN_BY_DEFAULT = { test: k => SEC_OPEN_NAMES.some(n => secKeyName(k).indexOf(n)===0) };
 function sectionise(root){
   [...root.children].forEach(card=>{
     if(!card.classList || !card.classList.contains("card")) return;
@@ -7151,6 +7391,14 @@ function sectionise(root){
     d.className="secX"; d.dataset.s=key;
     const sm=document.createElement("summary");
     sm.innerHTML=head.innerHTML;
+    /* a closed card still reports its one number — otherwise collapsing the
+       panel just hides it and you have to open all twelve to find anything */
+    if(card.dataset.sum){
+      const sp=document.createElement("span");
+      sp.className="secSum "+(card.dataset.sumcls||"dim");
+      sp.textContent=card.dataset.sum;
+      sm.appendChild(sp);
+    }
     head.remove();
     const body=document.createElement("div");
     body.className="secBody";
@@ -7161,12 +7409,44 @@ function sectionise(root){
     d.addEventListener("toggle",()=>{ state.secOpen[key]=d.open; });
   });
 }
+/* Twelve cards is a scroll, not a menu. The chip row turns each section into a
+   button: tap to open it and jump to it, tap again to shut it. Chips light up
+   for whatever is currently open, so the row doubles as a map of where you are. */
+function sectionNav(root){
+  const secs=[...root.querySelectorAll("details.secX")];
+  if(secs.length<3) return;
+  const nav=document.createElement("div");
+  nav.className="secNav";
+  secs.forEach(d=>{
+    const sum=d.querySelector(":scope > summary");
+    const clone=sum? sum.cloneNode(true) : null;
+    if(clone) clone.querySelectorAll(".secSum, .est").forEach(x=>x.remove());
+    const raw=(clone?clone.textContent:"").replace(/\s+/g," ").trim();
+    const em=(raw.match(/^\p{Extended_Pictographic}\uFE0F?/u)||[""])[0];
+    const words=raw.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u,"")
+                   .replace(/\b(AROUND PRICE|AT PRICE|PRICE SITS)\b/,m=>m.split(" ")[0])
+                   .split(/\s+/).slice(0,2).join(" ");
+    const b=document.createElement("button");
+    b.innerHTML='<span class="nx">'+(em||"•")+'</span>'+esc(words.toLowerCase());
+    const sync=()=>b.classList.toggle("on", d.open);
+    b.onclick=()=>{
+      d.open=!d.open; state.secOpen[d.dataset.s]=d.open;
+      if(d.open) d.scrollIntoView({block:"start", behavior:"smooth"});
+      secs.forEach(x=>{ const bb=nav.querySelector('[data-k="'+CSS.escape(x.dataset.s)+'"]'); if(bb) bb.classList.toggle("on", x.open); });
+    };
+    b.dataset.k=d.dataset.s;
+    d.addEventListener("toggle",sync);
+    sync();
+    nav.appendChild(b);
+  });
+  root.insertBefore(nav, root.firstChild);
+}
 function sectionTools(root, onAll){
   const bar=document.createElement("div");
   bar.id="secTools";
-  bar.innerHTML='<button data-a="open">Expand all</button>'+
-                '<button data-a="shut">Collapse all</button>'+
-                '<button data-a="full">Full screen</button>';
+  bar.innerHTML='<button data-a="open">⤢ Expand all</button>'+
+                '<button data-a="shut">⤡ Collapse all</button>'+
+                '<button data-a="full">⛶ Full screen</button>';
   bar.querySelectorAll("button").forEach(b=>{
     b.onclick=()=>{
       if(b.dataset.a==="full"){ setSheetFull(!$("sheet").classList.contains("full")); return; }
@@ -7182,6 +7462,7 @@ function renderStructure(){
   root.innerHTML = '<div id="structArmMsg"></div>' + structureRead();
   bindArm(root, "structArmMsg");
   sectionise(root);
+  sectionNav(root);
   sectionTools(root, want=>{
     /* expand-all should also open the pattern explanations, not just the shells */
     root.querySelectorAll("details.patX").forEach(d=>{ d.open=want; state.patOpen[d.dataset.p]=want; });
@@ -7463,7 +7744,11 @@ function generateProjection(opts){
        override arms an ECHO, labelled as the same bet and excluded from the
        independent tallies and the factor scorecard. Anchor and R:R stay hard:
        one is structural nonsense, the other is arithmetic self-harm.        */
-    if(G && (G.kind==="correlation"||G.kind==="cooldown") && opts.override){
+    if(G && opts.override){
+      /* the refusal is STILL logged — an override that erased its own reason
+         would make the gate list useless for judging whether the gates work */
+      logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
+                       dir:R.bias, kind:G.kind, note:"OVERRIDDEN · "+G.err.slice(0,130) });
       isEcho=true; echoWhy=G.kind;
     } else if(G){
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
@@ -7906,6 +8191,15 @@ async function wboRefresh(force){
    visible at any scroll position, and has room for what a real order needs:
    VOLUME (coin or USDT notional, linked), LEVERAGE (set on the symbol before
    the entry), and what those choices mean in margin and in loss-at-the-stop. */
+/* Who actually refused? Blaming Binance for a proxy fault sends you to the
+   wrong screen — the label follows the message, not the endpoint it came from. */
+function errWho(m){
+  m=String(m||'');
+  if(/proxy refused the tunnel|did not answer CONNECT|failed AT the proxy|did not answer at all/i.test(m))
+    return 'Blocked at your proxy:';
+  if(/could not reach|ECONNREFUSED|ETIMEDOUT|network error/i.test(m)) return 'Could not reach the exchange:';
+  return 'Binance said:';
+}
 function closeLiveSheet(){ const w=document.getElementById("wbSheetWrap"); if(w) w.remove(); }
 function openLiveSheet(p){
   closeLiveSheet();
@@ -7970,8 +8264,30 @@ function fillLiveSheet(p){
     const usdt=+amtEl.value||0, lev=state.wbLev||1;
     const risk=zoneEdge>0? usdt*Math.abs(zoneEdge-p.stop)/zoneEdge : 0;
     const over = usdt > cap*1.0001;
+    /* ── LIQUIDATION BEFORE STOP ────────────────────────────────────────────
+       A stop only protects you if the exchange does not close you first. On
+       isolated margin liquidation sits roughly 1/leverage away (minus
+       maintenance margin), so a 32% stop at 5x is decoration: liquidation
+       lands at ~20% and the stop is never reached. Caught BEFORE placing —
+       the manager's liq-guard would otherwise close it right after the fill,
+       having already paid the fees. Approximate on purpose; the buffer keeps
+       the arithmetic conservative rather than clever. */
+    const stopPct = zoneEdge>0? Math.abs(zoneEdge-p.stop)/zoneEdge : 0;
+    const liqPct  = Math.max(0.001, 1/lev - 0.005);          /* maintenance-margin buffer */
+    const liqFirst = stopPct >= liqPct;
+    const safeLev = Math.max(1, Math.floor(1/(stopPct+0.01)));
     const go=document.getElementById("wbGo");
-    if(go){ go.disabled=over; go.style.opacity=over?0.5:1; }
+    const block = over || liqFirst;
+    if(go){ go.disabled=block; go.style.opacity=block?0.5:1; }
+    if(liqFirst && !over){
+      document.getElementById("wbCalc").innerHTML=
+        '<span style="color:var(--down)"><b>At '+lev+'x this stop can never be reached.</b> '+
+        'Your stop sits '+(stopPct*100).toFixed(1)+'% away; liquidation lands near '+(liqPct*100).toFixed(1)+
+        '% — the exchange closes the position first and the whole margin goes, not the '+risk.toFixed(2)+
+        ' USDT you intended to risk.<br>Use <b>'+safeLev+'x or lower</b> for this shape, or take the trade on a '+
+        'timeframe whose stop is nearer.</span>';
+      return;
+    }
     document.getElementById("wbCalc").innerHTML= over
       ? '<span style="color:var(--down)"><b>'+usdt.toFixed(2)+' USDT is over the '+cap+' USDT server cap.</b> '+
         'Reduce the volume to '+(cap/zoneEdge).toPrecision(4)+' '+esc(base)+' or less, or raise WB_MAX_ORDER_USDT on the backend. '+
@@ -7999,9 +8315,16 @@ function fillLiveSheet(p){
       out.innerHTML='<div class="fine" style="margin-top:7px">'+
         rows.map(x=>(x[1]===true?'✅ ':x[1]===false?'❌ ':'— ')+esc(x[0])+
           (x[0][0]==='m'&&r.usdtAvailable!=null? ' ('+r.usdtAvailable+' USDT)':'')).join('<br>')+
-        (r.error? '<br><span style="color:var(--down)">Binance said: '+esc(r.error)+'</span>':'')+
+        (r.error? '<br><span style="color:var(--down)">'+errWho(r.error)+' '+esc(r.error)+'</span>':'')+
         (r.hint? '<br>'+esc(r.hint):'')+
-        (r.egressIp? '<br>this server reaches Binance from <b>'+esc(r.egressIp)+'</b>':'')+'</div>';
+        (r.egressIp? '<br>this server reaches Binance from <b>'+esc(r.egressIp)+'</b>':'')+
+        (r.proxyNote? '<br><span style="color:var(--warn)">'+esc(r.proxyNote)+'</span>':'')+
+        (r.failedAt==='proxy'&&r.proxyAuth? '<br>the proxy password this backend is sending: user <b>'+
+           esc(r.proxyAuth.user||'(none)')+'</b>, '+r.proxyAuth.passLen+' characters, fingerprint <b>'+
+           esc(r.proxyAuth.passSha8)+'</b>'+
+           (r.proxyAuth.edgeSpace? ' — <span style="color:var(--down)">it starts or ends with a space</span>':'')+
+           (r.proxyAuth.percentDecoded? ' — <span style="color:var(--warn)">it contains a % that the URL form rewrote</span>':'')+
+           '<br>compare it on the droplet:<br><code class="fine">'+esc(r.proxyAuth.compareOnDroplet||'')+'</code>' :'')+'</div>';
     }catch(e){
       const m=(e&&e.message)||"could not reach the backend";
       out.innerHTML='<div class="fine" style="color:var(--down);margin-top:7px">'+
@@ -8055,6 +8378,19 @@ function fillLiveSheet(p){
    identically no matter which tab the idea came from. A tab that could place
    an order directly would be a second, ungraded, ungated trading path, and the
    learning loop would go blind exactly where volume was added.            */
+/* He asked to be able to project from a zone "irrespective of points". Every
+   gate is now overridable — but an override is never silent: it arms an ECHO,
+   the refusal is still written to the audit list, and the row carries the
+   reason it was forced, so the independent tally stays clean. The gates went
+   from gatekeepers to labels, which is the honest version of "let me through". */
+const GATE_COST = {
+  correlation: "tracked as an ECHO of the bet you already have open, not as a second independent outcome",
+  cooldown:    "tracked as an ECHO — the last two of these lost, so it does not count as a fresh read",
+  stability:   "the read was still moving when this was frozen — tracked as an ECHO, not as a clean signal",
+  side:        "the level and the engines disagree on direction — tracked as an ECHO",
+  rr:          "the reward does not cover the risk plus costs — tracked as an ECHO, and it is still a bad price",
+  anchor:      "there is no structure under this — tracked as an ECHO",
+};
 function armFromAnchor(spec){
   const msgAt=(html)=>{
     const m=$(spec.msgId||"prjMsg"); if(m){ m.innerHTML=html; return; }
@@ -8081,9 +8417,10 @@ function armFromAnchor(spec){
   };
   const r=generateProjection(opts);
   if(r.err){
-    const soft = r.kind==="correlation" || r.kind==="cooldown";
+    const cost = GATE_COST[r.kind];
     msgAt('<div class="flag warn">'+esc(r.err)+
-      (soft? '<div style="margin-top:8px"><button class="tbtn" id="armEcho">Arm anyway — tracked as an ECHO, not an independent outcome</button></div>':'')+'</div>');
+      (cost? '<div style="margin-top:8px"><button class="tbtn" id="armEcho">Project it anyway</button>'+
+             '<div class="fine" style="margin-top:5px;opacity:.8">If you do: '+esc(cost)+'.</div></div>':'')+'</div>');
     const eb=$("armEcho");
     if(eb) eb.onclick=()=>{ const r2=generateProjection(Object.assign({override:true}, opts));
       if(r2.err){ msgAt('<div class="flag warn">'+esc(r2.err)+'</div>'); return; }
@@ -8170,7 +8507,7 @@ function renderLive(){
   h+='<div class="flag '+(armed?'warn':'good')+'" style="margin:0 0 10px">'+
      (armed? '<b>⚡ LIVE desk armed</b> — sequences below are real orders on Binance USDT-M futures.'
            : '<b>👻 Rehearsal mode</b> — WB_LIVE is off, so nothing here exists on Binance. The manager still runs, so you can watch its decisions before money is under them.')+
-     (D.error? '<div class="fine" style="margin-top:4px;color:var(--down)">Binance said: '+esc(D.error)+'</div>':'')+
+     (D.error? '<div class="fine" style="margin-top:4px;color:var(--down)">'+errWho(D.error)+' '+esc(D.error)+'</div>':'')+
      (state.lv.err? '<div class="fine" style="margin-top:4px;color:var(--down)">'+esc(state.lv.err)+'</div>':'')+'</div>';
 
   /* PORTFOLIO — wallet first, because margin is the real constraint */
@@ -8342,9 +8679,20 @@ function renderProjections(){
     'draws them forward on the chart, and tracks the market against them until it is graded. '+
     'Every outcome is stored <b>with its reasons</b>.</div>';
   const mine=activeProjection(state.symbol, state.tf);
+  /* clearing is per-chart and only ever touches GRADED rows — a live projection
+     is never deleted by a button that says "clear", because that would quietly
+     drop something the tracker is still watching. */
+  const doneHere=state.projections.filter(p=>p.outcome && p.symbol===state.symbol && p.tf===state.tf);
   h+='<div class="wBar"><button class="btn primary" id="prjGen">'+
      (mine? 'Tracking one on this chart already' : '🎯 Project this chart ('+state.symbol.replace("USDT","")+' '+state.tf+')')+
-     '</button></div><div id="prjMsg"></div>';
+     '</button>'+
+     (doneHere.length? '<button class="btn" id="prjClear" title="Removes graded projections from this chart — history stays in the tally">🧹 Clear '+doneHere.length+' finished</button>':'')+
+     '</div>'+
+     (doneHere.length? '<div class="fine" style="margin:-4px 0 8px 2px;opacity:.75">'+
+       (state.prefs.projDone? 'Finished projections are being drawn on the chart. Turn that off in ⚙ to hide them without deleting anything.'
+                            : 'Finished projections are hidden from the chart already — clearing also removes them from this list.')+
+       '</div>':'')+
+     '<div id="prjMsg"></div>';
   /* the tally moved into HISTORY below — graded rows no longer crowd the live view */
   /* what the stability gate BLOCKED — so the threshold stays auditable */
   const ref = Array.isArray(state.prjRefused)? state.prjRefused : [];
@@ -8383,6 +8731,20 @@ function renderProjections(){
     h+='<div class="empty">Nothing projected yet. Run a ⚡ Read so the engines have a direction, then tap the button above.</div>';
   el.innerHTML=h;
   el.querySelectorAll("details.patX").forEach(d=>d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; }));
+  const cl=$("prjClear");
+  if(cl) cl.onclick=()=>{
+    if(cl.dataset.armed!=="1"){
+      cl.dataset.armed="1"; cl.textContent="🧹 Tap again to remove "+doneHere.length;
+      setTimeout(()=>{ if(cl.isConnected){ cl.dataset.armed=""; cl.textContent="🧹 Clear "+doneHere.length+" finished"; } },4000);
+      return;
+    }
+    const kill=new Set(doneHere.map(p=>p.id));
+    state.projections=state.projections.filter(p=>!kill.has(p.id));
+    saveProjections();
+    cmdSay("Cleared "+kill.size+" finished projection"+(kill.size===1?"":"s")+" from "+
+           state.symbol.replace("USDT","")+" "+state.tf+" — the graded tally is unchanged.");
+    renderProjections(); try{ render(); }catch(e){}
+  };
   const g=$("prjGen");
   if(g) g.onclick=()=>{
     if(activeProjection(state.symbol, state.tf)){
@@ -8395,9 +8757,10 @@ function renderProjections(){
              " — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi)); };
     const r=generateProjection();
     if(r.err){
-      const soft = r.kind==="correlation" || r.kind==="cooldown";
+      const cost = GATE_COST[r.kind];
       $("prjMsg").innerHTML='<div class="flag warn">'+esc(r.err)+
-        (soft? '<div style="margin-top:8px"><button class="btn" id="prjOverride">Arm anyway — tracked as an ECHO of the open bet, not an independent outcome</button></div>':'')+
+        (cost? '<div style="margin-top:8px"><button class="btn" id="prjOverride">Project it anyway</button>'+
+               '<div class="fine" style="margin-top:5px;opacity:.8">If you do: '+esc(cost)+'.</div></div>':'')+
         '</div>';
       const ob=$("prjOverride");
       if(ob) ob.onclick=()=>{ const r2=generateProjection({override:true});
@@ -8644,7 +9007,10 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   b.classList.add("on");
   state.tab=b.dataset.tab;
-  try{ if(hasStorage) window.storage.set("ui:tab", state.tab); }catch(e){}
+  /* In a multi-pane desktop layout four workbenches share one store; if each
+     one wrote "the open tab" they would fight over it every render. The extra
+     panes read the preference and never write it. */
+  try{ if(hasStorage && !IS_PANE) window.storage.set("ui:tab", state.tab); }catch(e){}
   document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
   const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",proj:"projList",structure:"structList",record:"recordList",trades:"tradeList",live:"liveList",coach:"coachList"};
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
@@ -8927,6 +9293,61 @@ function verdictStats(scope){
 }
 
 /* ---------- structure: read the whole board, not one line ---------- */
+/* The volume profile as an actual profile. 60 bins is unreadable on a phone,
+   so they fold into 14 rows: magnitude by bar length, one hue, value area and
+   POC called out by step rather than by a second colour scale. */
+function vpMini(vp, px){
+  if(!vp || !vp.bins || !vp.bins.length) return "";
+  const ROWS=14, per=Math.ceil(vp.bins.length/ROWS), rows=[];
+  for(let i=0;i<vp.bins.length;i+=per){
+    const slice=vp.bins.slice(i,i+per);
+    const v=slice.reduce((a,b)=>a+b,0)/slice.length;
+    const mid=vp.lo+(i+slice.length/2)*vp.step;
+    rows.push({v, mid, loP: vp.lo+i*vp.step, hiP: vp.lo+(i+slice.length)*vp.step});
+  }
+  const mx=Math.max(...rows.map(r=>r.v))||1;
+  return '<div class="vpMini">'+rows.slice().reverse().map(r=>{
+    const inVA = r.mid>=vp.vaLo && r.mid<=vp.vaHi;
+    const isPoc= vp.poc>=r.loP && vp.poc<r.hiP;
+    const here = px>=r.loP && px<r.hiP;
+    return '<div class="vpRow'+(isPoc?" poc":inVA?" va":"")+(here?" here":"")+'">'+
+      '<span class="vpP">'+(here?"◉ ":"")+fmtAxis(r.mid)+'</span>'+
+      '<span class="vpB"><i style="width:'+Math.max(2,(r.v/mx)*100).toFixed(0)+'%"></i></span></div>';
+  }).join("")+'</div>'+
+  '<div class="vpKey"><span><i style="background:#5FE6D2"></i>busiest (POC)</span>'+
+  '<span><i style="background:#1F9BB3"></i>value area</span>'+
+  '<span><i style="background:#2A6E7C"></i>outside</span><span>◉ price now</span></div>';
+}
+/* The candle, drawn. "Long lower wick, small body" is a sentence you have to
+   decode; the shape is instant. */
+function candleGlyph(c){
+  if(!c) return "";
+  const hi=c.high, lo=c.low, o=c.open, cl=c.close, rng=hi-lo;
+  if(!(rng>0)) return "";
+  const H=54, W=26, y=v=>((hi-v)/rng)*H;
+  const up=cl>=o, col=up?"var(--up)":"var(--down)";
+  const bt=y(Math.max(o,cl)), bb=y(Math.min(o,cl));
+  const bh=Math.max(1.5,bb-bt);
+  const body=(hi-lo)? (Math.abs(cl-o)/rng) : 0;
+  const upW=(hi-Math.max(o,cl))/rng, dnW=(Math.min(o,cl)-lo)/rng;
+  return '<div class="cndl">'+
+    '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" aria-hidden="true">'+
+      '<line x1="'+(W/2)+'" y1="0" x2="'+(W/2)+'" y2="'+H+'" stroke="'+col+'" stroke-width="2"/>'+
+      '<rect x="4" y="'+bt.toFixed(1)+'" width="'+(W-8)+'" height="'+bh.toFixed(1)+'" fill="'+col+'" rx="1.5"/>'+
+    '</svg>'+
+    '<div class="cndlF">'+
+      'body <b>'+(body*100).toFixed(0)+'%</b> of range<br>'+
+      'wick ▲ <b>'+(upW*100).toFixed(0)+'%</b> · ▼ <b>'+(dnW*100).toFixed(0)+'%</b>'+
+    '</div></div>';
+}
+/* A collapsed card must still be worth something: each one carries the single
+   number that would make you open it. sectionise() lifts data-sum into the
+   summary row, so the closed tab reads as a dashboard rather than a menu. */
+function sCard(emoji, title, sum, cls, body, est){
+  return '<div class="card"'+(sum?' data-sum="'+esc(sum)+'" data-sumcls="'+(cls||"")+'"':'')+'>'+
+    '<div class="cardT">'+emoji+' '+title+(est?' <span class="est">'+est+'</span>':'')+'</div>'+
+    body+'</div>';
+}
 function structureRead(){
   const n=state.candles.length;
   if(n<10) return "<div class='empty'>Waiting for candles…</div>";
@@ -8967,8 +9388,10 @@ function structureRead(){
     const boxPct=(R.p-S.p)/px;
     const prevBox=Math.abs(R.prev-S.prev)/px;
     const squeeze = prevBox>0 && boxPct < prevBox*0.75;
-    out+='<div class="card">'+
-      '<div class="cardT">WHERE PRICE SITS</div>'+
+    const posWord = pos>0.66?"upper third":pos<0.33?"lower third":"mid-range";
+    out+='<div class="card" data-sum="◉ '+posWord+' · '+(boxPct*100).toFixed(1)+'% box" data-sumcls="'+
+        (squeeze?"warn":"dim")+'">'+
+      '<div class="cardT">📍 WHERE PRICE SITS</div>'+
       '<div class="rangeRow"><span class="g mono">'+fmt(S.p)+'</span>'+
         '<div class="rangeBar"><i style="left:'+(pos*100).toFixed(1)+'%"></i></div>'+
         '<span class="r mono">'+fmt(R.p)+'</span></div>'+
@@ -9011,7 +9434,8 @@ function structureRead(){
       CR.diff>0.005?"good":CR.diff<-0.005?"bad":"warn",
       "r="+CR.r.toFixed(2)+(Math.abs(CR.r)>0.8?" · same bet as the market":""));
   }
-  out+='<div class="card"><div class="cardT">CONDITIONS</div><div class="chipGrid">'+chips+'</div></div>';
+  out+='<div class="card" data-sum="'+esc(regVal)+'" data-sumcls="'+(regCls==="good"?"warn":"dim")+'">'+
+    '<div class="cardT">🌡️ CONDITIONS</div><div class="chipGrid">'+chips+'</div></div>';
 
   /* ---- levels list ---- */
   const lvlRow=o=>{
@@ -9028,7 +9452,10 @@ function structureRead(){
       armBtn('structure', o.p>px?"short":"long", o.p, o.label)+'</div>';
   };
   const shown=[...above.slice(0,3).reverse(), ...below.slice(0,3)];
-  out+='<div class="card"><div class="cardT">LEVELS AROUND PRICE</div>'+shown.map(lvlRow).join("")+'</div>';
+  const nd0=Math.abs(nearest.p-px)/px;
+  out+='<div class="card" data-sum="'+(nearest.p>px?"▲":"▼")+' '+esc(nearest.label)+' '+pct((nearest.p-px)/px)+'" '+
+    'data-sumcls="'+(nd0<0.004?"warn":"dim")+'">'+
+    '<div class="cardT">🪜 LEVELS AROUND PRICE</div>'+shown.map(lvlRow).join("")+'</div>';
 
   /* ---- indicators ---- */
   const IRp=indicatorRead();
@@ -9038,7 +9465,14 @@ function structureRead(){
     const rC=IRp.rsi.divergence? "warn" : IRp.rsi.state==="overbought"?"bad":IRp.rsi.state==="oversold"?"good":"info";
     const mC=IRp.macd.state==="bull"?"good":IRp.macd.state==="bear"?"bad":"warn";
     const bC=IRp.boll.state==="squeeze"?"warn":IRp.boll.state==="inside"?"info":"bad";
-    out+='<div class="card"><div class="cardT">INDICATORS <span class="est">confirmation only — never a reason on their own</span></div>'+
+    const bull=[IRp.ma.state==="bull",IRp.macd.state==="bull"].filter(Boolean).length;
+    const bear=[IRp.ma.state==="bear",IRp.macd.state==="bear"].filter(Boolean).length;
+    const iSum = bull>bear? "▲ "+bull+" of 2 up" : bear>bull? "▼ "+bear+" of 2 down" : "◆ split";
+    out+='<div class="card" data-sum="'+iSum+' · RSI '+IRp.rsi.value.toFixed(0)+'" data-sumcls="'+
+      (bull>bear?"up":bear>bull?"down":"dim")+'">'+
+      '<div class="cardT">📈 INDICATORS <span class="est">confirmation only — never a reason on their own</span></div>'+
+      '<div class="mtr" style="margin-bottom:7px"><span>RSI 14</span><b>'+IRp.rsi.value.toFixed(0)+'</b></div>'+
+      gaugeBar(IRp.rsi.value,0,100,"30 oversold","overbought 70")+"<div style='height:7px'></div>"+
       '<div class="chipGrid">'+
       chipI("TREND (EMA)", IRp.ma.state==="bull"?"Bullish":IRp.ma.state==="bear"?"Bearish":"Mixed", maC, IRp.ma.note)+
       chipI("RSI 14", IRp.rsi.value.toFixed(0)+(IRp.rsi.divergence?" ⚠":""), rC, IRp.rsi.divergence? IRp.rsi.divergence.txt : IRp.rsi.note)+
@@ -9054,7 +9488,11 @@ function structureRead(){
   if(state.mstruct){
     const M=state.mstruct;
     const tcls = M.trend==="uptrend"?"good":M.trend==="downtrend"?"bad":"warn";
-    out+='<div class="card"><div class="cardT">MARKET STRUCTURE <span class="est">rule-based swing labelling, not Elliott counts</span></div>'+
+    const chain=M.labels.slice(-5).map(l=>'<b class="'+String(l.lab||"").toLowerCase()+'">'+esc(l.lab)+'</b>').join('<span>→</span>');
+    out+='<div class="card" data-sum="'+(M.trend==="uptrend"?"▲":M.trend==="downtrend"?"▼":"◆")+' '+
+      esc(M.trend)+(M.bos?" · ⚡ BOS":"")+'" data-sumcls="'+(M.bos?"down":tcls==="good"?"up":tcls==="bad"?"down":"dim")+'">'+
+      '<div class="cardT">🏗️ MARKET STRUCTURE <span class="est">rule-based swing labelling, not Elliott counts</span></div>'+
+      '<div class="chain">'+chain+'</div>'+
       '<div class="chipGrid"><div class="chip '+tcls+'"><span class="chL">SEQUENCE</span><span class="chV">'+
         M.trend.charAt(0).toUpperCase()+M.trend.slice(1)+'</span><span class="chN">'+M.note+'</span></div>'+
       '<div class="chip info"><span class="chL">LAST SWINGS</span><span class="chV">'+
@@ -9070,7 +9508,8 @@ function structureRead(){
     const legTxt=(F.up?"up":"down")+" leg "+fmt(F.from.p)+" → "+fmt(F.to.p)+" ("+pct((F.to.p-F.from.p)/F.from.p)+")";
     const active=F.levels.filter(L=>L.touches>0).sort((a,b)=>b.touches-a.touches);
     const nearest=F.levels.slice().sort((a,b)=>Math.abs(a.price-px)-Math.abs(b.price-px))[0];
-    out+='<div class="card"><div class="cardT">FIBONACCI <span class="est">measured from the largest recent impulse</span></div>'+
+    out+='<div class="card" data-sum="'+(nearest.r*100).toFixed(1)+'% at '+fmt(nearest.price)+'" data-sumcls="dim">'+
+      '<div class="cardT">🌀 FIBONACCI <span class="est">measured from the largest recent impulse</span></div>'+
       '<div class="cardNote">'+legTxt+'</div>'+
       '<div class="kv"><span>Nearest level</span><b>'+(nearest.r*100).toFixed(1)+'% at '+fmt(nearest.price)+' ('+pct((nearest.price-px)/px)+')</b></div>'+
       (active.length
@@ -9086,7 +9525,9 @@ function structureRead(){
     const inVA = px>=vp.vaLo && px<=vp.vaHi;
     const strong=lines.map(o=>({o,r:volAt(o.p)})).filter(x=>x.r!==null&&x.r>=0.62);
     const thin=lines.map(o=>({o,r:volAt(o.p)})).filter(x=>x.r!==null&&x.r<=0.25);
-    out+='<div class="card"><div class="cardT">VOLUME AT PRICE <span class="est">estimated from candle ranges</span></div>'+
+    out+='<div class="card" data-sum="'+(inVA?"◉ inside value":"⇢ outside value")+'" data-sumcls="'+(inVA?"dim":"warn")+'">'+
+      '<div class="cardT">🔊 VOLUME AT PRICE <span class="est">estimated from candle ranges</span></div>'+
+      vpMini(vp, px)+
       '<div class="kv"><span>Busiest price (POC)</span><b>'+fmt(vp.poc)+'</b></div>'+
       '<div class="kv"><span>Value area</span><b>'+fmt(vp.vaLo)+' – '+fmt(vp.vaHi)+'</b></div>'+
       '<div class="kv"><span>Price is</span><b>'+(inVA?"inside it":"outside — trending, thinner liquidity")+'</b></div>'+
@@ -9096,7 +9537,8 @@ function structureRead(){
     '</div>';
   }
   if(state.depth.ok && state.depth.walls.length){
-    out+='<div class="card"><div class="cardT">RESTING ORDERS <span class="est">Binance spot, changes fast</span></div>'+
+    out+='<div class="card" data-sum="'+state.depth.walls.length+' wall'+(state.depth.walls.length===1?"":"s")+'" data-sumcls="dim">'+
+      '<div class="cardT">📖 RESTING ORDERS <span class="est">Binance USDT-M perp book, changes fast</span></div>'+
       state.depth.walls.map(w=>'<div class="kv"><span>'+(w.side==="bid"?"▲ bid wall":"▼ ask wall")+' at <b>'+fmt(w.p)+'</b></span><b class="'+(w.side==="bid"?"g":"r")+'">'+w.q.toFixed(0)+(w.shrunk?" ⚠ pulling":"")+'</b></div>').join("")+
     '</div>';
   }
@@ -9104,7 +9546,8 @@ function structureRead(){
   /* ---- patterns ---- */
   out += patternsBlock();
   if(state.htfPats && state.htfPats.length){
-    out+='<div class="card"><div class="cardT">'+(state.htf?state.htf.tf.toUpperCase():"HIGHER TF")+' PATTERNS</div>'+
+    out+='<div class="card" data-sum="'+state.htfPats.length+' shape'+(state.htfPats.length===1?"":"s")+'" data-sumcls="dim">'+
+      '<div class="cardT">🔭 '+(state.htf?state.htf.tf.toUpperCase():"HIGHER TF")+' PATTERNS</div>'+
       '<div class="cardNote">'+state.htfPats.map(P=>'<b class="'+(P.dir==="bullish"?"g":P.dir==="bearish"?"r":"y")+'">'+P.name+'</b> ('+P.status+')').join(" · ")+
       '<br>A lower-timeframe setup pointing against these is a fade, not a trend trade.</div></div>';
   }
@@ -9112,7 +9555,11 @@ function structureRead(){
   /* ---- current candle ---- */
   const CS=candleSignal();
   if(CS){
-    out+='<div class="card"><div class="cardT">CURRENT CANDLE'+(CS.closed?'':' <span class="est">still forming — shape can change</span>')+'</div>'+
+    const top=CS.signals[0];
+    out+='<div class="card" data-sum="'+(top? (top.dir==="bull"?"▲ ":top.dir==="bear"?"▼ ":"◆ ")+esc(top.name):"—")+'" '+
+      'data-sumcls="'+(top? (top.dir==="bull"?"up":top.dir==="bear"?"down":"dim"):"dim")+'">'+
+      '<div class="cardT">🕯️ CURRENT CANDLE'+(CS.closed?'':' <span class="est">still forming — shape can change</span>')+'</div>'+
+      candleGlyph(state.candles[state.candles.length-1])+
       CS.signals.map(x=>'<div class="kv"><span>'+
         (x.dir==="bull"?'<b class="g">▲ '+x.name+'</b>':x.dir==="bear"?'<b class="r">▼ '+x.name+'</b>':'<b class="y">◆ '+x.name+'</b>')+
         '</span></div><div class="cardNote">'+x.note+'</div>').join("")+
@@ -9123,7 +9570,8 @@ function structureRead(){
   const EVs=scheduledEvents().slice(0,3);
   if(EVs.length){
     const nowS=Math.floor(Date.now()/1000);
-    out+='<div class="card"><div class="cardT">COMING UP</div>'+
+    out+='<div class="card" data-sum="⏱ '+fmtCountdown(EVs[0].at-nowS)+'" data-sumcls="dim">'+
+      '<div class="cardT">⏭️ COMING UP</div>'+
       EVs.map(e=>'<div class="kv"><span>'+e.name+'</span><b class="y">in '+fmtCountdown(e.at-nowS)+'</b></div>').join("")+
       '<div class="cardNote">'+EVs[0].note+'</div></div>';
   }
@@ -9415,6 +9863,10 @@ $("riskIn").onchange=e=>{
 
 /* ---------- boot ---------- */
 async function boot(){
+  /* Tiled on a monitor, four half-height charts under four open panels is worse
+     than four charts. Extra panes start chart-first; one tap opens the panel. */
+  if(IS_PANE){ try{ document.getElementById("sheet").classList.remove("open"); }catch(e){}
+               setTimeout(()=>{ try{ document.getElementById("sheet").classList.remove("open"); }catch(e){} }, 1200); }
   /* deep-link: ?symbol=ALPINEUSDT opens the workbench on that pair (Swenik Futures button) */
   /* E2E caught this: setting SYMBOL alone left the header reading "BTC / USDT"
      while ETH candles loaded underneath. The label is only ever written by
@@ -9471,7 +9923,7 @@ async function boot(){
       }
     }catch(e){}
     try{                                   /* reopen the tab he was last using */
-      if(hasStorage){
+      if(hasStorage && !IS_PANE){          /* ...unless this is one tile of several */
         const tb=await window.storage.get("ui:tab");
         const want=tb&&tb.value;
         if(want && want!==state.tab){

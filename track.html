@@ -8763,7 +8763,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // token below changes the URL on every release (so the cache misses once and
     // then caches normally), and after load we compare the frame's own stamp and
     // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
-    var WB_VER = '2026-08-18m-why';   // a NEWER workbench is fine; only an older one is an error
+    var WB_VER = '2026-08-18q-struct';   // a NEWER workbench is fine; only an older one is an error
 
     function wbMount() {
       if (document.getElementById('wbFull')) return;      // already up → never rebuild
@@ -8777,15 +8777,21 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       d.style.cssText = 'position:fixed; top:0; left:0; right:0; height:100vh; height:100dvh;'
         + ' z-index:9998; background:#0b1220; display:flex; flex-direction:column; overflow:hidden;'
         + ' padding-bottom:env(safe-area-inset-bottom,0px);';
+      // On a phone this is one workbench, exactly as before. On a desktop monitor
+      // there is room for two or four independent ones — each its own iframe, its
+      // own pair, its own chart. Not a split view of one workbench: four real
+      // workbenches, so nothing about the single-pane code has to change.
+      var wide = window.innerWidth >= 1000;
       d.innerHTML =
         '<div style="flex:none; display:flex; align-items:center; gap:10px; padding:6px 10px; background:#0f1c33; color:#fff; font-size:12.5px; font-weight:700;">'
         +  '<button onclick="wbExit()" style="background:#22375f; color:#fff; border:0; border-radius:8px; padding:6px 12px; font-weight:700; cursor:pointer;">← Futures</button>'
         +  '<span style="opacity:.85;">📈 S/R Workbench</span>'
+        +  (wide? '<span id="wbLayout" style="display:flex; gap:4px; margin-left:14px;"></span>' : '')
         +  '<span id="wbBuild" style="margin-left:auto; opacity:.5; font-weight:500; font-size:10.5px; font-family:ui-monospace,Menlo,monospace;">' + WB_VER + '</span>'
         + '</div>'
-        + '<iframe id="wbTabFrame" title="S/R Workbench" src="sr-workbench.html?v=' + encodeURIComponent(WB_VER) + '&apibase=' + encodeURIComponent(API_BASE) + '" '
-        +   'style="flex:1; width:100%; border:0; display:block;"></iframe>';
+        + '<div id="wbPanes" style="flex:1; min-height:0; display:grid; gap:2px; background:#050810;"></div>';
       document.body.appendChild(d);
+      wbLayoutInit(wide);
       document.body.style.overflow = 'hidden';            // kill the outer scrollbar → no double-scroll
       wbVerify();
     }
@@ -8794,6 +8800,9 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // match, the browser served a cached copy: bust it once with a timestamp. If
     // it STILL disagrees the deployed file itself is old — say so in the bar
     // rather than leaving you to infer it from missing features.
+    /* exposed alongside wbUnmount: same surface, and it gives the layout tests a
+       real entry point instead of driving six unrelated bits of app state */
+    window.wbMount = wbMount;
     window.wbUnmount = function () {
       var d = document.getElementById('wbFull');
       if (d) d.parentNode.removeChild(d);
@@ -8810,6 +8819,98 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       return BUILD_RE.test(String(a)) && BUILD_RE.test(String(b)) && String(a) > String(b);
     }
 
+    /* ---------- multi-pane -------------------------------------------------
+       Pane count and pane pairs survive a reload, because a two-monitor layout
+       you have to rebuild every morning is one you stop using. Pane 0 keeps the
+       id wbTabFrame so the build check keeps working unchanged.             */
+    var WB_PANE_KEY = 'wb:panes';
+    function wbPaneState() {
+      try {
+        var raw = JSON.parse(localStorage.getItem(WB_PANE_KEY) || 'null');
+        if (raw && typeof raw === 'object' && Array.isArray(raw.syms))
+          return { n: Math.min(4, Math.max(1, +raw.n || 1)), syms: raw.syms.slice(0, 4) };
+      } catch (e) {}
+      return { n: 1, syms: [] };
+    }
+    function wbPaneSave(st) { try { localStorage.setItem(WB_PANE_KEY, JSON.stringify(st)); } catch (e) {} }
+    /* tile=1 tells the workbench it is one of several on a monitor: it then
+       starts chart-first and stops writing shared UI preferences, so four panes
+       do not fight over "which tab was open". */
+    function wbPaneSrc(sym, i, tiled) {
+      return 'sr-workbench.html?v=' + encodeURIComponent(WB_VER)
+           + '&apibase=' + encodeURIComponent(API_BASE)
+           + (tiled ? '&tile=1&pane=' + i : '')
+           + (sym ? '&symbol=' + encodeURIComponent(sym) : '');
+    }
+    function wbNormSym(v) {
+      v = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!v) return '';
+      return /USDT$/.test(v) ? v : v + 'USDT';
+    }
+    function wbLayoutInit(wide) {
+      var st = wbPaneState();
+      if (!wide) st.n = 1;
+      wbRenderPanes(st);
+      var bar = document.getElementById('wbLayout');
+      if (!bar) return;
+      [1, 2, 4].forEach(function (n) {
+        var b = document.createElement('button');
+        b.textContent = n === 1 ? '▯ 1' : n === 2 ? '▮▮ 2' : '▦ 4';
+        b.title = n + ' workbench' + (n === 1 ? '' : 'es') + ' side by side';
+        b.style.cssText = 'border:0;border-radius:7px;padding:5px 9px;font-weight:700;font-size:11px;cursor:pointer;'
+          + (st.n === n ? 'background:#2DD4BF;color:#062b28;' : 'background:#22375f;color:#cfe0ff;');
+        b.onclick = function () {
+          var cur = wbPaneState(); cur.n = n; wbPaneSave(cur);
+          wbRenderPanes(cur);
+          [].forEach.call(bar.children, function (x, k) {
+            var on = [1, 2, 4][k] === n;
+            x.style.background = on ? '#2DD4BF' : '#22375f';
+            x.style.color = on ? '#062b28' : '#cfe0ff';
+          });
+          wbVerify();
+        };
+        bar.appendChild(b);
+      });
+    }
+    function wbRenderPanes(st) {
+      var host = document.getElementById('wbPanes');
+      if (!host) return;
+      host.style.gridTemplateColumns = st.n === 1 ? '1fr' : '1fr 1fr';
+      host.style.gridTemplateRows    = st.n === 4 ? '1fr 1fr' : '1fr';
+      host.innerHTML = '';
+      for (var i = 0; i < st.n; i++) (function (i) {
+        var sym = st.syms[i] || '';
+        var cell = document.createElement('div');
+        cell.style.cssText = 'display:flex; flex-direction:column; min-width:0; min-height:0; background:#0b1220;';
+        var head = document.createElement('div');
+        head.style.cssText = 'flex:none; display:' + (st.n > 1 ? 'flex' : 'none') + '; align-items:center; gap:6px;'
+          + ' padding:4px 7px; background:#111a2c; border-bottom:1px solid #1b2740;';
+        head.innerHTML = '<span style="font-size:10px;font-weight:800;color:#7f8da8;letter-spacing:.6px;">PANE ' + (i + 1) + '</span>';
+        var inp = document.createElement('input');
+        inp.value = sym ? sym.replace(/USDT$/, '') : '';
+        inp.placeholder = 'pair, e.g. SOL';
+        inp.spellcheck = false;
+        inp.style.cssText = 'flex:none;width:96px;background:#0b1220;border:1px solid #22375f;color:#e6edf8;'
+          + 'border-radius:6px;padding:3px 7px;font-size:11.5px;font-weight:700;text-transform:uppercase;';
+        var go = function () {
+          var v = wbNormSym(inp.value);
+          var cur = wbPaneState(); cur.syms[i] = v; wbPaneSave(cur);
+          var fr = document.getElementById(i ? 'wbPane' + i : 'wbTabFrame');
+          if (fr) fr.src = wbPaneSrc(v, i, wbPaneState().n > 1);
+        };
+        inp.onkeydown = function (e) { if (e.key === 'Enter') go(); };
+        inp.onblur = go;
+        head.appendChild(inp);
+        cell.appendChild(head);
+        var f = document.createElement('iframe');
+        f.id = i ? 'wbPane' + i : 'wbTabFrame';
+        f.title = 'S/R Workbench pane ' + (i + 1);
+        f.src = wbPaneSrc(sym, i, st.n > 1);
+        f.style.cssText = 'flex:1; width:100%; border:0; display:block; min-height:0;';
+        cell.appendChild(f);
+        host.appendChild(cell);
+      })(i);
+    }
     function wbVerify() {
       var f = document.getElementById('wbTabFrame');
       var tag = document.getElementById('wbBuild');
