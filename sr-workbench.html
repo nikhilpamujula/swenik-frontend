@@ -338,11 +338,12 @@
     font-size:12.5px;padding:8px 10px;border-radius:7px;cursor:pointer;
   }
   #ctxMenu button:active{background:var(--panel2)}
-  .dash{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px 0 10px}
-  .dcell{background:var(--card);border:1px solid rgba(255,255,255,.045);border-radius:14px;padding:11px 12px;display:flex;flex-direction:column;gap:2px}
-  .dcell span{font-size:9.5px;color:var(--dim);letter-spacing:1.1px;text-transform:uppercase;font-weight:600}
-  .dcell b{font-size:19px;font-weight:700;letter-spacing:-.3px}
-  .dcell small{font-size:9px;color:var(--dim)}
+  /* TRADE DESK stats — compact grid; the old giant tiles were half the screen */
+  .dash{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px 0 10px}
+  .dcell{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 9px;display:flex;flex-direction:column;gap:2px;min-width:0}
+  .dcell span{font-size:8.5px;color:var(--dim);letter-spacing:.8px;text-transform:uppercase;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dcell b{font-size:13.5px;font-weight:800;letter-spacing:-.2px;font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  .dcell small{font-size:8.5px;color:var(--dim)}
   .pos{border:1px solid var(--line);border-radius:11px;padding:9px 10px;margin-bottom:8px;background:rgba(23,28,39,.4)}
   .pos.live{border-color:rgba(45,212,191,.35)}
   .pTop{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12.5px}
@@ -570,16 +571,18 @@
   .pane .patTop{display:flex;align-items:center;gap:8px;font-size:12.5px}
   .pane .patTop .tagS{margin-left:auto}
   /* --- pattern explanation cards --- */
-  .pane details.patX{border:1px solid var(--line);border-radius:10px;margin-top:7px;overflow:hidden;
-    background:rgba(255,255,255,.015)}
-  .pane details.patX>summary{list-style:none;cursor:pointer;padding:9px 11px;display:flex;
+  .pane details.patX{border:1px solid var(--line);border-radius:12px;margin-top:8px;overflow:hidden;
+    background:var(--card)}
+  .pane details.patX[open]{border-color:rgba(255,255,255,.14)}
+  .pane details.patX>summary{list-style:none;cursor:pointer;padding:10px 12px;display:flex;
     align-items:center;gap:8px;font-size:12.5px;user-select:none;flex-wrap:wrap}
+  .pane details.patX[open]>summary{border-bottom:1px solid var(--line);background:rgba(255,255,255,.02)}
   .pane details.patX>summary::-webkit-details-marker{display:none}
   .pane details.patX>summary::after{content:"▾";color:var(--dim);font-size:11px;margin-left:6px;transition:transform .15s}
   .pane details.patX[open]>summary::after{transform:rotate(180deg)}
   .pane details.patX>summary .tagS{margin-left:auto}
   .pane .pAway{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums;width:100%}
-  .pane .patBody{padding:0 11px 11px}
+  .pane .patBody{padding:9px 12px 12px}
   .pane .pWhat{font-size:12.5px;line-height:1.55;color:var(--text);margin-bottom:6px}
   .pane .pFacts{font-size:10.5px;color:var(--dim);margin-bottom:8px;font-family:ui-monospace,Menlo,monospace}
   .pane .pSec{margin-top:9px;font-size:11.5px;line-height:1.55;color:#A7B1C4}
@@ -714,10 +717,11 @@
     background:none;border:none;line-height:1}
   #sheet.full #expandBtn{color:var(--accent)}
   /* ---- collapsible sections inside a pane --------------------------------- */
-  .pane details.secX{display:block}
+  .pane details.secX{display:block;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:9px 12px;margin-top:8px}
   .pane details.secX>summary{list-style:none;cursor:pointer;user-select:none;
     display:flex;align-items:center;gap:8px;
-    font-size:10.5px;letter-spacing:.7px;color:var(--accent);font-weight:700}
+    font-size:10.5px;letter-spacing:.7px;color:var(--accent);font-weight:800}
   .pane details.secX>summary::-webkit-details-marker{display:none}
   .pane details.secX>summary::after{content:"▾";margin-left:auto;color:var(--dim);
     font-size:11px;transition:transform .15s}
@@ -797,25 +801,58 @@
   .del{background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:4px 6px;line-height:1}
   .del:active{color:var(--down)}
   .empty{padding:16px 10px;color:#A7B1C4;font-size:13px;line-height:1.6}
-  /* LEDGER orders panel (option C) — column headers printed ONCE, values aligned
-     beneath them, reasoning collapsed under each row. Built for scanning many
-     trades and comparing them down a column rather than reading each as a card. */
-  .ldg{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
-  .ldg-h{display:grid;grid-template-columns:74px 1fr 1fr 1fr 62px;gap:8px;padding:7px 10px;
-    background:var(--panel2,#151A24);font-size:9px;letter-spacing:.09em;font-weight:800;color:var(--dim)}
-  .ldg-h .r{text-align:right}
-  .ldg-row{display:grid;grid-template-columns:74px 1fr 1fr 1fr 62px;gap:8px;padding:9px 10px;
-    border-top:1px solid var(--line);align-items:center}
-  .ldg-row.live{background:rgba(45,212,160,.035)}
-  .ldg-s{font-size:11.5px;font-weight:800;line-height:1.2}
-  .ldg-s small{display:block;font-size:9px;color:var(--dim);font-weight:700;margin-top:2px}
-  .ldg-c{font-size:12.5px;font-weight:700;font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;line-height:1.2}
-  .ldg-c small{display:block;font-size:9px;color:var(--dim);font-weight:700;margin-top:2px;font-family:inherit}
-  .ldg-r{font-size:12.5px;font-weight:800;text-align:right;font-family:ui-monospace,Menlo,monospace}
-  .ldg-x{padding:0 10px 9px;font-size:10.5px;color:var(--dim);line-height:1.55}
+  /* POSITION CARDS — one card per order: side pill, status, the three prices,
+     a stop→target rail with the live price dot, the reasoning, REAL buttons.
+     Replaces the ledger table whose bare <button>s rendered browser-default —
+     the thing that read as "very old style" on his phone. */
+  .tcard{background:var(--card);border:1px solid var(--line);border-radius:13px;margin-bottom:10px;overflow:hidden}
+  .tcard.live{border-color:rgba(45,212,160,.28);box-shadow:0 0 0 1px rgba(45,212,160,.06)}
+  .tcard.pend{border-color:rgba(124,140,248,.28)}
+  .tc-h{display:flex;align-items:center;gap:7px;padding:10px 12px 7px;flex-wrap:wrap}
+  .tc-side{font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:6px;border:1px solid}
+  .tc-side.up{color:var(--up);border-color:rgba(45,212,160,.5);background:rgba(45,212,160,.08)}
+  .tc-side.down{color:var(--down);border-color:rgba(242,73,92,.5);background:rgba(242,73,92,.08)}
+  .tc-sym{font-size:12.5px;font-weight:800}
+  .tc-sym em{font-style:normal;color:var(--dim);font-weight:700;font-size:10.5px;margin-left:3px}
+  .tc-r{margin-left:auto;font-size:14px;font-weight:800;font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  .tc-r small{font-size:9px;color:var(--dim);font-weight:700}
+  .tc-px{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:2px 12px 4px}
+  .tc-cell{background:var(--panel2,#151A24);border:1px solid var(--line);border-radius:9px;padding:6px 8px;min-width:0}
+  .tc-cell span{display:block;font-size:9px;letter-spacing:.7px;text-transform:uppercase;font-weight:800;color:var(--dim)}
+  .tc-cell b{display:block;font-size:12.5px;margin-top:2px;font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tc-cell b.g{color:var(--up)} .tc-cell b.r{color:var(--down)}
+  .tc-cell small{display:block;font-size:9px;color:var(--dim);font-weight:700;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tc-rail{position:relative;height:5px;border-radius:99px;margin:7px 14px 10px;
+    background:linear-gradient(90deg,rgba(242,73,92,.55) 0%,rgba(138,148,166,.22) 50%,rgba(45,212,160,.55) 100%)}
+  .tc-dot{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;transform:translate(-50%,-50%);
+    background:var(--text);border:2px solid var(--bg);box-shadow:0 0 0 1.5px var(--line)}
+  .tc-dot.pend{background:var(--bg);border:2px dashed #8FA0FF}
+  .tc-mark{position:absolute;top:-3px;width:1px;height:11px;background:rgba(255,255,255,.3)}
+  .ldg-x{padding:0 12px 9px;font-size:10.5px;color:var(--dim);line-height:1.55}
   .ldg-x i{color:var(--text);opacity:.75}
-  .ldg-a{padding:0 10px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-  .ldg-a .grp{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--dim);font-weight:700}
+  .ldg-a{padding:0 12px 12px;display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .ldg-a .grp{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--dim);font-weight:700;
+    background:var(--panel2,#151A24);border:1px solid var(--line);border-radius:9px;padding:3px 6px 3px 9px}
+  /* REAL buttons — a shared touch-target style for every pane control */
+  .tbtn{background:var(--panel2,#151A24);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:8px 12px;font:inherit;font-size:11px;font-weight:800;cursor:pointer;line-height:1}
+  .tbtn:active{transform:translateY(1px);border-color:var(--accent)}
+  .tbtn.seg{padding:6px 10px;font-size:13px;border-radius:7px;color:var(--dim)}
+  .tbtn.danger{color:var(--down);border-color:rgba(242,73,92,.45);background:rgba(242,73,92,.07)}
+  .tbtn.go{color:#04201C;background:var(--up);border-color:var(--up)}
+  .tbtn.ghost{background:none;color:var(--dim)}
+  .pane .rFoot{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+  .pane .rFoot button,.pane #prjMsg button,.pane .patBody button{background:var(--panel2,#151A24);
+    border:1px solid var(--line);color:var(--text);border-radius:9px;padding:8px 12px;
+    font:inherit;font-size:11px;font-weight:800;cursor:pointer;line-height:1}
+  .pane .rFoot button:active,.pane #prjMsg button:active,.pane .patBody button:active{transform:translateY(1px);border-color:var(--accent)}
+  .pane .rFoot button[data-order]{color:var(--up);border-color:rgba(45,212,160,.4);background:rgba(45,212,160,.06)}
+  .pane .rFoot button[data-live]{color:#F5D77A;border-color:rgba(245,215,122,.4);background:rgba(245,215,122,.06)}
+  .pane .rFoot button[data-cancel]{color:var(--dim)}
+  /* inline amount field — replaces the native prompt() dialog for live orders */
+  .wbAmt{width:110px;background:var(--panel2,#151A24);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:8px 10px;font:inherit;font-size:13px;font-weight:800;
+    font-family:ui-monospace,Menlo,monospace}
   /* OPEN-COIN STRIP — switching pairs parks the old chart instead of discarding
      it (parkSymbol already keeps its levels + verdicts), so every pair you have
      touched stays one tap away. NOTE: no overflow-y here and children are not
@@ -1043,7 +1080,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18d-allfut";
+window.WB_BUILD = "2026-08-18e-ui";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -2638,7 +2675,12 @@ function updatePapers(){
   if(changed){ savePapers(); if(state.tab==="trades") renderTrades(); }
 }
 function paperPL(t){
-  const mkt = state.candles.length? state.candles[state.candles.length-1].close : t.entry;
+  /* an OPEN trade on another coin must not be marked to THIS chart's price —
+     the same wrong-coin lesson as the tracker, on the display side. Its live
+     P&L reads flat until its own chart is loaded; closed rows use their
+     recorded exit either way. */
+  const onChart = String(t.symbol||state.symbol).toUpperCase()===String(state.symbol).toUpperCase();
+  const mkt = (onChart && state.candles.length)? state.candles[state.candles.length-1].close : t.entry;
   const flat = t.status==="pending" || t.status==="cancelled";
   const px = (t.status==="open") ? mkt : (flat ? t.entry : (t.exit!=null? t.exit : t.entry));
   const dir = t.side==="long"?1:-1;
@@ -2748,6 +2790,10 @@ function renderTrades(){
     '<div class="dcell"><span>Best / worst</span><b>'+S.best.toFixed(1)+'R / '+S.worst.toFixed(1)+'R</b></div>'+
     '<div class="dcell"><span>Max drawdown</span><b class="down">'+S.maxDD.toFixed(2)+'R</b></div>'+
     '</div>';
+  /* status → chip label + tone, one vocabulary for working and graded rows */
+  const CHIP={ pending:['⏳ pending','info'], open:['● open','good'], target:['🎯 target hit','good'],
+    stopped:['🛑 stopped','bad'], breakeven:['⚖ break-even','info'], cancelled:['✖ cancelled','info'],
+    closed:['✋ closed','info'] };
   const row=(t)=>{
     const pl=paperPL(t);
     const live = t.status==="open"||t.status==="pending";
@@ -2760,22 +2806,41 @@ function renderTrades(){
     const netRisk=R+cAbs, netRew=Math.max(0,Math.abs(t.target-t.entry)-cAbs);
     const rrNet=netRisk>0? netRew/netRisk : 0;
     const drag=R>0? cAbs/R*100 : 0;
-    const icon = t.status==="pending"?"\u23f3": t.status==="open"? (t.side==="long"?"\u25b2":"\u25bc")
-      : t.status==="target"?"\ud83c\udfaf": t.status==="stopped"?"\ud83d\uded1"
-      : t.status==="breakeven"?"\u2696\ufe0f": t.status==="cancelled"?"\u2716":"\u270b";
     const sideCls = t.side==="long"?"up":"down";
-    const stTxt = t.status==="pending"?"pending" : t.status==="open"?"open" : t.status;
     const sym = baseOf(t.symbol||state.symbol);
-    let x='<div class="ldg-row '+(live?"live":"")+'">'+
-      '<div class="ldg-s '+sideCls+'">'+icon+' '+t.side.toUpperCase()+
-        '<small>'+sym+' '+t.tf+'</small></div>'+
-      '<div class="ldg-c">'+fmt(t.entry)+'<small>'+stTxt+'</small></div>'+
-      '<div class="ldg-c down">'+fmt(t.stop)+'<small>'+(t.exit!=null&&/stop/.test(t.reason||"")?"hit":(t.beMoved?"at BE":(t.trail?"trailing":"—")))+'</small></div>'+
-      '<div class="ldg-c up">'+fmt(t.target)+'<small>1:'+rrNet.toFixed(2)+' net</small></div>'+
-      '<div class="ldg-r '+(t.status==="pending"?"":(pl.cash>=0?"up":"down"))+'">'+
-        (t.status==="pending"?"—":(pl.rMul>=0?"+":"")+pl.rMul.toFixed(2))+'</div>'+
-      '</div>'+
-      '<div class="ldg-x">'+t.units.toFixed(4)+' '+sym+
+    const onChart = String(t.symbol||state.symbol).toUpperCase()===String(state.symbol).toUpperCase();
+    const chip=CHIP[t.status]||[t.status,'info'];
+    /* R readout: pending has no R yet; an open trade on ANOTHER coin's chart
+       has no live price here — say so instead of quoting a stale number */
+    const rCell = t.status==="pending"? '<b class="tc-r"><small>waiting</small></b>'
+      : (t.status==="open" && !onChart)? '<b class="tc-r"><small>on '+esc(sym)+' chart</small></b>'
+      : '<b class="tc-r '+(pl.rMul>=0?"up":"down")+'">'+(pl.rMul>=0?"+":"")+pl.rMul.toFixed(2)+'<small>R</small></b>';
+    let x='<div class="tcard '+(t.status==="open"?"live":t.status==="pending"?"pend":"")+'">'+
+      '<div class="tc-h">'+
+        '<span class="tc-side '+sideCls+'">'+(t.side==="long"?"▲ LONG":"▼ SHORT")+'</span>'+
+        '<span class="tc-sym">'+esc(sym)+'<em>'+esc(t.tf||"")+'</em></span>'+
+        '<span class="tagS '+chip[1]+'">'+chip[0]+'</span>'+
+        (t.fromProj? '<span class="tagS info">🎯 projection</span>':'')+
+        rCell+'</div>'+
+      '<div class="tc-px">'+
+        '<div class="tc-cell"><span>Entry</span><b>'+fmt(t.entry)+'</b><small>'+
+          (t.status==="pending"?"fills on touch":t.status==="open"?"filled":"was")+'</small></div>'+
+        '<div class="tc-cell"><span>Stop</span><b class="r">'+fmt(t.stop)+'</b><small>'+
+          (t.exit!=null&&/stop/.test(t.reason||"")?"hit":(t.beMoved?"at break-even":(t.trail?"trailing":"—")))+'</small></div>'+
+        '<div class="tc-cell"><span>Target</span><b class="g">'+fmt(t.target)+'</b><small>1:'+rrNet.toFixed(2)+' net</small></div>'+
+      '</div>';
+    /* the rail: where price sits between stop and target, at a glance */
+    if(live){
+      const span = t.side==="long"? (t.target-t.stop) : (t.stop-t.target);
+      const pos = p => Math.max(3, Math.min(97, (t.side==="long"? (p-t.stop) : (t.stop-p))/span*100));
+      if(isFinite(span) && span>0){
+        const entryPct=pos(t.entry);
+        const dot = t.status==="open" && onChart? '<i class="tc-dot" style="left:'+pos(pl.px).toFixed(1)+'%"></i>'
+                  : t.status==="pending"? '<i class="tc-dot pend" style="left:'+entryPct.toFixed(1)+'%"></i>' : '';
+        x+='<div class="tc-rail"><i class="tc-mark" style="left:'+entryPct.toFixed(1)+'%"></i>'+dot+'</div>';
+      }
+    }
+    x+='<div class="ldg-x">'+t.units.toFixed(4)+' '+sym+
       ' · R:R 1:'+rr.toFixed(2)+' gross → <b>1:'+rrNet.toFixed(2)+' after costs</b>'+
       (drag>=25? ' <span style="color:var(--down)">(fees eat '+Math.round(drag)+'% of your risk — stop too tight)</span>'
                : ' (fees '+Math.round(drag)+'% of risk)')+
@@ -2783,24 +2848,21 @@ function renderTrades(){
       ' · '+t.note+(t.why? ' · <i>“'+t.why+'”</i>':'')+'</div>';
     if(live){
       x+='<div class="ldg-a">'+
-        '<span class="grp">stop <button data-a="stop" data-d="-1" data-id="'+t.id+'">–</button><button data-a="stop" data-d="1" data-id="'+t.id+'">+</button></span>'+
-        '<span class="grp">target <button data-a="target" data-d="-1" data-id="'+t.id+'">–</button><button data-a="target" data-d="1" data-id="'+t.id+'">+</button></span>'+
-        (t.status==="pending"? '<span class="grp">entry <button data-a="entry" data-d="-1" data-id="'+t.id+'">–</button><button data-a="entry" data-d="1" data-id="'+t.id+'">+</button></span>' :
-          '<button data-a="be" data-id="'+t.id+'">break-even</button><button data-a="trail" data-id="'+t.id+'">'+(t.trail?"stop trailing":"trail stop")+'</button>')+
-        '<button class="danger" data-a="cancel" data-id="'+t.id+'">'+(t.status==="pending"?"cancel order":"close now")+'</button>'+
+        '<span class="grp">stop <button class="tbtn seg" data-a="stop" data-d="-1" data-id="'+t.id+'">−</button><button class="tbtn seg" data-a="stop" data-d="1" data-id="'+t.id+'">+</button></span>'+
+        '<span class="grp">target <button class="tbtn seg" data-a="target" data-d="-1" data-id="'+t.id+'">−</button><button class="tbtn seg" data-a="target" data-d="1" data-id="'+t.id+'">+</button></span>'+
+        (t.status==="pending"? '<span class="grp">entry <button class="tbtn seg" data-a="entry" data-d="-1" data-id="'+t.id+'">−</button><button class="tbtn seg" data-a="entry" data-d="1" data-id="'+t.id+'">+</button></span>' :
+          '<button class="tbtn" data-a="be" data-id="'+t.id+'">⚖ break-even</button><button class="tbtn" data-a="trail" data-id="'+t.id+'">'+(t.trail?"stop trailing":"⤴ trail stop")+'</button>')+
+        '<button class="tbtn danger" data-a="cancel" data-id="'+t.id+'">'+(t.status==="pending"?"✖ cancel order":"✖ close now")+'</button>'+
         '</div>';
     } else {
-      x+='<div class="ldg-a"><button data-a="del" data-id="'+t.id+'">remove from log</button></div>';
+      x+='<div class="ldg-a"><button class="tbtn ghost" data-a="del" data-id="'+t.id+'">remove from log</button></div>';
     }
-    return x;
+    return x+'</div>';
   };
   const live=state.papers.filter(t=>t.status==="open"||t.status==="pending");
   const done=state.papers.filter(t=>!(t.status==="open"||t.status==="pending"));
-  const HEAD='<div class="ldg-h"><div>SIDE</div><div>ENTRY</div><div>STOP</div><div>TARGET</div><div class="r">R</div></div>';
-  if(live.length){ h+='<div class="cardT" style="padding:6px 2px">WORKING ORDERS &amp; POSITIONS</div>'+
-    '<div class="ldg">'+HEAD+live.map(row).join("")+'</div>'; }
-  if(done.length){ h+='<div class="cardT" style="padding:6px 2px">HISTORY</div>'+
-    '<div class="ldg">'+HEAD+done.slice(-12).reverse().map(row).join("")+'</div>'; }
+  if(live.length){ h+='<div class="cardT" style="padding:6px 2px">WORKING ORDERS &amp; POSITIONS</div>'+live.map(row).join(""); }
+  if(done.length){ h+='<div class="cardT" style="padding:8px 2px 6px">HISTORY</div>'+done.slice(-12).reverse().map(row).join(""); }
   el.innerHTML=wliveHtml+h;
   el.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{
     const a=b.dataset.a, id=b.dataset.id;
@@ -7770,36 +7832,56 @@ async function wboRefresh(force){
     state.wbo.status={live:false, note:"backend unreachable — "+(e&&e.message||"")};
   }
 }
-async function placeLiveOrder(p){
-  await wboRefresh(true);
-  const st=(state.wbo&&state.wbo.status)||{live:false};
-  const long=p.dir==="long";
-  /* USDT-M futures: longs AND shorts go live once the server is armed */
-  const willLive = !!st.live;
-  const why = !st.live? (st.note||"WB_LIVE is not on at the server") : null;
-  const cap=+(st.maxUsdt||50);
-  const amt=prompt((willLive? "⚡ LIVE":"👻 SHADOW")+" sequence — USDT notional (server cap "+cap+")"+
-                   "\nmargin used = notional ÷ your account leverage for "+p.symbol.replace("USDT","")+
-                   (why? "\nshadow because: "+why : ""), String(Math.min(20,cap)));
-  if(amt==null) return {cancelled:true};
-  const usdt=+amt;
-  if(!(usdt>0)) return {err:"Amount must be a number above 0."};
-  const zoneEdge= long? p.entryHi : p.entryLo;
-  const okc=confirm((willLive? "⚡ Place a LIVE sequence on Binance USDT-M futures ("+p.symbol.replace("USDT","")+" perp)?" :
-                               "👻 Place a SHADOW sequence (server-tracked at real perp prices, no exchange order)?")+"\n\n"+
-    p.symbol+" "+p.dir.toUpperCase()+" ("+p.tf+")\n"+
-    "entry limit "+fmt(zoneEdge)+" · "+usdt+" USDT notional\n"+
-    "stop "+fmt(p.stop)+" (STOP_MARKET)\n"+
-    "T1 "+fmt(p.t1)+" — half exits (limit)\n"+
-    "T2 "+fmt(p.t2)+" — half runs, stop→break-even at T1\n\n"+
-    "The server watcher manages every step, app closed or not. Your leverage setting is never touched.");
-  if(!okc) return {cancelled:true};
-  const r=await wbApi("/api/wb/orders",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({projId:p.id, symbol:p.symbol, tf:p.tf, side:p.dir,
-      entry:zoneEdge, entryLo:p.entryLo, entryHi:p.entryHi, stop:p.stop, t1:p.t1, t2:p.t2, usdt:usdt})});
-  if(r && r.error) return {err:r.error};
-  return {msg:(r&&r.mode==="live"? "⚡ LIVE":"👻 SHADOW")+" sequence created"+
-              (r&&r.note? " — "+r.note : " — the watcher advances it every minute; state shows on this card.")};
+/* The placement panel — IN-APP, replacing the native prompt()/confirm() pair
+   whose OS dialogs were the last piece of 1998 in this flow and could not
+   show the sequence they were asking about. */
+function liveOrderPanel(p, btn){
+  const m=$("prjMsg"); if(!m) return;
+  m.innerHTML='<div class="cardNote">checking the server…</div>';
+  const restore=()=>{ if(btn){ btn.disabled=false; btn.textContent="⚡ LIVE order"; } };
+  wboRefresh(true).then(()=>{
+    const st=(state.wbo&&state.wbo.status)||{live:false};
+    const willLive=!!st.live;
+    const long=p.dir==="long";
+    const cap=+(st.maxUsdt||50);
+    const zoneEdge= long? p.entryHi : p.entryLo;
+    m.innerHTML='<div class="flag '+(willLive?'warn':'good')+'" id="wbPanel">'+
+      '<b>'+(willLive? '⚡ LIVE order sequence':'👻 SHADOW sequence')+' — '+esc(p.symbol.replace("USDT",""))+' '+
+        p.dir.toUpperCase()+' ('+p.tf+') · USDT-M futures</b>'+
+      '<div class="fine" style="margin:6px 0 0">'+
+        'entry limit '+fmt(zoneEdge)+' · stop '+fmt(p.stop)+' (STOP_MARKET) · T1 '+fmt(p.t1)+' — half exits · '+
+        'T2 '+fmt(p.t2)+' — half runs, stop→break-even at T1<br>'+
+        'USDT below = position notional ÷ your account leverage = margin used · server cap '+cap+
+        ' · your leverage setting is never touched'+
+        (willLive? '' : '<br>shadow because: '+esc(st.note||'WB_LIVE is not on at the server'))+'</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap">'+
+        '<input id="wbAmt" class="wbAmt" type="number" inputmode="decimal" min="1" max="'+cap+'" step="1" value="'+Math.min(20,cap)+'">'+
+        '<span class="fine">USDT notional</span>'+
+        '<button class="tbtn go" id="wbGo">'+(willLive? '⚡ Place LIVE':'👻 Place shadow')+'</button>'+
+        '<button class="tbtn ghost" id="wbNo">not now</button></div></div>';
+    $("wbNo").onclick=()=>{ m.innerHTML=''; restore(); };
+    $("wbGo").onclick=async()=>{
+      const usdt=+($("wbAmt")&&$("wbAmt").value);
+      if(!(usdt>0)){ $("wbAmt").style.borderColor="var(--down)"; return; }
+      $("wbGo").disabled=true; $("wbGo").textContent="placing…";
+      let html;
+      try{
+        const r=await wbApi("/api/wb/orders",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({projId:p.id, symbol:p.symbol, tf:p.tf, side:p.dir,
+            entry:zoneEdge, entryLo:p.entryLo, entryHi:p.entryHi, stop:p.stop, t1:p.t1, t2:p.t2, usdt:usdt})});
+        html = (r&&r.error)? '<div class="flag warn">'+esc(r.error)+'</div>'
+          : '<div class="flag good">'+(r&&r.mode==="live"? "⚡ LIVE":"👻 SHADOW")+' sequence created — '+
+            esc((r&&r.note)||'the watcher advances it every minute; state shows on this card.')+'</div>';
+      }catch(e){ html='<div class="flag warn">'+esc((e&&e.message)||"failed")+'</div>'; }
+      try{ await wboRefresh(true); }catch(e){}
+      try{ renderProjections(); }catch(e){}
+      const m2=$("prjMsg"); if(m2) m2.innerHTML=html;
+      restore();
+    };
+  }).catch(e=>{
+    m.innerHTML='<div class="flag warn">'+esc((e&&e.message)||"backend unreachable")+'</div>';
+    restore();
+  });
 }
 
 /* ---- the PROJECT tab -------------------------------------------------------
@@ -7952,19 +8034,10 @@ function renderProjections(){
         ': stop '+fmt(p.stop)+', half exits at T1 '+fmt(p.t1)+', half runs to T2 '+fmt(p.t2)+
         ' with stop→break-even at T1. Tracking in TRADES.</div>');
   });
-  el.querySelectorAll("[data-live]").forEach(b=>b.onclick=async()=>{
+  el.querySelectorAll("[data-live]").forEach(b=>b.onclick=()=>{
     const p=state.projections.find(x=>x.id===b.dataset.live); if(!p) return;
-    b.disabled=true; b.textContent="⚡ placing…";
-    let html=null;
-    try{
-      const r=await placeLiveOrder(p);
-      if(r && r.cancelled){ b.disabled=false; b.textContent="⚡ LIVE order"; return; }
-      html=(r&&r.err)? '<div class="flag warn">'+esc(r.err)+'</div>'
-        : '<div class="flag good">'+esc((r&&r.msg)||"Sequence accepted.")+'</div>';
-    }catch(e){ html='<div class="flag warn">'+esc(e.message||"failed")+'</div>'; }
-    try{ await wboRefresh(true); }catch(e){}
-    try{ renderProjections(); }catch(e){}
-    sayMsg(html);
+    b.disabled=true; b.textContent="⚡ …";
+    liveOrderPanel(p, b);
   });
   el.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{
     const p=state.projections.find(x=>x.id===b.dataset.cancel);
