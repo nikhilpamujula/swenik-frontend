@@ -328,6 +328,25 @@
     padding:10px 12px;border-radius:9px;margin-top:14px;font-size:12.5px;line-height:1.55}
   .gCard button{width:100%;margin-top:14px}
   #helpBtn{background:none;border:none;color:var(--dim);font-size:15px;cursor:pointer;padding:4px 8px}
+  /* ── APP MODE (default) ────────────────────────────────────────────────────
+     This tool grew as a teaching document: every panel explains itself in
+     sentences. Read on a phone between candles that is a wall of paragraphs,
+     not an instrument. App mode keeps every number, control and warning and
+     folds the ESSAYS away behind the ⓘ button — nothing is deleted, and one
+     tap brings the whole tutor back. Operational text (risk rules, refusal
+     reasons, live-order warnings) is NEVER hidden: it is not decoration. */
+  body.appmode .pane .plain.lead{display:none}
+  body.appmode .pane .explain{display:none}
+  body.appmode .pane .cardT .est{display:none}
+  body.appmode .zBanner .zw{display:none}
+  body.appmode .pane .card{padding:9px 10px;margin-bottom:8px}
+  body.appmode .pane .cardT{margin-bottom:7px}
+  body.appmode .pane .cardNote{font-size:11px;line-height:1.45}
+  body.appmode .pane details.patX{margin-top:6px}
+  body.appmode .pane details.secX{padding:8px 10px;margin-top:6px}
+  body.appmode .tcard{margin-bottom:8px}
+  body.appmode .dash{gap:5px;padding:4px 0 8px}
+  body.appmode .zBanner{padding:10px 11px}
   #ctxMenu{
     position:absolute;z-index:20;display:none;min-width:165px;
     background:rgba(15,19,28,.98);border:1px solid var(--line);border-radius:11px;
@@ -957,6 +976,7 @@
     <div class="sw on" data-pref="proj"><span>Projection paths</span><span class="tr"></span></div>
     <div class="sw on" data-pref="sound"><span>Sound + vibration alerts</span><span class="tr"></span></div>
     <div class="sw on" data-pref="snap"><span>Snap drawing to wicks</span><span class="tr"></span></div>
+    <div class="sw" data-pref="teach"><span>Written explanations (off = compact app view)</span><span class="tr"></span></div>
     <div class="sw on" data-pref="showOrders"><span>Show my orders on the chart</span><span class="tr"></span></div>
     <div class="sw" data-pref="cmd"><span>Command bar (typed shortcuts)</span><span class="tr"></span></div>
     <div class="sw" data-pref="vp"><span>Volume profile (where volume traded)</span><span class="tr"></span></div>
@@ -1098,7 +1118,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18i-anywhere";
+window.WB_BUILD = "2026-08-18j-app";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1417,7 +1437,7 @@ const state = {
   pollTimer:null, fundTimer:null,
   funding:{rate:null},
   prefs:{vol:true, proj:true, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false,
-         ma:false, boll:false, rsi:false, macd:false},
+         ma:false, boll:false, rsi:false, macd:false, teach:false},   /* teach=false → compact app view by default */
   verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
   papers:[], menu:null, patterns:[], htfPats:[], pending:null, read:null, combine:false,
@@ -7061,7 +7081,11 @@ function renderZones(){
         (P.targetZone? P.targetZone.tfs.join('+')+' zone':'')+'</span>'+
     '</div>'+
     '<div class="zRR '+rrCls+'"><b>'+P.net.toFixed(2)+':1</b> net of costs — needs <b>'+
-      (P.be*100).toFixed(0)+'%</b> winners to break even</div>';
+      (P.be*100).toFixed(0)+'%</b> winners to break even'+
+      /* the stance IS the trade idea — arm it from here, through the same gates */
+      (/BUY/.test(S.code||"")||/SELL/.test(S.code||"")
+        ? ' '+armBtn('zone stance', /BUY/.test(S.code)?'long':'short', P.entry, S.label||'zone stance')
+        : '')+'</div>';
   } else if(P && P.why){
     h+='<div class="zw" style="margin-top:8px">No tradeable shape: '+esc(P.why)+'.</div>';
   }
@@ -7088,7 +7112,7 @@ function renderZones(){
      ((Z.sellZones||[]).length? Z.sellZones.map(z=>zoneRow(z,Z.px,'short')).join('')
        : '<div class="cardNote">No resistance zone clears the confluence floor right now.</div>')+'</div>';
 
-  h+='<div class="card"><div class="cardT">WHAT A ZONE IS</div><div class="cardNote">'+
+  h+='<div class="card explain"><div class="cardT">WHAT A ZONE IS</div><div class="cardNote">'+
      'A price is one opinion on one timeframe. A <b>zone</b> is a band that several timeframes independently '+
      'reacted to. Confluence weights the daily 4× the 15m, so a band only 15m wicks agree on scores low and '+
      'is ignored. Bands are '+Z.tol+'% wide, scaled to this coin’s volatility.<br><br>'+
@@ -7967,7 +7991,14 @@ function fillLiveSheet(p){
         (r.error? '<br><span style="color:var(--down)">Binance said: '+esc(r.error)+'</span>':'')+
         (r.hint? '<br>'+esc(r.hint):'')+
         (r.egressIp? '<br>this server reaches Binance from <b>'+esc(r.egressIp)+'</b>':'')+'</div>';
-    }catch(e){ out.innerHTML='<div class="fine" style="color:var(--down);margin-top:7px">'+esc((e&&e.message)||"could not reach the backend")+'</div>'; }
+    }catch(e){
+      const m=(e&&e.message)||"could not reach the backend";
+      out.innerHTML='<div class="fine" style="color:var(--down);margin-top:7px">'+
+        (/404/.test(m)
+          ? 'This backend does not have the key-check route yet — <b>server.js on the droplet is older than this app build</b>. '+
+            'Deploy server.js (and src/watcher.js) then restart; src/wbOrders.js is already up to date.'
+          : esc(m))+'</div>';
+    }
     preBtn.disabled=false; preBtn.textContent="🔑 Check my Binance keys";
   };
   /* chip click updates in place — a full re-render here would wipe the volume
@@ -8083,7 +8114,12 @@ async function lvRefresh(force){
   if(!force && Date.now()-state.lv.at<20000) return;
   state.lv.at=Date.now();
   try{ state.lv.data=await wbApi("/api/wb/orders/portfolio"); state.lv.err=null; }
-  catch(e){ state.lv.err=(e&&e.message)||"backend unreachable"; }
+  catch(e){
+    const m=(e&&e.message)||"backend unreachable";
+    state.lv.err = /404/.test(m)
+      ? "This backend has no /api/wb/orders/portfolio route — server.js on the droplet is older than this app build. Deploy server.js + src/watcher.js and restart."
+      : m;
+  }
 }
 /* Shadow rows have no exchange position, so their P&L is computed the same way
    the projection tracker computes progress — from the perp price this chart is
@@ -9102,7 +9138,14 @@ $("readClear").onclick=()=>{
 };
 $("pairBtn").onclick=openPairPicker;
 $("pickClose").onclick=()=>{ $("pickModal").style.display="none"; renderWatch(); };
+document.body.classList.add("appmode");     /* app look from the first paint; boot may switch it back */
 $("helpBtn").onclick=()=>$("guide").classList.add("open");
+/* Density. Defaults to APP MODE — the essays are one tap away, not in the way. */
+function applyDense(){
+  /* prefs.teach ON = the original document view. OFF (default) = app view. */
+  document.body.classList.toggle("appmode", !state.prefs.teach);
+  document.querySelectorAll('.sw[data-pref="teach"]').forEach(sw=>sw.classList.toggle("on", !!state.prefs.teach));
+}
 $("guideClose").onclick=()=>{
   $("guide").classList.remove("open");
   try{ if(hasStorage) window.storage.set("seenGuide","1"); }catch(e){}
@@ -9256,6 +9299,11 @@ document.querySelectorAll(".sw").forEach(s=>s.onclick=()=>{
   s.classList.toggle("on");
   state.prefs[s.dataset.pref]=s.classList.contains("on");
   $("cmdWrap").style.display = state.prefs.cmd? "block":"none";
+  if(s.dataset.pref==="teach"){          /* the essays fold away; nothing is deleted */
+    applyDense();
+    try{ if(hasStorage) window.storage.set("ui:dense", state.prefs.teach? "0":"1"); }catch(e){}
+    try{ renderPane(); }catch(e){}
+  }
   render();
 });
 
@@ -9402,6 +9450,13 @@ async function boot(){
           state.combineAll=true; state.combine=true;
           $("combineBtn").classList.add("arm");
         }
+      }
+    }catch(e){}
+    try{                                   /* density preference, before first paint of a pane */
+      if(hasStorage){
+        const dv=await window.storage.get("ui:dense");
+        state.prefs.teach = !!(dv && dv.value==="0");
+        applyDense();
       }
     }catch(e){}
     try{                                   /* reopen the tab he was last using */
