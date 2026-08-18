@@ -1043,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-17a-gates";
+window.WB_BUILD = "2026-08-17b-thesis";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1388,7 +1388,7 @@ const pct = x => (x>=0?"+":"")+(x*100).toFixed(2)+"%";
 /* read-only debug accessors — state is script-scoped, and every "why is the
    chart drawing THAT" question needs eyes on it from the console            */
 window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view,
-  gen:()=>generateProjection(), refusals:()=>state.prjRefused||[],
+  gen:(o)=>generateProjection(o), refusals:()=>state.prjRefused||[], levels:()=>state.levels,
   projections:()=>state.projections, symbol:()=>state.symbol, tf:()=>state.tf };
 
 /* ---------- sizing ---------- */
@@ -5156,7 +5156,10 @@ function zFor(alpha, k) {
    Cancelled rows are excluded: you ended those, the market did not, so they
    carry no information about whether a factor was right.                     */
 function projFactorEvidence(projections){
-  const done=(projections||[]).filter(p => p && p.outcome && p.outcome.result!=='cancelled'
+  /* echoes are deliberate re-takes of an already-open bet: their outcomes are
+     correlated with the original by construction, so counting them would let
+     one market move vote several times in the factor scorecard              */
+  const done=(projections||[]).filter(p => p && p.outcome && !p.echo && p.outcome.result!=='cancelled'
     && (Array.isArray(p.outcome.aligned) || Array.isArray(p.outcome.against)));
   const fm={}; let up=0;
   for(const p of done){
@@ -7200,7 +7203,8 @@ function projGates(g){
   return null;
 }
 
-function generateProjection(){
+function generateProjection(opts){
+  opts=opts||{};
   let R=null;
   try{ R=fullRead(state.combine); }catch(e){}
   if(!R) return { err:"Not enough candles for a read yet." };
@@ -7220,22 +7224,60 @@ function generateProjection(){
       (ST.critical && ST.critical.length
         ? "Remove "+ST.critical.slice(0,3).join(" or ")+" and the call reverses — one factor is carrying it."
         : "Nudge the factor weights and the call reverses; it is sitting right on the decision margin.")+
-      " Logged in the refusal list so you can check later whether that was the right call." };
+      " Logged in the refusal list so you can check later whether that was the right call.", kind:"stability" };
   }
   const long = R.bias==="bullish";
   const px=R.px, a=(R.atr||atrPct());
+  let isEcho=false, echoWhy=null;
   /* entry band: anchor to the nearest level if one sits close enough to be the
      reason for the trade; otherwise a band around price                      */
-  let anchor=null;
-  for(const l of state.levels){
-    if(l.kind!=="h" || !isFinite(l.price)) continue;
-    const d=Math.abs(l.price-px)/px;
-    /* only levels on the CORRECT side anchor a trade: a short sells the retest
-       of resistance, so its band must sit at/above price — not under it     */
-    const sideOk = long ? l.price <= px*1.001 : l.price >= px*0.999;
-    if(sideOk && d<=a*0.9 && (!anchor || d<anchor.d)) anchor={p:l.price, d, label:l.label||"level"};
+  const scanAnchor=()=>{
+    let best=null;
+    for(const l of state.levels){
+      if(l.kind!=="h" || !isFinite(l.price)) continue;
+      const d=Math.abs(l.price-px)/px;
+      /* only levels on the CORRECT side anchor a trade: a short sells the
+         retest of resistance, so its band must sit at/above price          */
+      const sideOk = long ? l.price <= px*1.001 : l.price >= px*0.999;
+      if(sideOk && d<=a*0.9 && (!best || d<best.d)) best={p:l.price, d, label:l.label||"level"};
+    }
+    return best;
+  };
+  let anchor=scanAnchor();
+  /* THINK before refusing: if there is no anchor, the machine knows exactly
+     what is missing and how to look for it — so it looks, instead of telling
+     the user to go tap a different button. Detected levels are kept (they are
+     the same rows ✨ Levels would propose), then the scan runs again.       */
+  let autoTried=0;
+  if(!anchor){
+    try{
+      const det=(autoLevels(4,true).chosen)||[];
+      let rI=1,sI=1; const added=[];
+      for(const c2 of det){
+        autoTried++;
+        if(state.levels.some(l=>l.kind==="h" && Math.abs(l.price-c2.mean)/c2.mean<0.0015)) continue;
+        const above=c2.mean>=px;
+        const row={ kind:"h", id:uid(), price:c2.mean, auto:true,
+          label:(above?"auto R":"auto S")+(above?rI++:sI++),
+          color:above?C_RES:C_SUP, why:c2.why, score:c2.score, tier:c2.tier||"moderate" };
+        state.levels.push(row); added.push(row);
+      }
+      if(added.length){
+        try{ saveLevels(); }catch(e){}
+        try{ render(); }catch(e){}
+        try{ $("lvlCount").textContent=String(state.levels.length); }catch(e){}
+        cmdSay("Auto-detected "+added.length+" level(s) while anchoring this projection.");
+      }
+      anchor=scanAnchor();
+    }catch(e){}
   }
   {
+    if(!anchor && autoTried>0){
+      logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
+                       dir:R.bias, kind:"anchor", note:"auto-detected "+autoTried+" candidate(s); none in reach on the right side" });
+      return { err:"No anchor even after auto-detecting levels — "+autoTried+" candidate(s) found, but none sit within reach on the "+
+        (long?"support side below":"resistance side above")+" price. Price is in open space; the retest to project has not formed yet. Logged in the refusal list.", kind:"anchor" };
+    }
     const dirWord = long? "long":"short";
     const openSameDir = state.projections.find(q=>q && q.dir===dirWord &&
       ["waiting","active","t1"].includes(q.status)) || null;
@@ -7247,10 +7289,17 @@ function generateProjection(){
     const G = projGates({ long, px, anchor,
       openSameDir: openSameDir? {symbol:openSameDir.symbol, tf:openSameDir.tf} : null,
       fails2, sinceFailSec: fails2? Math.max(0, nowT - graded[0].resolvedTime) : Infinity });
-    if(G){
+    /* correlation and cooldown are OPINIONS about risk, and this is a paper
+       research tool — so they can be overridden, with honest accounting: the
+       override arms an ECHO, labelled as the same bet and excluded from the
+       independent tallies and the factor scorecard. Anchor and R:R stay hard:
+       one is structural nonsense, the other is arithmetic self-harm.        */
+    if(G && (G.kind==="correlation"||G.kind==="cooldown") && opts.override){
+      isEcho=true; echoWhy=G.kind;
+    } else if(G){
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
                        dir:R.bias, kind:G.kind, note:G.err.slice(0,140) });
-      return { err:G.err+" Logged in the refusal list." };
+      return { err:G.err+" Logged in the refusal list.", kind:G.kind };
     }
   }
   const mid = anchor.p;
@@ -7287,6 +7336,7 @@ function generateProjection(){
     entryLo:+entryLo.toFixed(8), entryHi:+entryHi.toFixed(8),
     stop:+stop.toFixed(8), t1:+t1.toFixed(8), t2:+t2.toFixed(8),
     createdTime:now.time, createdPx:px,
+    echo:isEcho||undefined, echoWhy:echoWhy||undefined,
     status:"waiting", armTime:null, filledTime:null, filledPx:null,
     hiSince:null, loSince:null, t1Time:null,
     resolvedTime:null, resolvedPx:null, barsWaited:0, barsHeld:0,
@@ -7425,6 +7475,32 @@ function resolveProjection(p, result, c){
   };
 }
 
+/* MIRROR of quickBias in src/projTrack.js — the equivalence suite holds the
+   two byte-compatible on shared fixtures. A cheap standing answer to "does
+   the market still agree with this projection's frozen thesis?"            */
+function quickBias(C){
+  if(!C || C.length<60) return {bias:"mixed", up:0, down:0, note:"not enough data"};
+  const close=C.map(c=>c.close);
+  const emaLast=(vals,n)=>{const k=2/(n+1);let e=vals[0];for(let i=1;i<vals.length;i++)e=vals[i]*k+e*(1-k);return e;};
+  const e20=emaLast(close.slice(-80),20), e50=emaLast(close.slice(-160),50);
+  const px=close[close.length-1];
+  let up=0,down=0; const notes=[];
+  /* the stack votes only on MATERIAL separation — with e20 a hair over e50 in
+     a tight chop, a strict > made the thesis flag flap on every other bar   */
+  if(px>e20 && e20>e50*1.001){ up+=2; notes.push("EMA stack up"); }
+  else if(px<e20 && e20<e50*0.999){ down+=2; notes.push("EMA stack down"); }
+  const mom=(px-close[close.length-9])/close[close.length-9];
+  if(mom>0.004){ up+=1; notes.push("momentum up "+(mom*100).toFixed(1)+"%"); }
+  else if(mom<-0.004){ down+=1; notes.push("momentum down "+(mom*100).toFixed(1)+"%"); }
+  const seg=C.slice(-40);
+  const h1=Math.max.apply(null,seg.slice(0,20).map(c=>c.high)), h2=Math.max.apply(null,seg.slice(20).map(c=>c.high));
+  const l1=Math.min.apply(null,seg.slice(0,20).map(c=>c.low)),  l2=Math.min.apply(null,seg.slice(20).map(c=>c.low));
+  if(h2>h1 && l2>l1){ up+=1; notes.push("higher highs & lows"); }
+  else if(h2<h1 && l2<l1){ down+=1; notes.push("lower highs & lows"); }
+  const bias= up>=down+2? "bullish" : down>=up+2? "bearish" : "mixed";
+  return { bias, up, down, note: notes.join(", ")||"no clear signals" };
+}
+
 /* Called wherever candles change, alongside updatePapers. */
 function updateProjections(){
   let dirty=false;
@@ -7434,8 +7510,23 @@ function updateProjections(){
             : (p.symbol===state.symbol ? vfSeries(p.tf) : null);
     if(!C) continue;
     if(trackProjection(p, C)) dirty=true;
+    /* thesis re-check for whatever is on screen; the watcher covers the rest.
+       Only TRANSITIONS mutate, so this is idempotent across 4s ticks.       */
+    if(!p.outcome){
+      try{
+        const qb=quickBias(C);
+        const opposed=(p.dir==="long" && qb.bias==="bearish")||(p.dir==="short" && qb.bias==="bullish");
+        const tNow=C[C.length-1].time;
+        if(opposed && !p.thesis){
+          p.thesis={ at:tNow, bias:qb.bias, note:qb.note }; p.thesisAt=tNow; dirty=true;
+          cmdSay("⚠ Market turned against your "+p.dir+" "+p.symbol.replace("USDT","")+" "+p.tf+" projection — current read "+qb.bias+".");
+        } else if(!opposed && p.thesis){
+          p.thesis=null; p.thesisAt=tNow; dirty=true;
+        }
+      }catch(e){}
+    }
   }
-  if(dirty){ saveProjections(); try{ renderProjections(); }catch(e){} }
+  if(dirty){ saveProjections(); try{ renderProjections(); }catch(e){} try{ render(); }catch(e){} }
 }
 function saveProjections(){
   if(!hasStorage || !HYD.proj) return;
@@ -7478,7 +7569,8 @@ function mergeProjRows(base, incoming){
     const cur=out.get(q.id);
     if(!cur){ out.set(q.id,q); changed=true; continue; }
     const a=prjRank(cur), b=prjRank(q);
-    if(b>a || (b===a && b<3 && prjProg(q)>prjProg(cur))){ out.set(q.id,q); changed=true; }
+    if(b>a || (b===a && b<3 && prjProg(q)>prjProg(cur)) ||
+       (b===a && prjProg(q)===prjProg(cur) && (q.thesisAt||0)>(cur.thesisAt||0))){ out.set(q.id,q); changed=true; }
   }
   return { rows:[...out.values()], changed };
 }
@@ -7516,7 +7608,11 @@ function projCard(p){
     '<div class="kv"><span>Target two</span><b class="g">'+fmt(p.t2)+'</b></div>'+
     '<div class="kv"><span>Net R:R to T1</span><b>'+(p.reasons.rrNet||0).toFixed(2)+':1 · needs '+
       Math.round((p.reasons.be||1)*100)+'% winners</b></div>';
-  const why='<div class="pSec"><span>Why it was generated</span>'+esc(p.reasons.summary)+
+  const flags=(p.echo? '<div class="cardNote">🔁 ECHO — armed over the '+esc(p.echoWhy||"correlation")+
+      ' gate; same bet as another open projection, not counted as an independent outcome.</div>':'')+
+    (p.thesis && !p.outcome? '<div class="flag warn">⚠ Market turned against this while it is '+esc(p.status)+
+      ': current read is '+esc(p.thesis.bias)+' ('+esc(p.thesis.note||"")+'). The projection stays tracked — cancelling is your call.</div>':'');
+  const why=flags+'<div class="pSec"><span>Why it was generated</span>'+esc(p.reasons.summary)+
     (p.reasons.warning? ' <b style="color:#F5D77A">⚠ '+esc(p.reasons.warning)+'</b>':'')+'</div>'+
     '<div class="pFacts">'+esc(p.reasons.anchor)+' · '+p.reasons.up+' up vs '+p.reasons.down+' down'+
     (p.reasons.combined? ' · 🔗 combined':'')+'</div>'+
@@ -7546,9 +7642,10 @@ function renderProjections(){
   const live=state.projections.filter(p=>["waiting","active","t1"].includes(p.status));
   const done=state.projections.filter(p=>p.outcome).sort((a,b)=>(b.resolvedTime||0)-(a.resolvedTime||0));
   $("projCount").textContent=String(live.length);
-  const wins=done.filter(p=>p.status==="success").length,
-        part=done.filter(p=>p.status==="partial").length,
-        loss=done.filter(p=>p.status==="failed").length;
+  const indep=done.filter(p=>!p.echo), echoes=done.length-indep.length;
+  const wins=indep.filter(p=>p.status==="success").length,
+        part=indep.filter(p=>p.status==="partial").length,
+        loss=indep.filter(p=>p.status==="failed").length;
   let h='<div class="plain lead">A projection freezes the current read into four prices — entry zone, stop, two targets — '+
     'draws them forward on the chart, and tracks the market against them until it is graded. '+
     'Every outcome is stored <b>with its reasons</b>.</div>';
@@ -7558,7 +7655,8 @@ function renderProjections(){
      '</button></div><div id="prjMsg"></div>';
   if(done.length) h+='<div class="cardNote" style="margin:2px 0 8px">Graded so far: <b class="g">'+wins+' success</b> · '+
      '<b>'+part+' partial</b> · <b class="r">'+loss+' failed</b> · '+
-     done.filter(p=>/expired/.test(p.status)).length+' expired — '+
+     indep.filter(p=>/expired/.test(p.status)).length+' expired'+
+     (echoes? ' · '+echoes+' echo'+(echoes===1?'':'es')+' (same bet, counted once)':'')+' — '+
      '<i>at this sample size these are anecdotes, not statistics.</i></div>';
   /* what the stability gate BLOCKED — so the threshold stays auditable */
   const ref = Array.isArray(state.prjRefused)? state.prjRefused : [];
@@ -7591,11 +7689,23 @@ function renderProjections(){
       $("prjMsg").innerHTML='<div class="flag warn">One projection per chart at a time — overlapping forecasts are a way to always have been right. Cancel the active one first.</div>';
       return;
     }
+    const arm=(r)=>{ state.projections.push(r.proj);
+      saveProjections(); renderProjections(); render();
+      cmdSay("Projection armed"+(r.proj.echo?" as an ECHO":"")+": "+r.proj.dir+" "+state.symbol.replace("USDT","")+
+             " — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi)); };
     const r=generateProjection();
-    if(r.err){ $("prjMsg").innerHTML='<div class="flag warn">'+esc(r.err)+'</div>'; return; }
-    state.projections.push(r.proj);
-    saveProjections(); renderProjections(); render();
-    cmdSay("Projection armed: "+r.proj.dir+" "+state.symbol.replace("USDT","")+" — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi));
+    if(r.err){
+      const soft = r.kind==="correlation" || r.kind==="cooldown";
+      $("prjMsg").innerHTML='<div class="flag warn">'+esc(r.err)+
+        (soft? '<div style="margin-top:8px"><button class="btn" id="prjOverride">Arm anyway — tracked as an ECHO of the open bet, not an independent outcome</button></div>':'')+
+        '</div>';
+      const ob=$("prjOverride");
+      if(ob) ob.onclick=()=>{ const r2=generateProjection({override:true});
+        if(r2.err){ $("prjMsg").innerHTML='<div class="flag warn">'+esc(r2.err)+'</div>'; return; }
+        arm(r2); };
+      return;
+    }
+    arm(r);
   };
   el.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{
     const p=state.projections.find(x=>x.id===b.dataset.cancel);
