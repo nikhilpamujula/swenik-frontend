@@ -850,9 +850,17 @@
   .pane .rFoot button[data-live]{color:#F5D77A;border-color:rgba(245,215,122,.4);background:rgba(245,215,122,.06)}
   .pane .rFoot button[data-cancel]{color:var(--dim)}
   /* inline amount field — replaces the native prompt() dialog for live orders */
-  .wbAmt{width:110px;background:var(--panel2,#151A24);border:1px solid var(--line);color:var(--text);
-    border-radius:9px;padding:8px 10px;font:inherit;font-size:13px;font-weight:800;
+  .wbAmt{width:118px;background:var(--panel2,#151A24);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:9px 10px;font:inherit;font-size:13px;font-weight:800;
     font-family:ui-monospace,Menlo,monospace}
+  /* the placement SHEET — fixed to the viewport, on <body>, so neither pane
+     re-renders nor scroll position can hide or destroy it (the "unable to
+     place live order" recording was exactly that) */
+  #wbSheetWrap{position:fixed;inset:0;z-index:95}
+  #wbShade{position:absolute;inset:0;background:rgba(4,6,10,.62)}
+  #wbSheet{position:absolute;left:8px;right:8px;bottom:10px;max-height:74vh;overflow:auto;
+    background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;
+    box-shadow:0 -14px 44px rgba(0,0,0,.55)}
   /* OPEN-COIN STRIP — switching pairs parks the old chart instead of discarding
      it (parkSymbol already keeps its levels + verdicts), so every pair you have
      touched stays one tap away. NOTE: no overflow-y here and children are not
@@ -1080,7 +1088,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18e-ui";
+window.WB_BUILD = "2026-08-18f-liveui";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -7814,8 +7822,13 @@ async function wbApi(path, init){
   if(location.protocol==="https:"||location.protocol==="http:") tries.push(path);
   let lastErr=null;
   for(const u of tries){
-    try{ const r=await fetch(u, init); if(r.ok) return await r.json();
-         lastErr="HTTP "+r.status;
+    try{
+      /* a blackholing ISP HANGS the socket instead of refusing it — without a
+         deadline the second route never gets its turn (the stuck "⚡ …" in the
+         screen recording). Six seconds, then the failover runs. */
+      const r=await fetch(u, Object.assign({signal:AbortSignal.timeout(6000)}, init||{}));
+      if(r.ok) return await r.json();
+      lastErr="HTTP "+r.status;
     }catch(e){ lastErr=(e&&e.message)||"network blocked"; }
   }
   throw new Error(lastErr||"backend unreachable");
@@ -7832,56 +7845,110 @@ async function wboRefresh(force){
     state.wbo.status={live:false, note:"backend unreachable — "+(e&&e.message||"")};
   }
 }
-/* The placement panel — IN-APP, replacing the native prompt()/confirm() pair
-   whose OS dialogs were the last piece of 1998 in this flow and could not
-   show the sequence they were asking about. */
-function liveOrderPanel(p, btn){
-  const m=$("prjMsg"); if(!m) return;
-  m.innerHTML='<div class="cardNote">checking the server…</div>';
-  const restore=()=>{ if(btn){ btn.disabled=false; btn.textContent="⚡ LIVE order"; } };
-  wboRefresh(true).then(()=>{
-    const st=(state.wbo&&state.wbo.status)||{live:false};
-    const willLive=!!st.live;
-    const long=p.dir==="long";
-    const cap=+(st.maxUsdt||50);
-    const zoneEdge= long? p.entryHi : p.entryLo;
-    m.innerHTML='<div class="flag '+(willLive?'warn':'good')+'" id="wbPanel">'+
-      '<b>'+(willLive? '⚡ LIVE order sequence':'👻 SHADOW sequence')+' — '+esc(p.symbol.replace("USDT",""))+' '+
-        p.dir.toUpperCase()+' ('+p.tf+') · USDT-M futures</b>'+
-      '<div class="fine" style="margin:6px 0 0">'+
-        'entry limit '+fmt(zoneEdge)+' · stop '+fmt(p.stop)+' (STOP_MARKET) · T1 '+fmt(p.t1)+' — half exits · '+
-        'T2 '+fmt(p.t2)+' — half runs, stop→break-even at T1<br>'+
-        'USDT below = position notional ÷ your account leverage = margin used · server cap '+cap+
-        ' · your leverage setting is never touched'+
-        (willLive? '' : '<br>shadow because: '+esc(st.note||'WB_LIVE is not on at the server'))+'</div>'+
-      '<div style="display:flex;gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap">'+
-        '<input id="wbAmt" class="wbAmt" type="number" inputmode="decimal" min="1" max="'+cap+'" step="1" value="'+Math.min(20,cap)+'">'+
-        '<span class="fine">USDT notional</span>'+
-        '<button class="tbtn go" id="wbGo">'+(willLive? '⚡ Place LIVE':'👻 Place shadow')+'</button>'+
-        '<button class="tbtn ghost" id="wbNo">not now</button></div></div>';
-    $("wbNo").onclick=()=>{ m.innerHTML=''; restore(); };
-    $("wbGo").onclick=async()=>{
-      const usdt=+($("wbAmt")&&$("wbAmt").value);
-      if(!(usdt>0)){ $("wbAmt").style.borderColor="var(--down)"; return; }
-      $("wbGo").disabled=true; $("wbGo").textContent="placing…";
-      let html;
-      try{
-        const r=await wbApi("/api/wb/orders",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({projId:p.id, symbol:p.symbol, tf:p.tf, side:p.dir,
-            entry:zoneEdge, entryLo:p.entryLo, entryHi:p.entryHi, stop:p.stop, t1:p.t1, t2:p.t2, usdt:usdt})});
-        html = (r&&r.error)? '<div class="flag warn">'+esc(r.error)+'</div>'
-          : '<div class="flag good">'+(r&&r.mode==="live"? "⚡ LIVE":"👻 SHADOW")+' sequence created — '+
-            esc((r&&r.note)||'the watcher advances it every minute; state shows on this card.')+'</div>';
-      }catch(e){ html='<div class="flag warn">'+esc((e&&e.message)||"failed")+'</div>'; }
+/* ── the placement SHEET ─────────────────────────────────────────────────────
+   Lives on document.body, OUTSIDE the pane — the screen recording showed the
+   old inline panel being erased by the next renderProjections() about a
+   second after it appeared, off-screen at the top of the pane, which read as
+   "unable to place live order". A fixed bottom sheet survives re-renders, is
+   visible at any scroll position, and has room for what a real order needs:
+   VOLUME (coin or USDT notional, linked), LEVERAGE (set on the symbol before
+   the entry), and what those choices mean in margin and in loss-at-the-stop. */
+function closeLiveSheet(){ const w=document.getElementById("wbSheetWrap"); if(w) w.remove(); }
+function openLiveSheet(p){
+  closeLiveSheet();
+  const wrap=document.createElement("div"); wrap.id="wbSheetWrap";
+  wrap.innerHTML='<div id="wbShade"></div><div id="wbSheet"><div class="cardNote">checking the server…</div></div>';
+  document.body.appendChild(wrap);
+  document.getElementById("wbShade").onclick=closeLiveSheet;
+  const st=(state.wbo&&state.wbo.status)||null;
+  if(st) fillLiveSheet(p);
+  if(!st || Date.now()-(state.wbo&&state.wbo.at||0)>30000){
+    wboRefresh(true).then(()=>{ if(document.getElementById("wbSheet")) fillLiveSheet(p); })
+                    .catch(()=>{ if(document.getElementById("wbSheet")) fillLiveSheet(p); });
+  }
+}
+function fillLiveSheet(p){
+  const el=document.getElementById("wbSheet"); if(!el) return;
+  const st=(state.wbo&&state.wbo.status)||{live:false, note:"backend not answering yet — it will run as shadow until it does"};
+  const willLive=!!st.live;
+  const long=p.dir==="long";
+  const cap=+(st.maxUsdt||50), maxLev=+(st.maxLev||20);
+  const zoneEdge= long? p.entryHi : p.entryLo;
+  const base=p.symbol.replace("USDT","");
+  const LEVS=[1,2,3,5,10,20].filter(l=>l<=maxLev);
+  if(state.wbLev==null || LEVS.indexOf(state.wbLev)<0) state.wbLev=LEVS[Math.min(2,LEVS.length-1)]||1;
+  el.innerHTML=
+    '<div class="tc-h" style="padding:0 0 8px">'+
+      '<span class="tc-side '+(long?'up':'down')+'">'+(long?'▲ LONG':'▼ SHORT')+'</span>'+
+      '<span class="tc-sym">'+esc(base)+'<em>'+esc(p.tf)+' · perp</em></span>'+
+      '<span class="tagS '+(willLive?'warn':'info')+'">'+(willLive?'⚡ LIVE':'👻 SHADOW')+'</span>'+
+      '<button class="tbtn ghost" id="wbNo" style="margin-left:auto">✕</button></div>'+
+    '<div class="tc-px" style="padding:0 0 6px">'+
+      '<div class="tc-cell"><span>Entry limit</span><b>'+fmt(zoneEdge)+'</b><small>zone edge</small></div>'+
+      '<div class="tc-cell"><span>Stop</span><b class="r">'+fmt(p.stop)+'</b><small>STOP_MARKET</small></div>'+
+      '<div class="tc-cell"><span>T1 / T2</span><b class="g">'+fmt(p.t1)+'</b><small>then '+fmt(p.t2)+' · BE at T1</small></div>'+
+    '</div>'+
+    '<div class="fine" style="margin:2px 0 9px">USDT-M futures · half exits at T1, half runs to T2 with the stop moved to break-even at T1 · '+
+      'margin used = position notional ÷ your account leverage'+
+      (willLive?'':' · <b>shadow because:</b> '+esc(st.note||"WB_LIVE is not on"))+'</div>'+
+    '<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:9px">'+
+      '<label class="fine" style="display:block">volume ('+esc(base)+')<br>'+
+        '<input id="wbQty" class="wbAmt" type="number" inputmode="decimal" min="0" step="any"></label>'+
+      '<label class="fine" style="display:block">notional (USDT · cap '+cap+')<br>'+
+        '<input id="wbAmt" class="wbAmt" type="number" inputmode="decimal" min="1" step="1" value="'+Math.min(20,cap)+'"></label>'+
+    '</div>'+
+    '<div class="fine" style="margin-bottom:5px">leverage — set on '+esc(base)+' before the entry goes up</div>'+
+    '<div id="wbLevs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'+
+      LEVS.map(l=>'<button class="tbtn'+(l===state.wbLev?' go':'')+'" data-lev="'+l+'">'+l+'x</button>').join('')+'</div>'+
+    '<div class="cardNote" id="wbCalc" style="margin:0 0 10px"></div>'+
+    '<button class="tbtn go" id="wbGo" style="width:100%;padding:13px">'+
+      (willLive?'⚡ Place LIVE sequence':'👻 Place shadow sequence')+'</button>';
+  const qtyEl=document.getElementById("wbQty"), amtEl=document.getElementById("wbAmt");
+  const calc=()=>{
+    const usdt=+amtEl.value||0, lev=state.wbLev||1;
+    const risk=zoneEdge>0? usdt*Math.abs(zoneEdge-p.stop)/zoneEdge : 0;
+    document.getElementById("wbCalc").innerHTML=
+      'margin ≈ <b>'+(usdt/lev).toFixed(2)+' USDT</b> at '+lev+'x · at the stop you lose ≈ <b class="r">'+
+      risk.toFixed(2)+' USDT</b> (leverage moves margin, NOT this risk) · legs ≈ '+(usdt/2).toFixed(2)+' USDT each';
+  };
+  const syncFromAmt=()=>{ const u=+amtEl.value||0; qtyEl.value=u>0? (u/zoneEdge).toPrecision(5) : ""; calc(); };
+  const syncFromQty=()=>{ const q=+qtyEl.value||0; amtEl.value=q>0? (q*zoneEdge).toFixed(2) : ""; calc(); };
+  amtEl.oninput=syncFromAmt; qtyEl.oninput=syncFromQty;
+  syncFromAmt();
+  document.getElementById("wbNo").onclick=closeLiveSheet;
+  /* chip click updates in place — a full re-render here would wipe the volume
+     he just typed */
+  document.querySelectorAll("#wbLevs [data-lev]").forEach(b=>b.onclick=()=>{
+    state.wbLev=+b.dataset.lev;
+    document.querySelectorAll("#wbLevs [data-lev]").forEach(x=>x.classList.toggle("go", +x.dataset.lev===state.wbLev));
+    calc();
+  });
+  document.getElementById("wbGo").onclick=async()=>{
+    const qty=+qtyEl.value||0, usdt=+amtEl.value||0;
+    if(!(usdt>0)&&!(qty>0)){ amtEl.style.borderColor="var(--down)"; return; }
+    const go=document.getElementById("wbGo");
+    go.disabled=true; go.textContent="placing…";
+    let ok=false, msg="";
+    try{
+      const r=await wbApi("/api/wb/orders",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({projId:p.id, symbol:p.symbol, tf:p.tf, side:p.dir,
+          entry:zoneEdge, entryLo:p.entryLo, entryHi:p.entryHi, stop:p.stop, t1:p.t1, t2:p.t2,
+          usdt:usdt||undefined, qty:qty||undefined, leverage:state.wbLev})});
+      if(r&&r.error) msg=r.error;
+      else{ ok=true; msg=(r&&r.mode==="live"?"⚡ LIVE":"👻 SHADOW")+" sequence created — "+
+        ((r&&r.note)||"the watcher advances it every minute; state shows on the card."); }
+    }catch(e){ msg=(e&&e.message)||"failed"; }
+    if(ok){
+      el.innerHTML='<div class="flag good" style="margin:0">✓ '+esc(msg)+'</div>';
       try{ await wboRefresh(true); }catch(e){}
       try{ renderProjections(); }catch(e){}
-      const m2=$("prjMsg"); if(m2) m2.innerHTML=html;
-      restore();
-    };
-  }).catch(e=>{
-    m.innerHTML='<div class="flag warn">'+esc((e&&e.message)||"backend unreachable")+'</div>';
-    restore();
-  });
+      const m=$("prjMsg"); if(m) m.innerHTML='<div class="flag good">'+esc(msg)+'</div>';
+      setTimeout(closeLiveSheet, 1600);
+    } else {
+      go.disabled=false; go.textContent=(willLive?'⚡ Place LIVE sequence':'👻 Place shadow sequence');
+      const c=document.getElementById("wbCalc"); if(c) c.innerHTML='<span style="color:var(--down)">'+esc(msg)+'</span>';
+    }
+  };
 }
 
 /* ---- the PROJECT tab -------------------------------------------------------
@@ -8036,8 +8103,7 @@ function renderProjections(){
   });
   el.querySelectorAll("[data-live]").forEach(b=>b.onclick=()=>{
     const p=state.projections.find(x=>x.id===b.dataset.live); if(!p) return;
-    b.disabled=true; b.textContent="⚡ …";
-    liveOrderPanel(p, b);
+    openLiveSheet(p);           /* the sheet lives on <body> — re-renders and scroll cannot touch it */
   });
   el.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{
     const p=state.projections.find(x=>x.id===b.dataset.cancel);
