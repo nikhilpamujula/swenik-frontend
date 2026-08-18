@@ -1246,7 +1246,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18r-audit";
+window.WB_BUILD = "2026-08-18s-upgrade";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1558,7 +1558,12 @@ let SYMBOL = "BTCUSDT";   /* current pair — changed by the picker */
 const IS_PANE = (function(){ try{ const q=new URLSearchParams(location.search);
   return q.get("tile")==="1" || !!+(q.get("pane")||0); }catch(e){ return false; } })();
 const COLORS = ["#1F9BB3","#B8891A","#8560D6","#E8EAED","#A3A7AD","#7FE3C4"];
-const AXIS_W = 82, TIME_H = 24, VOL_FRAC = 0.16;
+const AXIS_W_MAX = 82, AXIS_W_MIN = 52;
+/* The price rail used to be a hard 82px on every symbol and every screen.
+   On a 390px phone that is a fifth of the width spent on four digits of
+   DOGE. It is now measured from the digits actually on show. */
+let AXIS_W = AXIS_W_MAX;
+const TIME_H = 24, VOL_FRAC = 0.16;
 const INTERVAL_SEC = {"15m":900,"1h":3600,"4h":14400,"1d":86400};
 const KIND_GLYPH = {h:"─", d:"╱", v:"│"};
 
@@ -1615,7 +1620,8 @@ window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view,
   updateProjections:()=>updateProjections(),
   candlesSym:(v)=>{ if(v!==undefined) state.candlesSym=v; return state.candlesSym; },
   lvRefresh:()=>{ if(state.lv) state.lv.at=0; return renderLive(); },
-  renderLevels:()=>renderLevelList() };
+  renderLevels:()=>renderLevelList(),
+  axisChips:()=>state._axisChips||[], axisW:()=>AXIS_W, defaultCount:()=>defaultCount() };
 
 /* ---------- sizing ---------- */
 function resize(){
@@ -1623,12 +1629,50 @@ function resize(){
   W = wrap.clientWidth; H = wrap.clientHeight;
   cv.width = W*DPR; cv.height = H*DPR;
   ctx.setTransform(DPR,0,0,DPR,0,0);
+  measureAxisW();
   render();
 }
 new ResizeObserver(resize).observe(wrap);
 
 /* ---------- geometry ---------- */
 function chartW(){ return W - AXIS_W; }
+/* Narrow the rail to whatever the current symbol's prices need. Called on
+   resize and on symbol switch, because that is when the digit count changes. */
+function measureAxisW(){
+  const c=state.candles;
+  if(!c || !c.length){ AXIS_W=AXIS_W_MAX; return; }
+  const [l,r]=visibleRange();
+  let lo=Infinity, hi=-Infinity;
+  for(let i=Math.max(0,l);i<=r;i++){ if(c[i].low<lo)lo=c[i].low; if(c[i].high>hi)hi=c[i].high; }
+  if(!isFinite(lo)||!isFinite(hi)){ AXIS_W=AXIS_W_MAX; return; }
+  const prev=ctx.font;
+  ctx.font="12px ui-monospace,Menlo,monospace";
+  let w=0;
+  for(const p of [lo,hi,c[c.length-1].close]) w=Math.max(w, ctx.measureText(fmtAxis(p)).width);
+  ctx.font=prev;
+  /* room for the pointer gutter plus 4px of padding either side of the text */
+  AXIS_W=Math.round(Math.max(AXIS_W_MIN, Math.min(AXIS_W_MAX, w+CHIP_GUT+8)));
+  /* The floating zoom buttons are bottom-right and used to sit ON TOP of the
+     price rail, hiding whichever chips landed behind them — worse once chips
+     are packed, because a nudged chip can be pushed under a button. Park them
+     clear of the rail instead of teaching the packer to avoid them. */
+  try{
+    const zb=document.getElementById("zoomBox");
+    if(zb) zb.style.right=(AXIS_W+8)+"px";
+  }catch(e){}
+}
+/* The chart used to open at a fixed 120 bars whatever the width. On a 390px
+   phone that is a candle body under 2px — you cannot see whether a test closed
+   through a level or only wicked it. Open at the bar count that keeps the body
+   at least MIN_BODY_PX. Any chart wider than about 590px still lands on 120, so
+   the monitor is untouched; only his saved/manual zoom is never overridden. */
+const MIN_BODY_PX=3.5, DEF_COUNT_MAX=120, DEF_COUNT_MIN=40;
+function defaultCount(){
+  const w=chartW();
+  if(!(w>0)) return DEF_COUNT_MAX;
+  const n=Math.floor(w*0.72/MIN_BODY_PX);   /* 0.72 is the body/slot ratio render() uses */
+  return Math.max(DEF_COUNT_MIN, Math.min(DEF_COUNT_MAX, n));
+}
 function paneLayout(){
   const avail=H-TIME_H;
   const subs=[];
@@ -1676,6 +1720,65 @@ function priceBounds(){
 }
 let PB=[0,1];
 const axisTags=[];
+const CHIP_H=18, CHIP_GAP=19, CHIP_GUT=4;   /* chip box, min pitch, pointer gutter */
+/* AXIS CHIP STACKING. Two levels 0.1% apart painted their chips on top of each
+   other in the rail, so the number he read could belong to the other line and
+   nothing on screen said so. The order tags already sort-and-nudge; do the same
+   here, but leave a pointer behind at the TRUE price so the chip that moved
+   still says which line it came from. When the rail genuinely cannot hold them
+   all, the least useful chips are dropped rather than stacked — the live price
+   is never one of them. */
+function layoutAxisChips(tags, liveY, liveTxt){
+  const H0=priceH(), HALF=CHIP_H/2;
+  const list=[];
+  /* ONE non-finite price used to poison the whole rail: it entered the group
+     merge, the running mean went NaN, and every chip — the live price with them
+     — stopped drawing while the chart otherwise looked fine. A bad level may
+     only ever cost its own chip. */
+  for(const t of tags){
+    if(!isFinite(t.y)) continue;
+    if(t.y<-8 || t.y>H0+8) continue;
+    list.push({py:t.y, y:t.y, color:t.color, txt:t.txt, auto:!!t.auto, live:false});
+  }
+  if(isFinite(liveY) && liveY>=-8 && liveY<=H0+8)
+    list.push({py:liveY, y:liveY, color:null, txt:liveTxt, auto:false, live:true});
+  const cap=Math.max(1, Math.floor((H0+CHIP_GAP-CHIP_H)/CHIP_GAP));
+  if(list.length>cap){
+    const keep=list.slice().sort((a,b)=>
+      (b.live?1:0)-(a.live?1:0) || (a.auto?1:0)-(b.auto?1:0) ||
+      Math.abs(a.py-liveY)-Math.abs(b.py-liveY));
+    keep.length=cap;
+    for(let i=list.length-1;i>=0;i--) if(keep.indexOf(list[i])<0) list.splice(i,1);
+  }
+  list.sort((a,b)=>a.py-b.py);
+  /* Each run of colliding chips is placed as one block CENTRED on the prices it
+     came from, so a tight cluster stays beside its own lines instead of sliding
+     down the whole rail. Merging repeats because moving a block can push it into
+     the block above. */
+  const groups=[];
+  for(const ch of list){
+    let g={n:1, items:[ch], sum:ch.py, top:0};
+    g.top = g.sum - HALF;
+    while(groups.length){
+      const prev=groups[groups.length-1];
+      if(prev.top + prev.n*CHIP_GAP <= g.top) break;
+      groups.pop();
+      g={n:prev.n+g.n, items:prev.items.concat(g.items), sum:prev.sum+g.sum, top:0};
+      g.top = g.sum/g.n - HALF - (g.n-1)*CHIP_GAP/2;
+    }
+    groups.push(g);
+  }
+  let edge=0;
+  for(const g of groups){ if(g.top<edge) g.top=edge; edge=g.top+g.n*CHIP_GAP; }
+  edge=H0+(CHIP_GAP-CHIP_H);
+  for(let i=groups.length-1;i>=0;i--){
+    const g=groups[i];
+    if(g.top+g.n*CHIP_GAP>edge) g.top=edge-g.n*CHIP_GAP;
+    edge=g.top;
+  }
+  for(const g of groups) for(let i=0;i<g.items.length;i++) g.items[i].y=g.top+HALF+i*CHIP_GAP;
+  return list;
+}
 let labelBoxes=[];
 function labelFits(x,y,w,h){
   for(const b of labelBoxes){
@@ -1722,6 +1825,7 @@ function render(){
 
   PB = priceBounds();
   axisTags.length=0; labelBoxes=[];
+  const gridLabels=[];
   const [l,r] = visibleRange();
   const bw = chartW()/state.view.count;
   const bodyW = Math.max(1, Math.min(bw*0.72, 14));
@@ -1733,7 +1837,7 @@ function render(){
     const y = yOf(p);
     if(y<0||y>priceH()) continue;
     ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
-    ctx.fillText(fmtAxis(p), chartW()+6, y);
+    gridLabels.push({y, txt:fmtAxis(p)});   /* drawn later, once the chips are placed */
   }
 
   ctx.textAlign="center";
@@ -1904,6 +2008,78 @@ function render(){
       tag("T1 "+fmtAxis(P3.t1), yT1, hexA(C_UP,0.85));
       tag((long?"BUY ":"SELL ")+fmtAxis((P3.entryLo+P3.entryHi)/2), (yEL+yEH)/2, hexA(bandCol,0.95));
       tag("SL "+fmtAxis(P3.stop), yS, hexA(C_DOWN,0.95));
+      /* ---- the deadline, and how far it has actually travelled -----------
+         A box that runs to the right edge says the thesis has unlimited time.
+         It does not — the tracker expires it. Draw the tracker's OWN deadline
+         (the unfilled wait window before a fill, the live window after one) so
+         the picture and the grading can never tell him different stories.   */
+      if(!P3.outcome){
+        const HB3=projHB(P3.tf), nNow=state.candles.length-1;
+        let iExp;
+        let known=true;
+        if(P3.filledTime!=null){
+          /* findIndex returns 0 — never -1 — when the loaded window starts AFTER
+             the fill bar, so a "not found" reads as "filled on bar 0" and the
+             countdown becomes fiction. Detect it properly and say nothing
+             rather than say a number. */
+          const iF=state.candles.findIndex(c=>c.time>=P3.filledTime);
+          const found = iF>=0 && state.candles[iF] && state.candles[0].time<=P3.filledTime;
+          if(found) iExp=iF + PRJ_LIVE_MULT*HB3;
+          else { iExp=i0 + PRJ_LIVE_MULT*HB3; known=false; }
+        } else iExp = i0 + PRJ_WAIT_MULT*HB3;
+        if(state.replay && state.replay.on) known=false;   /* replay time is not real time */
+        const left=Math.max(0, iExp-nNow);
+        const xE=xOf(iExp), offR = xE > x1-2, xD = offR? x1-1 : Math.max(x0+1, xE);
+        const eTop=Math.max(0, Math.min(yT2,yS)), eBot=Math.min(priceH(), Math.max(yT2,yS));
+        ctx.setLineDash([2,4]); ctx.lineWidth=1.4;
+        ctx.strokeStyle=hexA("#AAB6FF",0.85);
+        ctx.beginPath(); ctx.moveTo(xD+.5, eTop); ctx.lineTo(xD+.5, eBot); ctx.stroke();
+        ctx.setLineDash([]); ctx.lineWidth=1;
+        /* the word is "expires", never "exit" — this edge is when the FORECAST
+           gets graded, not an instruction to be out of a trade by then. When the
+           deadline is off-screen the arrow says so, so a clamped edge can never
+           be mistaken for the box being infinite again.                      */
+        ctx.font="10px ui-monospace,Menlo,monospace";
+        const eT = !known ? "expiry bar not in view"
+                 : offR ? ("expires \u25b6 "+left+" bars")
+                 : (left<=0? "expires this bar" : "expires in "+left+(left===1?" bar":" bars"));
+        const eW = ctx.measureText(eT).width+8;
+        /* bottom corner of the figure: the status badge owns the top-left and
+           the price tags own the right gutter, so a clamped edge parks left */
+        const eX = Math.max(2, Math.min(offR? x0+3 : Math.max(x0+2, xD-eW-3), x1-eW-2));
+        const eY = Math.max(11, Math.min(priceH()-3, eBot-14));   /* clear of the T2/SL price tag on the same row */
+        ctx.fillStyle="rgba(9,11,15,.85)"; ctx.fillRect(eX, eY-9, eW, 13);
+        ctx.fillStyle=hexA("#AAB6FF",0.95); ctx.fillText(eT, eX+4, eY+1);
+        /* excursion in R, from the shared helper the PROJECT card also reads */
+        const EX=projExc(P3, projSeries(P3));
+        if(EX){
+          /* price sitting ON its own worst excursion is the normal case, so the
+             two tags would print on top of each other — nudge the later one down
+             a row rather than lose it */
+          const rows=[];
+          const slot=y=>{ let v=y; for(let k=0;k<3 && rows.some(u=>Math.abs(u-v)<13); k++) v+=14;
+            rows.push(v); return Math.min(v, priceH()-2); };
+          const chip=(y,txt,col)=>{
+            const w=ctx.measureText(txt).width+8;
+            const lx=Math.max(2, Math.min(Math.max(x0+2, xD-w-3), x1-w-2));
+            ctx.fillStyle="rgba(9,11,15,.8)"; ctx.fillRect(lx, y-11, w, 13);
+            ctx.fillStyle=hexA(col,0.95); ctx.fillText(txt, lx+4, y-1);
+          };
+          const hair=(px,txt,col)=>{
+            if(px==null) return;
+            const y=yOf(px); if(y<12||y>priceH()-4) return;
+            ctx.setLineDash([1,3]); ctx.strokeStyle=hexA(col,0.7);
+            ctx.beginPath(); ctx.moveTo(x0,y+.5); ctx.lineTo(xD,y+.5); ctx.stroke(); ctx.setLineDash([]);
+            chip(slot(y), txt, col);
+          };
+          hair(EX.bestPx,  "best "+fmtR(EX.best),   C_UP);
+          hair(EX.worstPx, "worst "+fmtR(EX.worst), C_DOWN);
+          if(EX.now!=null && state.candles[nNow]){
+            const yN=yOf(state.candles[nNow].close);
+            if(yN>=12 && yN<=priceH()-4) chip(slot(yN), "now "+fmtR(EX.now), EX.now>=0? C_UP : C_DOWN);
+          }
+        }
+      }
       const st=((PRJ_BADGE[P3.status]||["?"])[0]).replace(/^[^A-Za-z0-9]+/,"");
       ctx.font="10px ui-monospace,Menlo,monospace";
       ctx.fillStyle=hexA(P3.status==="failed"? C_DOWN : P3.status==="success"? C_UP : "#AAB6FF", 0.9);
@@ -2236,27 +2412,54 @@ function render(){
 
   /* price-axis tags, painted after the clip is released */
   ctx.font="12px ui-monospace,Menlo,monospace";
-  for(const t of axisTags){
-    if(t.y<-8||t.y>priceH()+8) continue;
+  const lc = state.candles[state.candles.length-1];
+  const ly = yOf(lc.close);
+  const chips = layoutAxisChips(axisTags, ly, fmtAxis(lc.close));
+  state._axisChips = chips;
+  /* a grid number half-swallowed by a chip is just noise, and half a digit is
+     how you misread a price — drop it, the chip already labels that spot */
+  ctx.font="11.5px ui-monospace,Menlo,monospace"; ctx.fillStyle="#A3A7AD";
+  for(const g of gridLabels){
+    let clash=false;
+    for(const c of chips) if(Math.abs(c.y-g.y)<CHIP_H/2+5){ clash=true; break; }  /* 9px chip half + 5px glyph half */
+    if(!clash) ctx.fillText(g.txt, chartW()+6, g.y);
+  }
+  ctx.font="12px ui-monospace,Menlo,monospace";
+  /* pointers go in the gutter the chip bodies deliberately leave free, so a
+     chip that had to move is still tied to the price it came from */
+  for(const c of chips){
+    if(Math.abs(c.y-c.py)>0.5){
+      ctx.fillStyle=hexA(c.live? (lc.close>=lc.open?"#2DD4A0":"#F2495C") : c.color, 0.5);
+      /* from the true price to the near EDGE of the chip that moved — the old
+         rect added the chip's half-height in both directions, so a down-moved
+         connector ran through its own chip and into the row below it */
+      const cTop=Math.min(c.py, c.y-9), cBot=Math.max(c.py, c.y+9);
+      ctx.fillRect(chartW()+0.75, cTop, 2, Math.max(2, cBot-cTop-9));
+    }
+    ctx.fillStyle=c.live? (lc.close>=lc.open?"#2DD4A0":"#F2495C") : hexA(c.color,0.9);
+    ctx.fillRect(chartW(), c.py-1, CHIP_GUT+1, 2);
+  }
+  for(const t of chips){
+    if(t.live) continue;                          /* the live chip keeps its own style below */
+    const bx=chartW()+CHIP_GUT, bw=AXIS_W-CHIP_GUT;
     /* level tags read as labels, not warnings: dark chip + coloured ink + a
        coloured spine. Only the LIVE price keeps a solid fill, so exactly one
        thing on the axis is loud — and it is the one that should be. */
-    ctx.fillStyle="rgba(11,14,20,.94)"; ctx.fillRect(chartW(),t.y-9,AXIS_W,18);
-    ctx.fillStyle=hexA(t.color,0.95);   ctx.fillRect(chartW(),t.y-9,2.5,18);
-    ctx.fillStyle=hexA(t.color,0.98);   ctx.fillText(t.txt, chartW()+7, t.y+1);
+    ctx.fillStyle="rgba(11,14,20,.94)"; ctx.fillRect(bx,t.y-9,bw,18);
+    ctx.fillStyle=hexA(t.color,0.95);   ctx.fillRect(bx,t.y-9,2.5,18);
+    ctx.fillStyle=hexA(t.color,0.98);   ctx.fillText(t.txt, bx+4, t.y+1);
   }
 
-  const lc = state.candles[state.candles.length-1];
-  const ly = yOf(lc.close);
   if(ly>=0 && ly<=priceH()){
     ctx.setLineDash([4,4]);
     ctx.strokeStyle = lc.close>=lc.open? "#2DD4A0":"#F2495C";
     ctx.beginPath(); ctx.moveTo(0,ly+.5); ctx.lineTo(chartW(),ly+.5); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = lc.close>=lc.open? "#2DD4A0":"#F2495C";
-    ctx.fillRect(chartW(),ly-9,AXIS_W,18);
+    const lch = chips.filter(c=>c.live)[0] || {y:ly};
+    ctx.fillRect(chartW()+CHIP_GUT,lch.y-9,AXIS_W-CHIP_GUT,18);
     ctx.fillStyle="#090B0F";
-    ctx.fillText(fmtAxis(lc.close), chartW()+5, ly+1);
+    ctx.fillText(fmtAxis(lc.close), chartW()+CHIP_GUT+3, lch.y+1);
   }
 
   if(state.cross){
@@ -2349,7 +2552,7 @@ function drawHLevel(lvl){
   ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
   ctx.setLineDash([]); ctx.lineWidth=1;
   ctx.font="12px ui-monospace,Menlo,monospace";
-  axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price)});
+  axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price), auto:!!lvl.auto});
   if(lvl.label) labelPill(lvl.label, 6, y, lvl.color);
   if(sty.badge) zoneBadge(sty.badge, sty.bc, chartW()*0.42, yUp-10);
 }
@@ -2383,7 +2586,7 @@ function drawDiag(lvl){
   ctx.lineWidth=1;
   ctx.fillStyle=lvl.color;
   for(const p of [a,b]){ ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,Math.PI*2); ctx.fill(); }
-  if(ye>=0 && ye<=priceH()) axisTags.push({y:ye, color:lvl.color, txt:fmtAxis(priceAt(ye))});
+  if(ye>=0 && ye<=priceH()) axisTags.push({y:ye, color:lvl.color, txt:fmtAxis(priceAt(ye)), auto:!!lvl.auto});
   if(lvl.label) labelPill(lvl.label, Math.max(6,a.x), a.y-14, lvl.color);
   if(sty.badge) zoneBadge(sty.badge, sty.bc, Math.max(6,a.x)+4, a.y-30);
 }
@@ -4935,7 +5138,7 @@ function zoomY(factor, anchorY){
 }
 function resetView(){
   state.view.yLock=false;
-  state.view.count=Math.min(120,state.candles.length||120);
+  state.view.count=Math.min(defaultCount(),state.candles.length||defaultCount());
   setRight((state.candles.length||1)-1);
   state.follow=true;
 
@@ -5430,7 +5633,13 @@ function projFactorEvidence(projections){
   /* echoes are deliberate re-takes of an already-open bet: their outcomes are
      correlated with the original by construction, so counting them would let
      one market move vote several times in the factor scorecard              */
+  /* and only rows the market decided a DIRECTION for: resolveProjection stores
+     actualDir:null on an expiry now, because an expired-flat close one tick
+     either side of the entry is a coin flip, not evidence. The result test
+     beside it heals rows an older build graded off that coin flip.          */
   const done=(projections||[]).filter(p => p && p.outcome && !p.echo && p.outcome.result!=='cancelled'
+    && (p.outcome.actualDir==='up' || p.outcome.actualDir==='down')
+    && !/expired/.test(String(p.outcome.result||''))
     && (Array.isArray(p.outcome.aligned) || Array.isArray(p.outcome.against)));
   const fm={}; let up=0;
   for(const p of done){
@@ -6029,8 +6238,9 @@ async function loadCandles(){
      the window in which trades and projections used to be graded against the
      WRONG COIN's candles (an ETH stop "hit" by a BTC high). */
   state.candlesSym = state.symbol;
-  state.view.count = Math.min(120, state.candles.length);
   state.view.right = state.candles.length-1;
+  measureAxisW();                    /* digit count changes with the symbol */
+  state.view.count = Math.min(defaultCount(), state.candles.length);
   state.follow = true; state.cross=null;
   updateHeader(); refreshTouchCounts();
   loadHTF().then(()=>{ try{ state.htfPats=htfPatterns(); }catch(e){} renderPane(); render(); });
@@ -6083,8 +6293,21 @@ function startPolling(){
         const c=mapK(k);
         const last=state.candles[state.candles.length-1];
         if(last && c.time===last.time){ state.candles[state.candles.length-1]=c; changed=true; }
-        else if(!last || c.time>last.time){ state.candles.push(c); changed=true; newBar=true;
-          if(state.follow) state.view.right=state.candles.length-1; }
+        else if(!last || c.time>last.time){
+          /* forward room he opened on purpose (a read, a projection) has to
+             survive a bar close — snapping right onto the newest bar left the
+             projection boxes and their expiry edge nowhere to draw */
+          /* ...but only room that something is actually USING. An unscoped
+             carry would preserve an accidental momentum-pan forever and kill
+             the snap-back-to-now self-heal, so it is capped and conditional. */
+          const needFwd = !!(state.analysis || state.read ||
+            (state.projections||[]).some(q=>q && q.symbol===state.symbol && q.tf===state.tf &&
+                                            ["waiting","active","t1"].includes(q.status)));
+          const fwdGap = needFwd
+            ? Math.min(24, Math.max(0, state.view.right-(state.candles.length-1)))
+            : 0;
+          state.candles.push(c); changed=true; newBar=true;
+          if(state.follow) state.view.right=(state.candles.length-1)+fwdGap; }
       }
       if(changed){
         updateHeader();
@@ -7001,6 +7224,82 @@ function patternCard(P, idx){
        clear of the shuffled rate, the shape has told you nothing.
    ========================================================================== */
 const PATLAB_LOOK = { "15m":80, "1h":60, "4h":45, "1d":30 };
+/* A FIXED sampling step, in bars. The first version derived the step from the
+   series length (step = range/110), so 4000 bars produced barely more samples
+   than 500 — the measurement quietly capped its own n no matter how much
+   history it was handed. With a fixed step, more history buys more samples,
+   which is the entire reason for paging history in below. */
+const PATLAB_STEP = { "15m":4, "1h":3, "4h":2, "1d":1 };
+/* At every sampled bar the detector sees a ROLLING window of this many bars,
+   because that is exactly what it sees live — loadCandles asks for 500. Handing
+   it 4000 bars of context would measure a detector he never actually runs, and
+   would make each sample cost more the further the walk got. */
+const PATLAB_VIEW = 500;
+/* How far back to page. fapi returns at most 1500 klines per call; four pages
+   of 1000 reaches ~4000 bars where the contract has been listed that long. */
+const PATLAB_PAGES = 4, PATLAB_PAGE = 1000;
+/* Random-entry draws per measured structure, and a floor per SHAPE — a shape
+   seen twice would otherwise get a 60-draw null, which is too thin to judge
+   anything by. Drawing is cheap: no detector runs, only a forward read. */
+const PATLAB_DRAWS = 30, PATLAB_MINDRAW = 240;
+
+/* MORE DATA, WITHOUT DISTURBING THE CHART. The live chart only ever loads 500
+   bars, and 500 bars of one symbol is a thin plate to measure anything on. This
+   walks backwards through fapi klines with endTime, page by page, de-duplicated
+   by open time. It writes to its OWN cache and never to state.candles — the
+   chart is drawing from that array and a measurement must not move it. */
+async function patLabHistory(sym, tf, onProgress){
+  const key=sym+"|"+tf;
+  /* a re-measure of the same symbol+tf is instant; nothing here changes under
+     us except the newest bar, and patLabSeries merges the live tail back in */
+  if(state._patHist && state._patHist.key===key) return state._patHist.rows;
+  const seen=new Map();
+  let endTime=null;
+  for(let page=0; page<PATLAB_PAGES; page++){
+    const url=(state.host||FAPI)+"/fapi/v1/klines?symbol="+sym+"&interval="+tf+
+              "&limit="+PATLAB_PAGE+(endTime!=null? "&endTime="+endTime : "");
+    let raw=null;
+    try{ raw=await (await fetch(url,{signal:AbortSignal.timeout(15000)})).json(); }catch(e){ break; }
+    if(!Array.isArray(raw) || !raw.length) break;
+    const first=raw[0][0];
+    for(const k of raw) if(!seen.has(k[0])) seen.set(k[0], mapK(k));
+    if(onProgress) onProgress((page+1)/PATLAB_PAGES, seen.size);
+    /* a short page means the listing history ran out; a page that did not move
+       backwards means the venue ignored endTime — either way, stop paging */
+    if(raw.length<PATLAB_PAGE || (endTime!=null && first>=endTime)) break;
+    endTime=first-1;
+  }
+  const rows=[...seen.values()].sort((a,b)=>a.time-b.time);
+  if(rows.length) state._patHist={ key, rows, at:Date.now() };
+  return rows;
+}
+/* de-duplicate two candle series by open time, oldest first */
+function patLabMerge(a, b){
+  const m=new Map();
+  for(const c of a) m.set(c.time, c);
+  for(const c of b) m.set(c.time, c);
+  return [...m.values()].sort((x,y)=>x.time-y.time);
+}
+/* The series the whole measurement runs on: paged history with the live tail
+   merged back in, so a cached page set can never score a stale last few bars. */
+async function patLabSeries(sym, tf, onProgress){
+  let hist=[];
+  try{ hist=await patLabHistory(sym, tf,
+        (f,n)=>{ if(onProgress) onProgress(0.02+f*0.16, n+" bars loaded"); }); }catch(e){}
+  /* The live tail is only usable if the chart is STILL showing the pair we
+     started measuring. Paging takes seconds on a phone; a timeframe tap in that
+     window used to graft the new chart's bars onto the old chart's history and
+     the result was then labelled as the new chart — a garbage measurement
+     wearing a valid badge. */
+  const live=(state.symbol===sym && state.tf===tf &&
+              state.candlesSym===sym && state.candles)? state.candles : [];
+  return patLabMerge(hist, live);
+}
+/* Where the walk starts, shared by the real pass and the random-entry null so
+   both draw from exactly the same period of history. */
+function patLabStart(C){
+  return Math.max(60, Math.min(PATLAB_VIEW, Math.floor(C.length*0.25)));
+}
 
 /* Wilson score interval — small samples get an honest width instead of a
    confident-looking point estimate. */
@@ -7045,7 +7344,7 @@ function patOutcome(P, C, i0, look){
 /* One pass over a candle series, sampling the detector as it would have run
    live. Synchronous per window; the caller yields between chunks so a phone
    does not freeze. */
-function patLabPass(C, look, step, onEach){
+function patLabPass(C, look, step, onEach, seg){
   const saveC=state.candles, saveVP=state._vpCache;
   /* ONE STRUCTURE = ONE SAMPLE. The first version keyed on the trigger price,
      and a triangle's trigger drifts as its lines converge — so one evolving
@@ -7053,18 +7352,27 @@ function patLabPass(C, look, step, onEach){
      H&S measured as n=6). A structure is the SAME structure while its bar span
      overlaps the last scored one; it is only a new sample when it starts after
      the previous one ended. Re-detections are counted and reported, not scored. */
-  const lastSpan=new Map();                 /* name|dir → {from,to} of last SCORED structure */
-  const rows=[]; let collapsed=0; const colBy={};
-  const start=Math.max(60, Math.floor(C.length*0.25));
+  /* `seg` lets the caller run the walk in slices and carry the collapse state
+     across them, so a 4000-bar pass yields to the phone every few hundred ms
+     instead of locking the tab for the whole measurement. */
+  const lastSpan=(seg&&seg.lastSpan)||new Map();   /* name|dir → {from,to} of last SCORED structure */
+  const rows=(seg&&seg.rows)||[];
+  let collapsed=(seg&&seg.collapsed)||0;
+  const colBy=(seg&&seg.colBy)||{};
+  const start=(seg&&seg.i0!=null)? seg.i0 : patLabStart(C);
+  const stop=Math.min((seg&&seg.i1!=null)? seg.i1 : C.length-6, C.length-6);
   try{
-    for(let i=start;i<C.length-6;i+=step){
-      state.candles=C.slice(0,i+1); state._vpCache=null;
+    for(let i=start;i<stop;i+=step){
+      /* rolling window, not a growing one — see PATLAB_VIEW */
+      const w0=Math.max(0, i+1-PATLAB_VIEW);
+      state.candles=C.slice(w0,i+1); state._vpCache=null;
       let pats=[];
       try{ pats=detectPatterns(); }catch(e){}
       for(const P of pats){
         const sig=P.name+"|"+P.dir;
         const prev=lastSpan.get(sig);
-        const from=isFinite(P.from)? P.from : i-1, to=isFinite(P.to)? P.to : i;
+        /* P.from/P.to index the rolling window; shift them back to absolute bars */
+        const from=isFinite(P.from)? P.from+w0 : i-1, to=isFinite(P.to)? P.to+w0 : i;
         if(prev && from<=prev.to+2){        /* same structure, still forming/drifting */
           prev.to=Math.max(prev.to, to); collapsed++;
           (colBy[sig]=(colBy[sig]||0)+1); continue;
@@ -7072,13 +7380,61 @@ function patLabPass(C, look, step, onEach){
         const o=patOutcome(P, C, i, look);
         if(!o) continue;
         lastSpan.set(sig, {from, to:Math.max(to, i)});
-        rows.push({ name:P.name, dir:P.dir, quality:P.quality, at:i, from, ...o });
+        rows.push({ name:P.name, dir:P.dir, quality:P.quality, at:i, from,
+                    geo:patLabGeom(P, C[i].close, look), ...o });
       }
       if(onEach) onEach(i);
     }
   } finally { state.candles=saveC; state._vpCache=saveVP; }
   rows._collapsed=collapsed; rows._colBy=colBy;
+  if(seg){ seg.lastSpan=lastSpan; seg.rows=rows; seg.collapsed=collapsed; seg.colBy=colBy; }
   return rows;
+}
+
+/* The SHAPE of a detection reduced to pure distances from the bar it was seen
+   on: how far to the trigger, how far from there to the objective, how far to
+   invalidation. That is everything the random-entry null needs to replant the
+   same trade somewhere the shape never appeared. */
+function patLabGeom(P, ref, look){
+  if(!ref) return null;
+  if(P.trigger==null && P.upper!=null && P.lower!=null)
+    return { dir:P.dir, look, gUp:P.upper/ref-1, gLo:P.lower/ref-1 };
+  if(P.trigger==null || P.target==null || P.invalid==null) return null;
+  return { dir:P.dir, look, gTrig:P.trigger/ref-1,
+           gTgt:P.target/P.trigger-1, gInv:P.invalid/P.trigger-1 };
+}
+/* THE HONEST NULL. Shuffling candles destroys drift, so "it beats shuffled"
+   mostly detects "the market trended" — the shape gets credit for the market.
+   This asks the sharper question instead: take the SAME geometry (same trigger
+   distance, same objective, same invalidation, same look-ahead) and plant it at
+   RANDOM bars of the SAME stretch of real history, many times. If the shape is
+   doing nothing, the geometry pays the same anywhere on this chart. */
+function patLabRandomPass(rows, C, draws, rnd){
+  const R=rnd||Math.random;
+  const lo=patLabStart(C), hi=C.length-7;
+  const out=[];
+  if(hi<=lo) return out;
+  const cnt={}; for(const r of rows) if(r.geo) cnt[r.name]=(cnt[r.name]||0)+1;
+  for(const r of rows){
+    const g=r.geo; if(!g) continue;
+    const nD=Math.max(draws, Math.ceil(PATLAB_MINDRAW/cnt[r.name]));
+    for(let d=0; d<nD; d++){
+      const j=lo+Math.floor(R()*(hi-lo));
+      const ref=C[j].close; if(!ref) continue;
+      let P;
+      if(g.gTrig!=null){
+        const trig=ref*(1+g.gTrig);
+        P={ name:r.name, dir:g.dir, trigger:trig,
+            target:trig*(1+g.gTgt), invalid:trig*(1+g.gInv) };
+      } else {
+        P={ name:r.name, dir:g.dir, trigger:null,
+            upper:ref*(1+g.gUp), lower:ref*(1+g.gLo) };
+      }
+      const o=patOutcome(P, C, j, g.look);
+      if(o) out.push({ name:r.name, dir:g.dir, at:j, ...o });
+    }
+  }
+  return out;
 }
 
 function patLabAgg(rows){
@@ -7106,41 +7462,85 @@ function patLabAgg(rows){
 
 /* The whole measurement, chunked so the UI keeps breathing. */
 async function patLabRun(onProgress){
-  const C=state.candles.slice();
+  const say=onProgress||function(){};
+  /* Pin the run to the chart it started on. Everything downstream — the look,
+     the step, the label on the result — uses these, never the live globals. */
+  const sym=state.symbol, tf=state.tf;
+  const moved=()=>state.symbol!==sym || state.tf!==tf;
+  say(0.01, "loading history");
+  const C=await patLabSeries(sym, tf, say);
+  if(moved()) return { err:"Chart changed to "+state.symbol.replace("USDT","")+" "+state.tf+
+                            " while measuring "+sym.replace("USDT","")+" "+tf+" — nothing measured. Tap measure again." };
   if(C.length<160) return { err:"Not enough history on this timeframe to measure anything — load more candles first." };
-  const look=PATLAB_LOOK[state.tf]||45;
-  const step=Math.max(2, Math.round((C.length-Math.max(60,C.length*0.25))/110));
-  const total=Math.max(1, Math.floor((C.length-Math.max(60,Math.floor(C.length*0.25)))/step));
-  let done=0;
-  const tick=()=>{ done++; if(onProgress && done%6===0) onProgress(Math.min(0.92, done/(total*1.35))); };
-  /* real history */
-  const real=await chunked(()=>patLabPass(C, look, step, tick));
+  const look=PATLAB_LOOK[tf]||45;
+  const step=PATLAB_STEP[tf]||2;
+  const s0=patLabStart(C), sEnd=C.length-6;
+  /* walk in slices and yield between them — on 4000 bars this is thousands of
+     detector runs and a phone must stay answerable while it happens */
+  const CHUNK=Math.max(step*40, step);
+  const seg={};
+  for(let a=s0; a<sEnd; a+=CHUNK){
+    seg.i0=a; seg.i1=Math.min(a+CHUNK, sEnd);
+    await chunked(()=>patLabPass(C, look, step, null, seg));
+    say(0.18+0.52*((seg.i1-s0)/Math.max(1,sEnd-s0)),
+        "measuring "+(seg.rows? seg.rows.length : 0)+" structures");
+  }
+  const real=seg.rows||[];
   const colBy=real._colBy||{};
-  /* the same measurement on meaningless data — the only scale that matters */
-  if(onProgress) onProgress(0.94);
-  const saveC=state.candles;
+  /* NULL 1 — the honest one: same geometry, random entries, real series */
+  say(0.72, "random-entry baseline");
+  const rand=await chunked(()=>patLabRandomPass(real, C, PATLAB_DRAWS, null));
+  /* NULL 2 — the same measurement on meaningless data. Kept because it still
+     answers a different question, but it is no longer what the verdict reads. */
+  say(0.86, "shuffled baseline");
   let shuf=[];
   try{
-    state.candles=C;                                   /* shuffledCandles reads state */
-    const SH=shuffledCandles();
-    shuf=await chunked(()=>patLabPass(SH, look, Math.max(step*2,4), null));
-  }catch(e){} finally{ state.candles=saveC; }
-  if(onProgress) onProgress(1);
-  const agg=patLabAgg(real), sagg=patLabAgg(shuf);
+    /* shuffledCandles() reads state.candles, so it is borrowed for exactly one
+       SYNCHRONOUS call and handed straight back. Parking the 4000-bar array
+       across an await let the 5s poll render the chart against a series it does
+       not own — and set a view index the live 500-bar array cannot hold. */
+    const saveC=state.candles;
+    state.candles=C;
+    let SH; try{ SH=shuffledCandles(); } finally { state.candles=saveC; }
+    /* and the shuffled walk is sliced like the real one: 8x the data in one
+       non-yielding block is a frozen phone */
+    const sStep=Math.max(step*2,4), sSeg={}, sEnd2=SH.length-6, sS0=patLabStart(SH);
+    const sCH=Math.max(sStep*40, sStep);
+    for(let a=sS0; a<sEnd2; a+=sCH){
+      sSeg.i0=a; sSeg.i1=Math.min(a+sCH, sEnd2);
+      await chunked(()=>patLabPass(SH, look, sStep, null, sSeg));
+    }
+    shuf=sSeg.rows||[];
+  }catch(e){}
+  say(1, "done");
+  if(moved()) return { err:"Chart changed while measuring "+sym.replace("USDT","")+" "+tf+
+                            " — discarded rather than labelled as the new chart." };
+  const agg=patLabAgg(real), sagg=patLabAgg(shuf), ragg=patLabAgg(rand);
   const sMap={}; for(const x of sagg) sMap[x.name]=x;
+  const rMap={}; for(const x of ragg) rMap[x.name]=x;
   const allReal=real.filter(r=>r.result==="target"||r.result==="invalid");
   const allShuf=shuf.filter(r=>r.result==="target"||r.result==="invalid");
+  const allRand=rand.filter(r=>r.result==="target"||r.result==="invalid");
   return {
-    at:Date.now(), symbol:state.symbol, tf:state.tf, bars:C.length, look, step,
+    at:Date.now(), symbol:sym, tf, bars:C.length, look, step,
+    from:(C[0]&&C[0].time)||null, to:(C[C.length-1]&&C[C.length-1].time)||null,
+    windows:Math.max(0, Math.floor((sEnd-s0)/step)),
+    view:PATLAB_VIEW, draws:PATLAB_DRAWS,
+    paged:(state._patHist && state._patHist.key===sym+"|"+tf)? state._patHist.rows.length : 0,
     collapsedTotal:real._collapsed||0,
     rows:agg.map(a=>({ ...a,
       collapsed:(colBy[a.name+"|bullish"]||0)+(colBy[a.name+"|bearish"]||0)+(colBy[a.name+"|bilateral"]||0),
+      rand:rMap[a.name]? {n:rMap[a.name].n, decided:rMap[a.name].decided,
+                          trig:rMap[a.name].trig, rate:rMap[a.name].rate} : null,
       shuf:sMap[a.name]? {n:sMap[a.name].n, decided:sMap[a.name].decided,
                           rate:sMap[a.name].rate} : null })),
     overall:{ n:real.length, decided:allReal.length,
               target:allReal.filter(r=>r.result==="target").length,
               shufDecided:allShuf.length,
-              shufTarget:allShuf.filter(r=>r.result==="target").length },
+              shufTarget:allShuf.filter(r=>r.result==="target").length,
+              randN:rand.length,
+              randDecided:allRand.length,
+              randTarget:allRand.filter(r=>r.result==="target").length },
   };
 }
 /* run a synchronous lump without nailing the main thread shut */
@@ -7151,7 +7551,10 @@ function chunked(fn){ return new Promise(res=>{ setTimeout(()=>res(fn()), 0); })
    arithmetic directly instead of inferring it from rendered text. */
 try{
   if(new URLSearchParams(location.search).get("debug")==="1"){
-    window.__patlab={ wilson, patOutcome, patLabAgg, patLabPass, patLabRun, patLabVerdict };
+    window.__patlab={ wilson, patOutcome, patLabAgg, patLabPass, patLabRun, patLabVerdict,
+                      patLabGeom, patLabRandomPass, patLabHistory, patLabSeries,
+                      patLabMerge, patLabStart, patLabRateLine, patLabRandRate,
+                      liveBars:()=>state.candles.length };
   }
 }catch(e){}
 
@@ -7160,22 +7563,38 @@ function patLabRateLine(r){
   if(!r || !r.decided) return '<span class="est">never resolved inside the window</span>';
   const pctv=(r.rate*100).toFixed(0);
   const lo=(r.ci[0]*100).toFixed(0), hi=(r.ci[1]*100).toFixed(0);
-  const sh=r.shuf && r.shuf.decided>=6? r.shuf.rate : null;
-  const beats = sh!=null && r.ci[0] > sh;                /* clear of chance, not just above it */
+  const rn=patLabRandRate(r), sh=r.shuf && r.shuf.decided>=6? r.shuf.rate : null;
+  /* clear of the RANDOM-ENTRY null, not merely above it, and not the shuffled
+     one — shuffling deletes drift, so beating it can just mean "price trended" */
+  const beats = rn!=null && r.ci[0] > rn;
   const cls = beats? "up" : "dim";
   return '<span class="secSum '+cls+'" style="max-width:none;margin:0">'+
     (beats? "▲ " : "◆ ")+pctv+'%</span> reached the objective — <b>'+r.target+'</b> of <b>'+r.decided+
     '</b> that resolved (range '+lo+'–'+hi+'% at 95% confidence)'+
-    (sh!=null? ' · shuffled data: <b>'+(sh*100).toFixed(0)+'%</b>' : '');
+    (rn!=null? ' · same geometry at random bars: <b>'+(rn*100).toFixed(0)+'%</b> of '+r.rand.decided : '')+
+    (sh!=null? ' · shuffled candles: <b>'+(sh*100).toFixed(0)+'%</b> of '+r.shuf.decided : '');
+}
+/* The random-entry null only earns a say once it has resolved enough cases to
+   be worth more than the sample it is judging. */
+function patLabRandRate(r){
+  return (r && r.rand && r.rand.decided>=20)? r.rand.rate : null;
 }
 function patLabVerdict(r){
   if(!r.decided) return "Nothing resolved inside the look-ahead window — no opinion available.";
   if(r.decided<8) return "Only "+r.decided+" resolved. That is too few to mean anything; the range above is doing the honest work.";
   const sh=r.shuf && r.shuf.decided>=6? r.shuf.rate : null;
-  if(sh==null) return "Measured on this chart, but with no shuffled baseline to compare against.";
-  if(r.ci[0] > sh)  return "Its worst plausible rate is still above what shuffled data produces here — the shape is carrying information on this chart.";
-  if(r.ci[1] < sh)  return "It resolves WORSE than shuffled data here. On this chart this shape is not something to lean on.";
-  return "Inside the range that shuffled data also produces. Treat the objective as a distance the shape implies, not as an edge.";
+  const rn=patLabRandRate(r);
+  if(rn==null){
+    /* without the honest null there is no test of whether the SHAPE matters, so
+       no amount of shuffled-data success is allowed to become a claim here */
+    if(sh==null) return "Measured on this chart, but with no baseline to compare against.";
+    if(r.ci[1] < sh) return "It resolves WORSE than shuffled data here. On this chart this shape is not something to lean on.";
+    return "Too few random-entry draws resolved to test whether the SHAPE matters — shuffled data alone mostly detects that the market trended, so no claim is made.";
+  }
+  if(r.ci[0] > rn) return "Its worst plausible rate is still above what the SAME geometry pays entered at random bars here — the shape, not just the distances, is carrying information on this chart"+
+    (sh!=null? (r.ci[0]>sh? ", and it clears shuffled candles too." : "; it does not clear shuffled candles, so treat it as thin.") : ".");
+  if(r.ci[1] < rn) return "The same geometry entered at RANDOM bars does better than waiting for the shape. On this chart this shape is not something to lean on.";
+  return "Its range overlaps what the same geometry pays entered at random bars — the distances are doing the work, not the shape. Treat the objective as a distance, not as an edge.";
 }
 function patLabBlock(){
   const L=state._patLab;
@@ -7185,8 +7604,10 @@ function patLabBlock(){
         '<div class="secBody">';
   h+='<div class="fine" style="line-height:1.55;margin-bottom:8px">Runs the detector across '+
      '<b>'+state.symbol.replace("USDT","")+' '+state.tf+'</b> history as it would have seen it live — no peeking forward — '+
-     'then reads what actually happened next. The same measurement is repeated on shuffled candles, '+
-     'because a hit rate only means something next to the hit rate of noise.</div>';
+     'then reads what actually happened next, over up to ~4,000 bars paged back from the exchange '+
+     '(not just the 500 on screen). Every rate is shown against two nulls: the '+
+     '<b>same geometry entered at random bars</b> of this same history — which asks whether the SHAPE '+
+     'matters or whether these distances pay off anywhere — and shuffled candles.</div>';
   h+='<div class="wBar"><button class="btn primary" id="patLabGo">'+
      (L&&!stale? '↻ Re-measure' : '📐 Measure this chart')+'</button>'+
      '<span id="patLabProg" class="fine" style="align-self:center;opacity:.8"></span></div>';
@@ -7194,15 +7615,22 @@ function patLabBlock(){
      ' '+esc(L.tf)+'. Re-measure for this chart.</div>';
   if(L){
     const O=L.overall;
-    h+='<div class="cardNote" style="margin-top:8px">'+L.bars+' bars · look-ahead '+L.look+' bars · '+
+    /* the bar count alone reads as "everything"; the dates say what it really was */
+    const spanTxt=(L.from&&L.to)? (new Date(L.from*1000).toISOString().slice(0,10)+' → '+
+                                   new Date(L.to*1000).toISOString().slice(0,10)+' · ') : '';
+    h+='<div class="cardNote" style="margin-top:8px">'+spanTxt+L.bars+' bars · every '+(L.step||1)+
+       ' bar'+((L.step||1)===1?'':'s')+' · look-ahead '+L.look+' bars · '+
        O.n+' structures ('+(L.collapsedTotal||0)+' re-detections collapsed) · '+O.decided+' resolved'+
+       (O.randDecided>=20? ' · random-entry baseline '+(O.randTarget/Math.max(1,O.randDecided)*100).toFixed(0)+'% of '+O.randDecided
+                          : O.randDecided? ' · random-entry baseline too thin to quote ('+O.randDecided+')' : '')+
        (O.shufDecided? ' · shuffled baseline '+(O.shufTarget/Math.max(1,O.shufDecided)*100).toFixed(0)+'% of '+O.shufDecided : '')+'</div>';
     for(const r of L.rows) h+=patLabRow(r, L);
     /* Shapes that did NOT appear are still worth studying — he asked to
        understand triangles, not only the triangle that happens to be on screen. */
     const missing=Object.keys(PATTERN_INFO).filter(k=>!L.rows.some(r=>r.name===k));
     if(missing.length){
-      h+='<div class="cardNote" style="margin-top:10px">Not seen on this chart in the last '+L.bars+
+      h+='<div class="cardNote" style="margin-top:10px">Not seen in the '+
+         (L.windows||0)+' windows walked across '+L.bars+
          ' bars — the write-ups are still here to read:</div>';
       for(const name of missing) h+=patLabRow({name, n:0, trig:0, decided:0, rate:null}, L);
     }
@@ -7225,7 +7653,7 @@ function patLabRow(r, L){
                 : /Descending|Double Top|Head & Shoulders|Rising Wedge/.test(r.name)? "▼" : "◆";
   let h='<details class="patX" style="margin-top:7px"><summary><b>'+dirHint+' '+esc(r.name)+'</b>'+
         (measured
-          ? '<span class="tagS '+(r.decided? (r.shuf&&r.shuf.decided>=6&&r.ci&&r.ci[0]>r.shuf.rate? "good":"info") : "warn")+'">'+
+          ? '<span class="tagS '+(r.decided? (patLabRandRate(r)!=null&&r.ci&&r.ci[0]>r.rand.rate? "good":"info") : "warn")+'">'+
             (r.decided? (r.rate*100).toFixed(0)+'% of '+r.decided : r.n+' seen · none resolved')+'</span>'
           : '<span class="tagS warn">not seen here</span>')+
         '</summary><div class="patBody">';
@@ -7264,7 +7692,9 @@ function bindPatLab(root){
   b.onclick=async()=>{
     const pr=root.querySelector("#patLabProg");
     b.disabled=true; b.textContent="Measuring…";
-    const set=f=>{ if(pr) pr.textContent=Math.round(f*100)+"%"; };
+    /* the run now pages history and runs two nulls, so it says WHICH stage it
+       is in — a bare percentage that sits still for ten seconds reads as hung */
+    const set=(f,lab)=>{ if(pr) pr.textContent=Math.round(f*100)+"%"+(lab? " · "+lab : ""); };
     set(0);
     try{
       const r=await patLabRun(set);
@@ -7839,6 +8269,35 @@ function openPatternInfo(name){
      invented causality.
    ========================================================================== */
 const PRJ_WAIT_MULT=2, PRJ_LIVE_MULT=4;              /* × horizon bars */
+/* ---- ONE definition of R for a projection -----------------------------------
+   The chart hairlines and the PROJECT card both quote how far a live trade has
+   travelled in R. Two copies of that arithmetic drift apart the first time one
+   of them changes its reference price, so both surfaces read this. R is
+   measured fill-to-stop: the same reference the tracker grades against.     */
+function projExc(p, C){
+  if(!p || p.filledPx==null) return null;
+  const long=p.dir==="long", risk=Math.abs(p.filledPx-p.stop);
+  if(!(risk>0)) return null;
+  const inR=px=>(long? px-p.filledPx : p.filledPx-px)/risk;
+  const bestPx = long? p.hiSince : p.loSince, worstPx = long? p.loSince : p.hiSince;
+  const last = C && C.length? C[C.length-1].close : null;
+  return { risk:risk, ref:p.filledPx, bestPx:bestPx, worstPx:worstPx,
+           best:  bestPx==null?  null : inR(bestPx),
+           worst: worstPx==null? null : inR(worstPx),
+           now:   last==null?    null : inR(last) };
+}
+/* one decimal is the honest resolution — the excursion moves on every tick */
+function fmtR(v){ return (v>=0?"+":"")+v.toFixed(1)+"R"; }
+/* the candles this projection is graded on — same choice updateProjections makes */
+function projSeries(p){
+  if(!p || p.symbol!==state.symbol) return null;
+  /* mid-scan the loaded series can belong to a DIFFERENT coin than state.symbol
+     claims — the same guard updateProjections makes, and the reason it exists:
+     without it this printed "now -116.8R" from another coin's price. */
+  if(state.candlesSym && state.candlesSym!==state.symbol) return null;
+  if(p.tf===state.tf) return state.candles;
+  try{ return (state.vf && state.vf[p.tf])? vfSeries(p.tf) : null; }catch(e){ return null; }
+}
 function projHB(tf){ return (VF_HB[tf]||8); }
 
 /* Build a projection from the CURRENT chart: the read supplies direction and
@@ -8264,8 +8723,14 @@ function resolveProjection(p, result, c){
   const ref = p.filledPx!=null? p.filledPx : p.createdPx;
   const actual = c.close>=ref? "up":"down";
   const votes=(p.reasons.votes||[]).filter(v=>v.dir!=="flat");
-  const aligned=votes.filter(v=>v.dir===actual);
-  const against=votes.filter(v=>v.dir!==actual);
+  /* An EXPIRY IS NOT A DIRECTION. close>=ref calls a bar that ended one tick
+     above the entry "up", and the factor scorecard then learns a coin flip as
+     evidence: expired-flat resolves BETWEEN stop and target by definition, and
+     expired-unfilled never held a position at all. Both are still counted and
+     displayed as expired — they simply grade nobody. */
+  const graded = /^expired/.test(result)? null : actual;
+  const aligned = graded? votes.filter(v=>v.dir===graded) : [];
+  const against = graded? votes.filter(v=>v.dir!==graded) : [];
   const projWord = long? "up":"down";
   const supporters=votes.filter(v=>v.dir===projWord);
   const dissenters=votes.filter(v=>v.dir!==projWord);
@@ -8300,7 +8765,7 @@ function resolveProjection(p, result, c){
   }
   p.outcome={
     result,
-    actualDir: actual,
+    actualDir: graded,
     plain,
     aligned: aligned.map(v=>({src:v.src, txt:v.txt})),
     against: against.map(v=>({src:v.src, txt:v.txt})),
@@ -8541,6 +9006,92 @@ function reconcileProjOrders(){
   }
   if(changed){ savePapers(); if(state.tab==="trades"){ try{ renderTrades(); }catch(e){} } }
   return changed;
+}
+
+/* ---- realised R -------------------------------------------------------------
+   "3 success · 2 partial · 5 failed" grades a 1.05:1 shape exactly like a
+   2.8:1 one, so a majority-win record can sit on top of a losing book. This
+   scores every graded projection in R by replaying the sequence THIS TOOL
+   would have placed — placeProjOrders: half the size out at T1, the runner's
+   stop to break-even once T1 is struck, the runner to T2 or to wherever the
+   projection was settled. No other management rule is invented, and the
+   arithmetic is the ledger's own (gross of fees, like paperPL), so the number
+   is comparable with Total R in TRADES.
+   null means there was never a position: an unfilled or cancelled projection
+   has no R, and averaging a zero in would dilute the record with trades that
+   were never taken. */
+const PRJ_R_MIN_CI = 3;      /* below three, an interval is arithmetic, not evidence */
+function projEntryPx(p){
+  if(!p) return null;
+  return p.filledPx!=null? p.filledPx : (p.dir==="long"? p.entryHi : p.entryLo);
+}
+function projR(p){
+  if(!p || !p.outcome) return null;
+  const res=p.outcome.result;
+  if(res==="cancelled" || res==="expired-unfilled") return null;
+  const E=projEntryPx(p), risk=Math.abs(E-p.stop);
+  if(!isFinite(E) || !(risk>0)) return null;          /* placeProjOrders refuses to size this too */
+  const dir=p.dir==="long"? 1 : -1;
+  const rOf=px=>((px-E)*dir)/risk;
+  if(res==="success") return 0.5*rOf(p.t1)+0.5*rOf(p.t2);
+  if(res==="partial") return 0.5*rOf(p.t1);          /* T1 moved the runner's stop to entry: it exits at 0R */
+  if(res==="failed")  return rOf(p.stop);            /* T1 never struck, so both halves rode the first stop */
+  if(p.resolvedPx==null) return null;
+  return rOf(p.resolvedPx);                          /* flat expiry: both halves closed where the clock ran out */
+}
+function fmtR(r){ const v=Math.abs(r)<0.005? 0 : r; return (v>=0?"+":"")+v.toFixed(2)+"R"; }
+/* Echoes are excluded here for the same reason they are excluded from the
+   tally: an echo re-takes a bet that is already open, so its R is the same
+   market move counted twice. */
+function projExpectancy(rows){
+  const taken=[]; let noFill=0, unscored=0;
+  for(const p of (rows||[])){
+    if(!p || !p.outcome || p.echo) continue;
+    const r=projR(p);
+    /* Only an expiry with no fill says something about price. Everything else
+       that yields no R (a degenerate entry==stop, a missing resolvedPx) is a
+       row we could not score — saying "price never reached the zone" about it
+       would be asserting something the tool never measured. */
+    if(r==null){ if(p.outcome.result==="expired-unfilled") noFill++; else unscored++; continue; }
+    taken.push(r);
+  }
+  const S=stat95(taken);
+  return { n:S.n, exp:S.m, lo:S.lo, hi:S.hi, sum:taken.reduce((a,b)=>a+b,0), noFill, unscored };
+}
+/* What the graded book actually paid, per projection — a total flatters a long
+   book and a win count says nothing about size, so the headline number is the
+   mean with its interval and its n. */
+function projExpLine(rows){
+  const X=projExpectancy(rows);
+  if(!X.n) return "No filled projection has resolved yet — nothing to score in R"+
+    (X.noFill? " ("+X.noFill+" expired before price reached the zone)" : "")+
+    (X.unscored? " ("+X.unscored+" could not be scored)" : "")+".";
+  return "Scored the way the paper sequence pays — half out at T1, runner to T2 with the stop at break-even: "+
+    "<b class=\""+(X.exp>=0?"g":"r")+"\">"+fmtR(X.exp)+"</b> per projection "+
+    (X.n>=PRJ_R_MIN_CI? "<span class=\"est\">95% CI "+fmtR(X.lo)+" to "+fmtR(X.hi)+"</span>"
+                      : "<span class=\"est\">no interval at n="+X.n+" — that is arithmetic, not evidence</span>")+
+    " · n="+X.n+" filled"+
+    (X.noFill? " · "+X.noFill+" never filled (no position, no R)" : "")+
+    ". One unit of risk per projection, gross of fees. <span class=\"est\">The TRADES ledger " +
+    "totals each half as its own unit, so its R figure runs about double this one — same trades, " +
+    "different denominator.</span>";
+}
+/* The card version says how the R was made, so the number can be checked
+   against the four prices printed directly above it. */
+function projRWords(p){
+  const res=p && p.outcome? p.outcome.result : null;
+  if(res==="cancelled") return "Cancelled before the market decided — no R either way.";
+  if(res==="expired-unfilled") return "Price never reached the zone, so the entry never traded: no position, no R.";
+  if(projR(p)==null) return "Entry and stop sit at the same price — the sequence could not have been sized, so there is no R to report.";
+  const E=projEntryPx(p);
+  if(res==="success") return "half out at T1 "+fmt(p.t1)+", runner to T2 "+fmt(p.t2)+", from "+fmt(E)+".";
+  /* A partial is EITHER the runner stopped at break-even OR the clock running
+     out with it still open — the sequence pays 0R on the runner both ways, but
+     only one of them is a statement about what price did. */
+  if(res==="partial") return "half out at T1 "+fmt(p.t1)+"; the runner ended flat at its break-even stop "+fmt(E)+
+    ", so the sequence paid the first half only.";
+  if(res==="failed")  return "T1 was never struck, so both halves rode the original stop "+fmt(p.stop)+" — one full unit of risk.";
+  return "both halves closed at "+fmt(p.resolvedPx)+" when the clock ran out, from "+fmt(E)+".";
 }
 
 /* ── LIVE bridge — talks to the backend the same two-route way the storage
@@ -9012,13 +9563,19 @@ function projCard(p){
   const b=PRJ_BADGE[p.status]||[p.status,'info'];
   const long=p.dir==="long";
   const open = state.patOpen["prj:"+p.id];
+  /* the same R the chart's hairlines draw, from the same helper — if these two
+     ever disagree he cannot trust either of them */
+  const EX = p.outcome? null : projExc(p, projSeries(p));
+  const excRow = (EX && EX.best!=null && EX.worst!=null)?
+    '<div class="kv"><span>Excursion</span><b>'+(EX.now!=null? 'now '+fmtR(EX.now)+' \u00b7 ':'')+
+      'best '+fmtR(EX.best)+' \u00b7 worst '+fmtR(EX.worst)+'</b></div>' : '';
   const rows =
     '<div class="kv"><span>'+(long?'Buy zone':'Sell zone')+'</span><b class="'+(long?'g':'r')+'">'+fmt(p.entryLo)+' – '+fmt(p.entryHi)+'</b></div>'+
     '<div class="kv"><span>Stop</span><b class="r">'+fmt(p.stop)+'</b></div>'+
     '<div class="kv"><span>Target one</span><b class="g">'+fmt(p.t1)+'</b></div>'+
     '<div class="kv"><span>Target two</span><b class="g">'+fmt(p.t2)+'</b></div>'+
     '<div class="kv"><span>Net R:R to T1</span><b>'+(p.reasons.rrNet||0).toFixed(2)+':1 · needs '+
-      Math.round((p.reasons.be||1)*100)+'% winners</b></div>';
+      Math.round((p.reasons.be||1)*100)+'% winners</b></div>'+excRow;
   /* The ECHO note used to say "same bet as another open projection" for every
      kind of override — true only for the correlation gate, and misleading for
      the rest. Each override now states what was actually overridden. */
@@ -9049,7 +9606,15 @@ function projCard(p){
     '<div class="pSec"><span>'+(p.status==="success"?"Why it worked":p.status==="failed"?"Why it failed":"What happened")+
     '</span>'+esc(p.outcome.plain)+'</div>'+
     (p.outcome.aligned.length? '<div class="cardNote">✓ aligned: '+p.outcome.aligned.map(v=>esc(v.src)).join(', ')+'</div>':'')+
-    (p.outcome.against.length? '<div class="cardNote">✗ against: '+p.outcome.against.map(v=>esc(v.src)).join(', ')+'</div>':'')
+    (p.outcome.against.length? '<div class="cardNote">✗ against: '+p.outcome.against.map(v=>esc(v.src)).join(', ')+'</div>':'')+
+    (()=>{ const r=projR(p);
+      const line = r==null? '<div class="cardNote">'+projRWords(p)+'</div>'
+        : '<div class="cardNote">📐 Realised <b class="'+(r>=0?'g':'r')+'">'+fmtR(r)+
+          '</b> — '+projRWords(p)+'</div>';
+      const X=projExpectancy(state.projections);
+      return line+(X.n? '<div class="fine" style="opacity:.75">book so far '+fmtR(X.exp)+' per projection'+
+        (X.n>=PRJ_R_MIN_CI? ' (95% CI '+fmtR(X.lo)+' to '+fmtR(X.hi)+')' : ' · no interval at n='+X.n)+
+        ' · n='+X.n+'</div>' : ''); })()
     : '<div class="cardNote">'+(p.status==="waiting"
         ? 'Waiting for price to enter the zone — expires after '+(PRJ_WAIT_MULT*projHB(p.tf))+' '+p.tf+' bars unfilled.'
         : 'Filled at '+fmt(p.filledPx)+' — tracking against stop and targets, '+p.barsHeld+' bars in.')+'</div>';
@@ -9141,6 +9706,7 @@ function renderProjections(){
         '<b class="r">'+loss+' failed</b> · '+exp+' expired'+
         (echoes? ' · '+echoes+' echo'+(echoes===1?'':'es')+' (same bet, counted once)':'')+' — '+
         '<i>at this sample size these are anecdotes, not statistics.</i></div>'+
+      '<div class="cardNote" style="margin:-4px 0 8px">'+projExpLine(indep)+'</div>'+
       (()=>{ const vis=done.filter(p=>!p.cleared); const hid=done.length-vis.length;
         return vis.slice(0,50).map(projCard).join('')+
           (vis.length>50? '<div class="fine">showing the 50 most recent of '+vis.length+'</div>':'')+
@@ -9177,6 +9743,10 @@ function renderProjections(){
       return;
     }
     const arm=(r)=>{ state.projections.push(r.proj);
+      /* boxes drawn into a two-pixel sliver are unreadable — open the same kind
+         of forward room the read does, enough to show the unfilled deadline */
+      if(state.follow){ const need=(state.candles.length-1)+Math.min(30, PRJ_WAIT_MULT*projHB(state.tf)+4);
+        if(state.view.right<need) state.view.right=need; }
       saveProjections(); renderProjections(); render();
       cmdSay("Projection armed"+(r.proj.echo?" as an ECHO":"")+": "+r.proj.dir+" "+state.symbol.replace("USDT","")+
              " — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi)); };
