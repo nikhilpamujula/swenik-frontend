@@ -619,6 +619,10 @@
      Every mark here is status or identity, never decoration. Direction is
      carried by a GLYPH as well as a hue, so the panel still reads with the
      colour stripped out (colour-blind, screenshot, printed).                 */
+  /* .fine was only defined inside two other panels, so every use of it in the
+     panes rendered at body size — which is why the lab's intro shouted. */
+  .pane .fine{font-size:10.5px;line-height:1.5;color:var(--dim)}
+  .pane .fine b{color:var(--text)}
   .pane .secSum{margin-left:auto;display:flex;align-items:center;gap:6px;
     font-size:11px;font-weight:700;letter-spacing:0;text-transform:none;
     color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap;
@@ -1242,7 +1246,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18q-struct";
+window.WB_BUILD = "2026-08-18r-audit";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1849,7 +1853,7 @@ function render(){
       /* A graded projection has nothing left to tell the chart — its boxes just
          sit there overlapping the live one. Off by default; the history is
          still intact in PROJECT, and the switch brings them back. */
-      if(P3.outcome && !state.prefs.projDone) continue;
+      if(P3.outcome && (!state.prefs.projDone || P3.cleared)) continue;
       if(P3.outcome && (!P3.resolvedTime || state.candles.length<2 ||
           P3.resolvedTime < state.candles[Math.max(0,state.candles.length-90)].time)) continue;
       let i0=state.candles.findIndex(c=>c.time>=P3.createdTime);
@@ -4414,7 +4418,7 @@ function renderSignals(){
   else list.sort((a,b)=> b.rr-a.rr);
 
   const chip=(k,v,lab)=>'<button class="fchip'+(F[k]===v?" on":"")+'" data-f="'+k+'" data-v="'+v+'">'+lab+'</button>';
-  let h='<div class="sigBar">'+
+  let h='<div id="sigArmMsg"></div><div class="sigBar">'+
     '<div class="fgrp">'+chip("side","all","All")+chip("side","long","▲ Long")+chip("side","short","▼ Short")+'</div>'+
     '<div class="fgrp">'+chip("only","any","Any distance")+chip("only","live","At the level")+'</div>'+
     '<div class="fgrp">'+chip("sort","grade","Best")+chip("sort","near","Nearest")+chip("sort","rr","R:R")+'</div>'+
@@ -6398,7 +6402,12 @@ function renderLevelList(){
     };
     list.appendChild(row);
   }
-  bindArm(list);          /* 🎯 on each horizontal line — the classic anchor */
+  /* refusals and the "Project it anyway" override must land IN THIS PANE —
+     the default #prjMsg lives in the hidden PROJECT pane, where the message
+     (and the override button with it) was invisible and erased on next render */
+  let lm=$("lineArmMsg");
+  if(!lm){ lm=document.createElement("div"); lm.id="lineArmMsg"; list.parentNode.insertBefore(lm, list); }
+  bindArm(list, "lineArmMsg");   /* 🎯 on each horizontal line — the classic anchor */
   refreshTouchCounts(); refreshEvidence();
 }
 
@@ -6929,6 +6938,21 @@ function patternCard(P, idx){
       '⚖️ If it triggers: <b>'+E.plan.net.toFixed(2)+':1</b> net of costs · needs '+
       (E.plan.be*100).toFixed(0)+'% winners to break even</div>' : '';
 
+  /* MEASURED, or nothing. If the lab has run on this chart, this shape's own
+     record replaces the disclaimer — sample size and all. */
+  const LB=patLabStatFor(P.name);
+  const measured = (LB && LB.n)
+    ? '<details class="riskX" open><summary><span class="risk" style="color:#A6EBCE;background:rgba(45,212,160,.07);border-color:rgba(45,212,160,.30)">'+
+        '📐 measured here: '+(LB.decided? (LB.rate*100).toFixed(0)+'% of '+LB.decided+' structures' : LB.n+' structure'+(LB.n===1?'':'s')+', none resolved')+
+        ' — tap</span></summary>'+
+      '<div class="pCaveat" style="background:rgba(45,212,160,.05);border-color:rgba(45,212,160,.22);color:#A7B1C4">'+
+        patLabRateLine(LB)+'<br>'+esc(patLabVerdict(LB))+
+        (LB.medBars!=null? '<br>Typically <b>'+LB.medBars+'</b> bars to the objective once triggered'+
+          (LB.medMae!=null? ', after going <b>'+(LB.medMae*100).toFixed(1)+'%</b> against you first':'')+'.' : '')+
+        '<br><span class="est">'+(LB.n-LB.trig)+' of '+LB.n+' never triggered at all.</span>'+
+      '</div></details>'
+    : '';
+
   return '<details class="patX" data-p="'+esc(P.name)+'"'+(open?" open":"")+'>'+
     '<summary><b class="'+col+'">'+G+' '+P.name+'</b>'+
       '<span class="tagS '+st[1]+'">'+st[0]+'</span>'+
@@ -6947,13 +6971,317 @@ function patternCard(P, idx){
         sec("How it fails", E.I.fails)+
         (E.I.play? sec("How it is usually traded", E.I.play) : "")+
       '</details>'+
-      '<details class="riskX"><summary><span class="risk">⚠️ unscored shape'+
+      measured+
+      (measured? '' :
+       '<details class="riskX"><summary><span class="risk">⚠️ unmeasured shape'+
         (state._pnCache? ' · noise finds '+state._pnCache.val.toFixed(1)+'/scan':'')+' — tap</span></summary>'+
-        '<div class="pCaveat">This app has <b>no measured hit rate for patterns</b> — unlike your levels, which are scored in RECORD. Treat the objective as a distance the shape implies, not a probability. '+
-        (state._pnCache? 'For scale: the same detector finds <b>'+state._pnCache.val.toFixed(1)+'</b> patterns per scan in shuffled, meaningless data.' : '')+
-        '</div></details>'+
+        '<div class="pCaveat">This app has <b>no measured hit rate for this shape yet</b> — unlike your levels, which are scored in RECORD. Treat the objective as a distance the shape implies, not a probability. '+
+        (state._pnCache? 'For scale: the same detector finds <b>'+state._pnCache.val.toFixed(1)+'</b> patterns per scan in shuffled, meaningless data. ' : '')+
+        'Open <b>📚 PATTERN LAB</b> below to measure it on this chart.'+
+        '</div></details>')+
     '</div></details>';
 }
+/* ========================== PATTERN LAB ==================================
+   His question: "if this pattern forms, what will happen — what are the best
+   chances?" Every published answer to that traces back to folklore, so this
+   answers it the only defensible way: MEASURE IT ON HIS OWN CHART.
+
+   The walk is deliberately naive about the future. At each sampled bar the
+   detector sees ONLY the candles up to that bar — the same view it would have
+   had live — and then the outcome is read forward. No look-ahead, because a
+   detector that peeks produces beautiful numbers and loses money.
+
+   Three honesty rules baked into the arithmetic:
+     · When target and invalidation are both touched inside ONE bar, the order
+       is unknowable — it is counted as a FAILURE and reported separately.
+       Counting it as a win is how backtests learn to lie.
+     · Patterns that never trigger are counted, not discarded. "It works 60% of
+       the time" means nothing if two thirds never fire.
+     · The same measurement runs on SHUFFLED candles. If the real rate is not
+       clear of the shuffled rate, the shape has told you nothing.
+   ========================================================================== */
+const PATLAB_LOOK = { "15m":80, "1h":60, "4h":45, "1d":30 };
+
+/* Wilson score interval — small samples get an honest width instead of a
+   confident-looking point estimate. */
+function wilson(k, n){
+  if(!n) return [0,1];
+  const z=1.96, p=k/n, d=1+z*z/n;
+  const c=(p+z*z/(2*n))/d, h=(z*Math.sqrt(p*(1-p)/n + z*z/(4*n*n)))/d;
+  return [Math.max(0,c-h), Math.min(1,c+h)];
+}
+
+/* Read one detection forward and see what actually happened. */
+function patOutcome(P, C, i0, look){
+  let trig=P.trigger, tgt=P.target, inv=P.invalid, bilat=false;
+  if(trig==null && P.upper!=null && P.lower!=null) bilat=true;
+  else if(trig==null || tgt==null || inv==null) return null;   /* nothing to score */
+  const end=Math.min(C.length-1, i0+look);
+  let ti=-1, dirUp = P.dir==="bullish";
+  for(let i=i0+1;i<=end;i++){
+    const c=C[i];
+    if(bilat){
+      const H=Math.abs(P.upper-P.lower);
+      if(c.close>P.upper){ ti=i; dirUp=true;  tgt=P.upper+H; inv=P.lower; break; }
+      if(c.close<P.lower){ ti=i; dirUp=false; tgt=P.lower-H; inv=P.upper; break; }
+    } else if(dirUp ? c.close>=trig : c.close<=trig){ ti=i; break; }
+  }
+  if(ti<0) return { result:"notrig", waited:end-i0, bars:0, mae:0 };
+  const entry=C[ti].close;
+  let mae=0;
+  for(let i=ti+1;i<=end;i++){
+    const c=C[i];
+    mae=Math.max(mae, dirUp? (entry-c.low)/entry : (c.high-entry)/entry);
+    const hitT = dirUp? c.high>=tgt : c.low<=tgt;
+    const hitI = dirUp? c.low<=inv  : c.high>=inv;
+    /* both inside one candle → the order is unknowable → counted against */
+    if(hitT && hitI) return { result:"invalid", ambiguous:true, bars:i-ti, mae, trigBars:ti-i0 };
+    if(hitI)         return { result:"invalid", bars:i-ti, mae, trigBars:ti-i0 };
+    if(hitT)         return { result:"target",  bars:i-ti, mae, trigBars:ti-i0 };
+  }
+  return { result:"open", bars:end-ti, mae, trigBars:ti-i0 };
+}
+
+/* One pass over a candle series, sampling the detector as it would have run
+   live. Synchronous per window; the caller yields between chunks so a phone
+   does not freeze. */
+function patLabPass(C, look, step, onEach){
+  const saveC=state.candles, saveVP=state._vpCache;
+  /* ONE STRUCTURE = ONE SAMPLE. The first version keyed on the trigger price,
+     and a triangle's trigger drifts as its lines converge — so one evolving
+     structure was scored at every sampled bar and n was fabricated (a single
+     H&S measured as n=6). A structure is the SAME structure while its bar span
+     overlaps the last scored one; it is only a new sample when it starts after
+     the previous one ended. Re-detections are counted and reported, not scored. */
+  const lastSpan=new Map();                 /* name|dir → {from,to} of last SCORED structure */
+  const rows=[]; let collapsed=0; const colBy={};
+  const start=Math.max(60, Math.floor(C.length*0.25));
+  try{
+    for(let i=start;i<C.length-6;i+=step){
+      state.candles=C.slice(0,i+1); state._vpCache=null;
+      let pats=[];
+      try{ pats=detectPatterns(); }catch(e){}
+      for(const P of pats){
+        const sig=P.name+"|"+P.dir;
+        const prev=lastSpan.get(sig);
+        const from=isFinite(P.from)? P.from : i-1, to=isFinite(P.to)? P.to : i;
+        if(prev && from<=prev.to+2){        /* same structure, still forming/drifting */
+          prev.to=Math.max(prev.to, to); collapsed++;
+          (colBy[sig]=(colBy[sig]||0)+1); continue;
+        }
+        const o=patOutcome(P, C, i, look);
+        if(!o) continue;
+        lastSpan.set(sig, {from, to:Math.max(to, i)});
+        rows.push({ name:P.name, dir:P.dir, quality:P.quality, at:i, from, ...o });
+      }
+      if(onEach) onEach(i);
+    }
+  } finally { state.candles=saveC; state._vpCache=saveVP; }
+  rows._collapsed=collapsed; rows._colBy=colBy;
+  return rows;
+}
+
+function patLabAgg(rows){
+  const by={};
+  for(const r of rows){
+    const b=by[r.name]||(by[r.name]={name:r.name, n:0, trig:0, target:0, invalid:0, open:0,
+                                     ambiguous:0, bars:[], mae:[], waits:[]});
+    b.n++;
+    if(r.result==="notrig"){ b.waits.push(r.waited); continue; }
+    b.trig++;
+    if(r.ambiguous) b.ambiguous++;
+    if(r.result==="target"){ b.target++; b.bars.push(r.bars); }
+    else if(r.result==="invalid") b.invalid++;
+    else b.open++;
+    if(isFinite(r.mae)) b.mae.push(r.mae);
+  }
+  const med=a=>{ if(!a.length) return null; const x=a.slice().sort((p,q)=>p-q); return x[Math.floor(x.length/2)]; };
+  return Object.values(by).map(b=>{
+    const decided=b.target+b.invalid;
+    const rate= decided? b.target/decided : null;
+    const ci  = decided? wilson(b.target, decided) : null;
+    return { ...b, decided, rate, ci, medBars:med(b.bars), medMae:med(b.mae) };
+  }).sort((a,b)=>b.n-a.n);
+}
+
+/* The whole measurement, chunked so the UI keeps breathing. */
+async function patLabRun(onProgress){
+  const C=state.candles.slice();
+  if(C.length<160) return { err:"Not enough history on this timeframe to measure anything — load more candles first." };
+  const look=PATLAB_LOOK[state.tf]||45;
+  const step=Math.max(2, Math.round((C.length-Math.max(60,C.length*0.25))/110));
+  const total=Math.max(1, Math.floor((C.length-Math.max(60,Math.floor(C.length*0.25)))/step));
+  let done=0;
+  const tick=()=>{ done++; if(onProgress && done%6===0) onProgress(Math.min(0.92, done/(total*1.35))); };
+  /* real history */
+  const real=await chunked(()=>patLabPass(C, look, step, tick));
+  const colBy=real._colBy||{};
+  /* the same measurement on meaningless data — the only scale that matters */
+  if(onProgress) onProgress(0.94);
+  const saveC=state.candles;
+  let shuf=[];
+  try{
+    state.candles=C;                                   /* shuffledCandles reads state */
+    const SH=shuffledCandles();
+    shuf=await chunked(()=>patLabPass(SH, look, Math.max(step*2,4), null));
+  }catch(e){} finally{ state.candles=saveC; }
+  if(onProgress) onProgress(1);
+  const agg=patLabAgg(real), sagg=patLabAgg(shuf);
+  const sMap={}; for(const x of sagg) sMap[x.name]=x;
+  const allReal=real.filter(r=>r.result==="target"||r.result==="invalid");
+  const allShuf=shuf.filter(r=>r.result==="target"||r.result==="invalid");
+  return {
+    at:Date.now(), symbol:state.symbol, tf:state.tf, bars:C.length, look, step,
+    collapsedTotal:real._collapsed||0,
+    rows:agg.map(a=>({ ...a,
+      collapsed:(colBy[a.name+"|bullish"]||0)+(colBy[a.name+"|bearish"]||0)+(colBy[a.name+"|bilateral"]||0),
+      shuf:sMap[a.name]? {n:sMap[a.name].n, decided:sMap[a.name].decided,
+                          rate:sMap[a.name].rate} : null })),
+    overall:{ n:real.length, decided:allReal.length,
+              target:allReal.filter(r=>r.result==="target").length,
+              shufDecided:allShuf.length,
+              shufTarget:allShuf.filter(r=>r.result==="target").length },
+  };
+}
+/* run a synchronous lump without nailing the main thread shut */
+function chunked(fn){ return new Promise(res=>{ setTimeout(()=>res(fn()), 0); }); }
+
+/* A statistics feature that cannot be unit-tested will eventually lie. These
+   internals are exposed ONLY under ?debug=1, so the suite can check the
+   arithmetic directly instead of inferring it from rendered text. */
+try{
+  if(new URLSearchParams(location.search).get("debug")==="1"){
+    window.__patlab={ wilson, patOutcome, patLabAgg, patLabPass, patLabRun, patLabVerdict };
+  }
+}catch(e){}
+
+/* ---- presentation ---- */
+function patLabRateLine(r){
+  if(!r || !r.decided) return '<span class="est">never resolved inside the window</span>';
+  const pctv=(r.rate*100).toFixed(0);
+  const lo=(r.ci[0]*100).toFixed(0), hi=(r.ci[1]*100).toFixed(0);
+  const sh=r.shuf && r.shuf.decided>=6? r.shuf.rate : null;
+  const beats = sh!=null && r.ci[0] > sh;                /* clear of chance, not just above it */
+  const cls = beats? "up" : "dim";
+  return '<span class="secSum '+cls+'" style="max-width:none;margin:0">'+
+    (beats? "▲ " : "◆ ")+pctv+'%</span> reached the objective — <b>'+r.target+'</b> of <b>'+r.decided+
+    '</b> that resolved (range '+lo+'–'+hi+'% at 95% confidence)'+
+    (sh!=null? ' · shuffled data: <b>'+(sh*100).toFixed(0)+'%</b>' : '');
+}
+function patLabVerdict(r){
+  if(!r.decided) return "Nothing resolved inside the look-ahead window — no opinion available.";
+  if(r.decided<8) return "Only "+r.decided+" resolved. That is too few to mean anything; the range above is doing the honest work.";
+  const sh=r.shuf && r.shuf.decided>=6? r.shuf.rate : null;
+  if(sh==null) return "Measured on this chart, but with no shuffled baseline to compare against.";
+  if(r.ci[0] > sh)  return "Its worst plausible rate is still above what shuffled data produces here — the shape is carrying information on this chart.";
+  if(r.ci[1] < sh)  return "It resolves WORSE than shuffled data here. On this chart this shape is not something to lean on.";
+  return "Inside the range that shuffled data also produces. Treat the objective as a distance the shape implies, not as an edge.";
+}
+function patLabBlock(){
+  const L=state._patLab;
+  const stale = L && (L.symbol!==state.symbol || L.tf!==state.tf);
+  let h='<details class="secX" id="patLabBox" style="margin-top:10px"><summary>📚 PATTERN LAB'+
+        '<span class="secSum dim">'+(L&&!stale? L.rows.length+' shapes measured' : 'not measured yet')+'</span></summary>'+
+        '<div class="secBody">';
+  h+='<div class="fine" style="line-height:1.55;margin-bottom:8px">Runs the detector across '+
+     '<b>'+state.symbol.replace("USDT","")+' '+state.tf+'</b> history as it would have seen it live — no peeking forward — '+
+     'then reads what actually happened next. The same measurement is repeated on shuffled candles, '+
+     'because a hit rate only means something next to the hit rate of noise.</div>';
+  h+='<div class="wBar"><button class="btn primary" id="patLabGo">'+
+     (L&&!stale? '↻ Re-measure' : '📐 Measure this chart')+'</button>'+
+     '<span id="patLabProg" class="fine" style="align-self:center;opacity:.8"></span></div>';
+  if(L && stale) h+='<div class="flag warn">These numbers were measured on '+esc(L.symbol.replace("USDT",""))+
+     ' '+esc(L.tf)+'. Re-measure for this chart.</div>';
+  if(L){
+    const O=L.overall;
+    h+='<div class="cardNote" style="margin-top:8px">'+L.bars+' bars · look-ahead '+L.look+' bars · '+
+       O.n+' structures ('+(L.collapsedTotal||0)+' re-detections collapsed) · '+O.decided+' resolved'+
+       (O.shufDecided? ' · shuffled baseline '+(O.shufTarget/Math.max(1,O.shufDecided)*100).toFixed(0)+'% of '+O.shufDecided : '')+'</div>';
+    for(const r of L.rows) h+=patLabRow(r, L);
+    /* Shapes that did NOT appear are still worth studying — he asked to
+       understand triangles, not only the triangle that happens to be on screen. */
+    const missing=Object.keys(PATTERN_INFO).filter(k=>!L.rows.some(r=>r.name===k));
+    if(missing.length){
+      h+='<div class="cardNote" style="margin-top:10px">Not seen on this chart in the last '+L.bars+
+         ' bars — the write-ups are still here to read:</div>';
+      for(const name of missing) h+=patLabRow({name, n:0, trig:0, decided:0, rate:null}, L);
+    }
+  } else {
+    /* Before any measurement, the study material is still the point. */
+    h+='<div class="cardNote" style="margin-top:8px">The write-ups below are available now; '+
+       'the numbers appear once you measure.</div>';
+    for(const name of Object.keys(PATTERN_INFO)) h+=patLabRow({name, n:0, trig:0, decided:0, rate:null}, null);
+  }
+  h+='</div></details>';
+  return h;
+}
+/* One shape: what it is, what it usually does, and — if measured — what it
+   actually did HERE. Study material and evidence in the same box, because
+   reading one without the other is how folklore survives. */
+function patLabRow(r, L){
+  const I=PATTERN_INFO[r.name];
+  const measured = r.n>0;
+  const dirHint = /Ascending|Double Bottom|Inverse|Falling Wedge/.test(r.name)? "▲"
+                : /Descending|Double Top|Head & Shoulders|Rising Wedge/.test(r.name)? "▼" : "◆";
+  let h='<details class="patX" style="margin-top:7px"><summary><b>'+dirHint+' '+esc(r.name)+'</b>'+
+        (measured
+          ? '<span class="tagS '+(r.decided? (r.shuf&&r.shuf.decided>=6&&r.ci&&r.ci[0]>r.shuf.rate? "good":"info") : "warn")+'">'+
+            (r.decided? (r.rate*100).toFixed(0)+'% of '+r.decided : r.n+' seen · none resolved')+'</span>'
+          : '<span class="tagS warn">not seen here</span>')+
+        '</summary><div class="patBody">';
+  if(measured){
+    h+='<div class="fine" style="margin-bottom:6px">'+patLabRateLine(r)+'</div>'+
+       '<div class="pills">'+
+         '<span class="pill">'+r.n+' structure'+(r.n===1?'':'s')+'</span>'+
+         (r.collapsed? '<span class="pill">'+r.collapsed+' re-detections collapsed</span>':'')+
+         '<span class="pill">never triggered '+(r.n-r.trig)+'</span>'+
+         (r.medBars!=null? '<span class="pill">⏱ '+r.medBars+' bars to target</span>':'')+
+         (r.medMae!=null? '<span class="pill">📉 '+(r.medMae*100).toFixed(1)+'% against you first</span>':'')+
+         (r.ambiguous? '<span class="pill">⚖️ '+r.ambiguous+' same-bar → counted as losses</span>':'')+
+         (r.open? '<span class="pill">unresolved '+r.open+'</span>':'')+
+       '</div>'+
+       '<div class="vLine"><span class="vg">📐</span><span>'+esc(patLabVerdict(r))+'</span></div>';
+  }
+  if(I){
+    h+='<div class="pWhat" style="margin-top:8px">'+I.shape+'</div>'+
+       '<div class="pSec"><span>Why it forms</span>'+I.why+'</div>'+
+       '<div class="pSec"><span>What usually happens next</span>'+I.leads+'</div>'+
+       '<div class="pSec"><span>How it fails</span>'+I.fails+'</div>'+
+       (I.play? '<div class="pSec"><span>How it is usually traded</span>'+I.play+'</div>':'')+
+       '<div class="fine" style="opacity:.7;margin-top:7px">The four notes above are the conventional '+
+       'reading of this shape — they are reasoning, not evidence. The numbers'+
+       (measured? ' above are' : ', once you measure, are')+' the evidence.</div>';
+  }
+  return h+'</div></details>';
+}
+function patLabStatFor(name){
+  const L=state._patLab;
+  if(!L || L.symbol!==state.symbol || L.tf!==state.tf) return null;
+  return L.rows.find(r=>r.name===name)||null;
+}
+function bindPatLab(root){
+  const b=root.querySelector("#patLabGo"); if(!b) return;
+  b.onclick=async()=>{
+    const pr=root.querySelector("#patLabProg");
+    b.disabled=true; b.textContent="Measuring…";
+    const set=f=>{ if(pr) pr.textContent=Math.round(f*100)+"%"; };
+    set(0);
+    try{
+      const r=await patLabRun(set);
+      if(r && r.err){ if(pr) pr.textContent=""; b.disabled=false; b.textContent="📐 Measure this chart";
+        const box=root.querySelector("#patLabBox .secBody");
+        if(box) box.insertAdjacentHTML("afterbegin",'<div class="flag warn">'+esc(r.err)+'</div>');
+        return; }
+      state._patLab=r;
+      cmdSay("Pattern lab: measured "+r.overall.n+" detections on "+state.symbol.replace("USDT","")+" "+state.tf+".");
+      renderStructure();
+    }catch(e){
+      b.disabled=false; b.textContent="📐 Measure this chart";
+      if(pr) pr.textContent="failed: "+((e&&e.message)||"unknown");
+    }
+  };
+}
+
 /* The PATTERNS section, standalone so it renders whether or not lines exist. */
 function patternsBlock(){
   if(!(state.patterns && state.patterns.length)){
@@ -6970,7 +7298,7 @@ function patternsBlock(){
     '<div class="cardT">🔺 PATTERNS'+
     (noise!==null?' <span class="est">unscored</span>':'')+'</div>';
   state.patterns.forEach((P,i)=>{ out+=patternCard(P,i); });
-  return out+'</div>';
+  return out+patLabBlock()+'</div>';
 }
 function patternNoiseRate(){
   const C=state.candles;
@@ -7463,6 +7791,7 @@ function renderStructure(){
   bindArm(root, "structArmMsg");
   sectionise(root);
   sectionNav(root);
+  bindPatLab(root);
   sectionTools(root, want=>{
     /* expand-all should also open the pattern explanations, not just the shells */
     root.querySelectorAll("details.patX").forEach(d=>{ d.open=want; state.patOpen[d.dataset.p]=want; });
@@ -7642,30 +7971,51 @@ function projGates(g){
 
 function generateProjection(opts){
   opts=opts||{};
+  /* A zone, level, signal or structure row hands in the side it means. That side
+     is what makes "project it anyway" possible when the read itself has no
+     opinion — without it there is nothing to build a direction from. */
+  const wantSide = (opts.anchor && (opts.anchor.side==="long" || opts.anchor.side==="short"))
+                   ? opts.anchor.side : null;
   let R=null;
   try{ R=fullRead(state.combine); }catch(e){}
   if(!R) return { err:"Not enough candles for a read yet." };
-  if(R.bias!=="bullish" && R.bias!=="bearish")
-    return { err:"The engines disagree ("+R.up+" up vs "+R.down+" down) — refusing to project a coin flip. Wait for alignment, or change timeframe." };
-  /* the Sampler gate: does this read survive being asked slightly differently? */
-  const ST = projectionStability(R);
-  if(ST && ST.drift)
-    return { err:"Stability check could not verify itself against the live read — refusing rather than reporting a score I cannot stand behind." };
-  if(ST && ST.agree < PRJ_MIN_AGREE){
-    logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px:R.px,
-                     dir:R.bias, kind:"stability", agree:+ST.agree.toFixed(3), n:ST.n, agreed:ST.agreed,
-                     bull:ST.bull, bear:ST.bear, spread:ST.spread });
-    return { err:"Unstable read — it held in only "+ST.agreed+" of "+ST.n+
-      " sampled views of the same history ("+Math.round(ST.agree*100)+"%, floor is "+
-      Math.round(PRJ_MIN_AGREE*100)+"%). "+
-      (ST.critical && ST.critical.length
-        ? "Remove "+ST.critical.slice(0,3).join(" or ")+" and the call reverses — one factor is carrying it."
-        : "Nudge the factor weights and the call reverses; it is sitting right on the decision margin.")+
-      " Logged in the refusal list so you can check later whether that was the right call.", kind:"stability" };
-  }
-  const long = R.bias==="bullish";
-  const px=R.px, a=(R.atr||atrPct());
   let isEcho=false, echoWhy=null;
+  /* counterRead = this projection is NOT the read's idea. It then may not borrow
+     the read's stop or targets — those belong to the other direction — so the
+     geometry falls back to pure volatility. */
+  let counterRead=false, long;
+  if(R.bias==="bullish" || R.bias==="bearish") long = R.bias==="bullish";
+  else if(opts.override && wantSide){
+    long = wantSide==="long"; counterRead=true; isEcho=true; echoWhy="noread";
+    logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px:R.px,
+                     dir:wantSide, kind:"noread", note:"OVERRIDDEN · engines split "+R.up+" up vs "+R.down+" down" });
+  } else {
+    return { err:"The engines disagree ("+R.up+" up vs "+R.down+" down) — refusing to project a coin flip. Wait for alignment, or change timeframe.",
+             kind: wantSide? "noread" : undefined };
+  }
+  /* the Sampler gate: does this read survive being asked slightly differently?
+     Meaningless when the read had no side to begin with. */
+  let ST=null;
+  if(!counterRead){
+    ST = projectionStability(R);
+    if(ST && ST.drift)
+      return { err:"Stability check could not verify itself against the live read — refusing rather than reporting a score I cannot stand behind." };
+    if(ST && ST.agree < PRJ_MIN_AGREE){
+      const why="Unstable read — it held in only "+ST.agreed+" of "+ST.n+
+        " sampled views of the same history ("+Math.round(ST.agree*100)+"%, floor is "+
+        Math.round(PRJ_MIN_AGREE*100)+"%). "+
+        (ST.critical && ST.critical.length
+          ? "Remove "+ST.critical.slice(0,3).join(" or ")+" and the call reverses — one factor is carrying it."
+          : "Nudge the factor weights and the call reverses; it is sitting right on the decision margin.");
+      logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px:R.px,
+                       dir:R.bias, kind:"stability", agree:+ST.agree.toFixed(3), n:ST.n, agreed:ST.agreed,
+                       bull:ST.bull, bear:ST.bear, spread:ST.spread,
+                       note:opts.override? "OVERRIDDEN · unstable read" : undefined });
+      if(opts.override){ isEcho=true; echoWhy=echoWhy||"stability"; }
+      else return { err:why+" Logged in the refusal list so you can check later whether that was the right call.", kind:"stability" };
+    }
+  }
+  const px=R.px, a=(R.atr||atrPct());
   /* entry band: anchor to the nearest level if one sits close enough to be the
      reason for the trade; otherwise a band around price                      */
   const scanAnchor=()=>{
@@ -7688,9 +8038,19 @@ function generateProjection(opts){
      read, that disagreement is the answer and the projection is refused. */
   let anchor=null;
   if(opts.anchor && isFinite(+opts.anchor.p)){
-    if(opts.anchor.side && opts.anchor.side!==(long?"long":"short"))
-      return { err:"That is a "+esc(opts.anchor.side)+" setup but the read here is "+R.bias+
-        " ("+R.up+" up vs "+R.down+" down). The level and the engines disagree — that is information, not a trade.", kind:"side" };
+    if(wantSide && wantSide!==(long?"long":"short")){
+      if(opts.override){
+        /* he takes the level's side over the engines'. Allowed — but the trade
+           is now HIS, not the read's, so it is an echo and the read no longer
+           supplies the stop or the targets. */
+        long = wantSide==="long"; counterRead=true; isEcho=true; echoWhy=echoWhy||"side";
+        logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
+                         dir:wantSide, kind:"side", note:"OVERRIDDEN · read said "+R.bias });
+      } else {
+        return { err:"That is a "+esc(wantSide)+" setup but the read here is "+R.bias+
+          " ("+R.up+" up vs "+R.down+" down). The level and the engines disagree — that is information, not a trade.", kind:"side" };
+      }
+    }
     anchor={ p:+opts.anchor.p, d:Math.abs(+opts.anchor.p-px)/px, label:opts.anchor.label||"level" };
   }
   if(!anchor) anchor=scanAnchor();
@@ -7722,11 +8082,21 @@ function generateProjection(opts){
     }catch(e){}
   }
   {
-    if(!anchor && autoTried>0){
+    if(!anchor){
+      /* The old code only refused when the auto-detector had actually tried.
+         With nothing detectable it fell through to `anchor.p` and threw — which
+         is what "the button does nothing" looks like from the outside. */
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
-                       dir:R.bias, kind:"anchor", note:"auto-detected "+autoTried+" candidate(s); none in reach on the right side" });
-      return { err:"No anchor even after auto-detecting levels — "+autoTried+" candidate(s) found, but none sit within reach on the "+
-        (long?"support side below":"resistance side above")+" price. Price is in open space; the retest to project has not formed yet. Logged in the refusal list.", kind:"anchor" };
+                       dir:R.bias, kind:"anchor",
+                       note:(opts.override?"OVERRIDDEN · ":"")+"auto-detected "+autoTried+" candidate(s); none in reach on the right side" });
+      if(opts.override){
+        anchor={ p:px, d:0, label:"price (no level in reach)" };
+        isEcho=true; echoWhy=echoWhy||"anchor";
+      } else {
+        return { err:"No anchor"+(autoTried>0? " even after auto-detecting levels — "+autoTried+" candidate(s) found, but none sit"
+                                              : " — no level sits")+" within reach on the "+
+          (long?"support side below":"resistance side above")+" price. Price is in open space; the retest to project has not formed yet. Logged in the refusal list.", kind:"anchor" };
+      }
     }
     const dirWord = long? "long":"short";
     const openSameDir = state.projections.find(q=>q && q.dir===dirWord &&
@@ -7749,7 +8119,7 @@ function generateProjection(opts){
          would make the gate list useless for judging whether the gates work */
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
                        dir:R.bias, kind:G.kind, note:"OVERRIDDEN · "+G.err.slice(0,130) });
-      isEcho=true; echoWhy=G.kind;
+      isEcho=true; echoWhy=echoWhy||G.kind;   /* the FIRST forced gate is the provenance */
     } else if(G){
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
                        dir:R.bias, kind:G.kind, note:G.err.slice(0,140) });
@@ -7759,18 +8129,21 @@ function generateProjection(opts){
   const mid = anchor.p;
   const half = Math.max(mid*0.0012, a*0.35*mid);
   const entryLo=mid-half, entryHi=mid+half;
-  const S=readStop(R);
-  if(!S) return { err:"Could not place a stop — no structure and no volatility estimate." };
-  /* the stop must sit beyond the band, or the shape is self-contradictory */
-  let stop=S.p;
+  const S = counterRead? null : readStop(R);
+  if(!S && !counterRead) return { err:"Could not place a stop — no structure and no volatility estimate." };
+  /* A counter-read projection gets a VOLATILITY stop, because the read's
+     invalidation level belongs to the opposite trade and would be nonsense here. */
+  let stop = S? S.p
+    : (long ? mid*(1-Math.max(a*1.5, 0.004)) : mid*(1+Math.max(a*1.5, 0.004)));
+  if(!isFinite(stop)) return { err:"Could not place a stop — no volatility estimate." };
   if(long  && stop>=entryLo) stop=entryLo*(1-Math.max(a*0.5, 0.002));
   if(!long && stop<=entryHi) stop=entryHi*(1+Math.max(a*0.5, 0.002));
   const risk = long? (mid-stop) : (stop-mid);
   if(!(risk>0)) return { err:"Degenerate geometry — stop ended up on the wrong side." };
-  let t1 = R.t1? R.t1.p : (long? mid+risk*1.5 : mid-risk*1.5);
+  let t1 = (!counterRead && R.t1)? R.t1.p : (long? mid+risk*1.5 : mid-risk*1.5);
   if(long  && t1<=entryHi) t1=entryHi+risk*1.2;
   if(!long && t1>=entryLo) t1=entryLo-risk*1.2;
-  let t2 = R.t2? R.t2.p : (long? mid+risk*2.5 : mid-risk*2.5);
+  let t2 = (!counterRead && R.t2)? R.t2.p : (long? mid+risk*2.5 : mid-risk*2.5);
   if(long  && t2<=t1) t2=t1+risk;
   if(!long && t2>=t1) t2=t1-risk;
   const c=(typeof costPct==="function"?costPct():0.0012)*mid;
@@ -7779,18 +8152,23 @@ function generateProjection(opts){
     const G = projGates({ long, px, rrNet });
     if(G){
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
-                       dir:R.bias, kind:G.kind, note:G.err.slice(0,140) });
-      return { err:G.err+" Logged in the refusal list." };
+                       dir:R.bias, kind:G.kind,
+                       note:(opts.override?"OVERRIDDEN · ":"")+G.err.slice(0,130) });
+      if(opts.override){ isEcho=true; echoWhy=echoWhy||G.kind; }
+      else return { err:G.err+" Logged in the refusal list.", kind:G.kind };
     }
   }
   const now=state.candles[state.candles.length-1];
   const proj={
-    id:"prj:"+state.symbol+":"+state.tf+":"+now.time,
+    /* uid suffix: a cancel + re-arm on the SAME bar used to mint two rows with
+       one id — then every id-keyed operation (cancel, order buttons, the clear
+       sweep, the 60s sync merge) acted on whichever twin it found first. */
+    id:"prj:"+state.symbol+":"+state.tf+":"+now.time+":"+uid(),
     symbol:state.symbol, tf:state.tf, dir: long?"long":"short",
     entryLo:+entryLo.toFixed(8), entryHi:+entryHi.toFixed(8),
     stop:+stop.toFixed(8), t1:+t1.toFixed(8), t2:+t2.toFixed(8),
     createdTime:now.time, createdPx:px,
-    echo:isEcho||undefined, echoWhy:echoWhy||undefined,
+    echo:isEcho||undefined, echoWhy:echoWhy||undefined, counterRead:counterRead||undefined,
     status:"waiting", armTime:null, filledTime:null, filledPx:null,
     hiSince:null, loSince:null, t1Time:null,
     resolvedTime:null, resolvedPx:null, barsWaited:0, barsHeld:0,
@@ -8008,6 +8386,7 @@ async function loadProjections(){
         rows.forEach(healProjRow);
         const have=new Set(state.projections.map(p=>p.id));
         state.projections=state.projections.concat(rows.filter(p=>p&&p.id&&!have.has(p.id)));
+        if(dedupeProjIds(state.projections)) saveProjections();
       }
     }
   }catch(e){}
@@ -8027,6 +8406,23 @@ async function loadProjections(){
 const PRJ_RANK={waiting:0,active:1,t1:2};
 function prjRank(p){ if(!p) return -1; if(p.outcome || !(p.status in PRJ_RANK)) return 3; return PRJ_RANK[p.status]; }
 function prjProg(p){ return (p.barsHeld||0)*1000+(p.barsWaited||0); }
+/* Rows minted before the uid suffix can share an id (cancelled + re-armed on
+   one bar). Re-id the non-terminal twin so id-keyed controls stop cross-firing.
+   The renamed row simply merges as itself on the next sync. */
+function dedupeProjIds(rows){
+  const seen=new Map(); let changed=false;
+  for(const p of rows){
+    if(!p || !p.id) continue;
+    if(seen.has(p.id)){
+      const twin=seen.get(p.id);
+      const move = !p.outcome? p : !twin.outcome? twin : p;   /* prefer re-idding the LIVE one */
+      move.id=move.id+":fix"+uid(); changed=true;
+      seen.set(move===p? twin.id : p.id, move===p? twin : p);
+      seen.set(move.id, move);
+    } else seen.set(p.id, p);
+  }
+  return changed;
+}
 function mergeProjRows(base, incoming){
   const out=new Map();
   for(const p of (Array.isArray(base)?base:[])) if(p&&p.id) out.set(p.id,p);
@@ -8054,6 +8450,7 @@ async function syncProjections(){
     const m=mergeProjRows(state.projections, inc);
     if(m.changed){
       state.projections=m.rows;
+      if(dedupeProjIds(state.projections)) saveProjections();
       try{ reconcileProjOrders(); }catch(e){}
       try{ renderProjections(); }catch(e){}
       try{ render(); }catch(e){}
@@ -8389,7 +8786,8 @@ const GATE_COST = {
   stability:   "the read was still moving when this was frozen — tracked as an ECHO, not as a clean signal",
   side:        "the level and the engines disagree on direction — tracked as an ECHO",
   rr:          "the reward does not cover the risk plus costs — tracked as an ECHO, and it is still a bad price",
-  anchor:      "there is no structure under this — tracked as an ECHO",
+  anchor:      "the band is drawn around price instead of a level — tracked as an ECHO",
+  noread:      "the engines have no side here, so this is YOUR call, not the read's — the stop and targets come from volatility alone, and it is tracked as an ECHO",
 };
 function armFromAnchor(spec){
   const msgAt=(html)=>{
@@ -8621,8 +9019,21 @@ function projCard(p){
     '<div class="kv"><span>Target two</span><b class="g">'+fmt(p.t2)+'</b></div>'+
     '<div class="kv"><span>Net R:R to T1</span><b>'+(p.reasons.rrNet||0).toFixed(2)+':1 · needs '+
       Math.round((p.reasons.be||1)*100)+'% winners</b></div>';
-  const flags=(p.echo? '<div class="cardNote">🔁 ECHO — armed over the '+esc(p.echoWhy||"correlation")+
-      ' gate; same bet as another open projection, not counted as an independent outcome.</div>':'')+
+  /* The ECHO note used to say "same bet as another open projection" for every
+     kind of override — true only for the correlation gate, and misleading for
+     the rest. Each override now states what was actually overridden. */
+  const ECHO_TXT={
+    correlation:"the same bet as another open projection — not counted as an independent outcome.",
+    cooldown:"armed during a cooldown after two losses in this direction — not counted as an independent outcome.",
+    stability:"the read was still moving when this was frozen — not counted as an independent outcome.",
+    side:"armed AGAINST the read: the level said "+(p.dir==="long"?"long":"short")+", the engines said the opposite. Stop and targets come from volatility, not from the read.",
+    noread:"the engines had no side here — this is your call, not the read's. Stop and targets come from volatility alone.",
+    anchor:"no level was in reach, so the band is drawn around price rather than around structure.",
+    rr:"the reward does not cover the risk plus costs — this one is a bad price by the tool's own arithmetic.",
+  };
+  const flags=(p.echo? '<div class="cardNote">🔁 <b>ECHO</b> — '+
+      esc(ECHO_TXT[p.echoWhy] || ('armed over the '+(p.echoWhy||"correlation")+' gate; not counted as an independent outcome.'))+
+      '</div>':'')+
     (p.thesis && !p.outcome? '<div class="flag warn">⚠ Market turned against this while it is '+esc(p.status)+
       ': current read is '+esc(p.thesis.bias)+' ('+esc(p.thesis.note||"")+'). The projection stays tracked — cancelling is your call.</div>':'');
   const why=flags+'<div class="pSec"><span>Why it was generated</span>'+esc(p.reasons.summary)+
@@ -8653,7 +9064,10 @@ function projCard(p){
   return '<details class="patX" data-p="prj:'+esc(p.id)+'"'+(open?' open':'')+'>'+
     '<summary><b class="'+(long?'g':'r')+'">'+(long?'▲ LONG':'▼ SHORT')+' '+esc(p.symbol.replace("USDT",""))+
     ' <em style="font-style:normal;color:var(--dim)">'+p.tf+'</em></b>'+
-    '<span class="tagS '+b[1]+'">'+b[0]+'</span></summary>'+
+    '<span class="tagS '+b[1]+'">'+b[0]+'</span>'+
+    (p.echo? '<span class="tagS warn" title="armed over a refusal — excluded from the independent tally">🔁 ECHO</span>':'')+
+    (p.counterRead? '<span class="tagS bad" title="armed against the read">⚠ vs read</span>':'')+
+    '</summary>'+
     '<div class="patBody">'+rows+ordChip+why+out+
     (p.outcome? '' : '<div class="rFoot" style="margin-top:9px">'+
       (paperPlaced? '' : '<button data-order="'+esc(p.id)+'">📋 Paper order</button>')+
@@ -8682,11 +9096,11 @@ function renderProjections(){
   /* clearing is per-chart and only ever touches GRADED rows — a live projection
      is never deleted by a button that says "clear", because that would quietly
      drop something the tracker is still watching. */
-  const doneHere=state.projections.filter(p=>p.outcome && p.symbol===state.symbol && p.tf===state.tf);
+  const doneHere=state.projections.filter(p=>p.outcome && !p.cleared && p.symbol===state.symbol && p.tf===state.tf);
   h+='<div class="wBar"><button class="btn primary" id="prjGen">'+
      (mine? 'Tracking one on this chart already' : '🎯 Project this chart ('+state.symbol.replace("USDT","")+' '+state.tf+')')+
      '</button>'+
-     (doneHere.length? '<button class="btn" id="prjClear" title="Removes graded projections from this chart — history stays in the tally">🧹 Clear '+doneHere.length+' finished</button>':'')+
+     (doneHere.length? '<button class="btn" id="prjClear" title="Hides graded projections from this chart and list — they still count in HISTORY and the scorecard">🧹 Clear '+doneHere.length+' finished</button>':'')+
      '</div>'+
      (doneHere.length? '<div class="fine" style="margin:-4px 0 8px 2px;opacity:.75">'+
        (state.prefs.projDone? 'Finished projections are being drawn on the chart. Turn that off in ⚙ to hide them without deleting anything.'
@@ -8698,14 +9112,18 @@ function renderProjections(){
   const ref = Array.isArray(state.prjRefused)? state.prjRefused : [];
   if(ref.length){
     const KIND={stability:"unstable read", correlation:"same bet already open", anchor:"no anchor",
-                cooldown:"cooldown", rr:"thin R:R"};
-    h+='<details class="patX"><summary><b>'+ref.length+' refused</b>'+
+                cooldown:"cooldown", rr:"thin R:R", side:"level vs read disagree", noread:"engines split"};
+    const isOvr=r=>/^OVERRIDDEN/.test(String(r.note||""));
+    const hard=ref.filter(r=>!isOvr(r)), ovr=ref.length-hard.length;
+    h+='<details class="patX"><summary><b>'+hard.length+' refused</b>'+
+       (ovr? ' <span class="tagS warn">+'+ovr+' overridden</span>':'')+
        ' <span class="est">every no is written down — audit whether the gates were right</span></summary>'+
        '<div class="fine" style="padding:4px 0 6px 2px">Look up what price did after each refusal: if the blocked trades would have worked, a gate is too tight. That check is the only way a threshold earns trust.</div>';
     for(const r of ref.slice(0,15)){
       const mins=Math.max(0,Math.round((Date.now()-r.at)/60000));
       h+='<div class="calRow2"><span class="cLab wide">'+esc(String(r.symbol||"").replace("USDT",""))+
-         ' <small>'+esc(r.tf||"")+' · '+(KIND[r.kind]||"unstable read")+'</small></span>'+
+         ' <small>'+esc(r.tf||"")+' · '+(KIND[r.kind]||esc(r.kind||"unstable read"))+
+         (isOvr(r)? ' · <b style="color:var(--accent)">🔁 overridden</b>':'')+'</small></span>'+
          '<span class="cNum '+(r.dir==="bullish"?"g":"r")+'">'+(r.dir==="bullish"?"▲ long":"▼ short")+'</span>'+
          '<span class="cN">'+(r.kind==="stability"||!r.kind? r.agreed+'/'+r.n+' ('+Math.round((r.agree||0)*100)+'%) · ':'')+
          (mins<60? mins+"m":(mins/60).toFixed(1)+"h")+' ago · at '+fmt(r.px)+'</span></div>';
@@ -8723,8 +9141,10 @@ function renderProjections(){
         '<b class="r">'+loss+' failed</b> · '+exp+' expired'+
         (echoes? ' · '+echoes+' echo'+(echoes===1?'':'es')+' (same bet, counted once)':'')+' — '+
         '<i>at this sample size these are anecdotes, not statistics.</i></div>'+
-      done.slice(0,50).map(projCard).join('')+
-      (done.length>50? '<div class="fine">showing the 50 most recent of '+done.length+'</div>':'')+
+      (()=>{ const vis=done.filter(p=>!p.cleared); const hid=done.length-vis.length;
+        return vis.slice(0,50).map(projCard).join('')+
+          (vis.length>50? '<div class="fine">showing the 50 most recent of '+vis.length+'</div>':'')+
+          (hid? '<div class="fine" style="opacity:.7">'+hid+' hidden by 🧹 Clear — still counted in the tally above.</div>':''); })()+
       '</details></div>';
   }
   if(!live.length && !done.length)
@@ -8738,11 +9158,16 @@ function renderProjections(){
       setTimeout(()=>{ if(cl.isConnected){ cl.dataset.armed=""; cl.textContent="🧹 Clear "+doneHere.length+" finished"; } },4000);
       return;
     }
-    const kill=new Set(doneHere.map(p=>p.id));
-    state.projections=state.projections.filter(p=>!kill.has(p.id));
+    /* HIDE, never delete: the graded rows are the tool's measured history —
+       the tally, the factor scorecard and the pattern evidence all read them.
+       A tidy-up must not be able to destroy evidence. And only rows that HAVE
+       an outcome are touched, so a live twin sharing an old-format id is safe. */
+    let n=0;
+    for(const p of state.projections)
+      if(p.outcome && !p.cleared && p.symbol===state.symbol && p.tf===state.tf){ p.cleared=true; n++; }
     saveProjections();
-    cmdSay("Cleared "+kill.size+" finished projection"+(kill.size===1?"":"s")+" from "+
-           state.symbol.replace("USDT","")+" "+state.tf+" — the graded tally is unchanged.");
+    cmdSay("Hid "+n+" finished projection"+(n===1?"":"s")+" from "+
+           state.symbol.replace("USDT","")+" "+state.tf+" — they still count in HISTORY.");
     renderProjections(); try{ render(); }catch(e){}
   };
   const g=$("prjGen");
