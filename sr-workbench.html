@@ -841,7 +841,7 @@
 <body>
 
 <header>
-  <button class="pair" id="pairBtn"><span id="pairName">BTC / USDT</span><small>tap to change ▾</small></button>
+  <button class="pair" id="pairBtn"><span id="pairName">BTC / USDT.P</span><small>tap to change ▾</small></button>
   <div id="lastPrice" class="mono">—</div>
   <div id="chg" class="mono"></div>
   <div id="closeIn" class="mono" title="time until this candle closes">—</div>
@@ -1043,7 +1043,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-17b-thesis";
+window.WB_BUILD = "2026-08-18b-futures";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1315,12 +1315,25 @@ try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 (function(){
 "use strict";
 
-const HOSTS = [
-  "https://data-api.binance.vision",
-  "https://api.binance.com",
-  "https://api1.binance.com",
-  "https://api2.binance.com"
-];
+/* ── VENUE: Binance USDT-M FUTURES ─────────────────────────────────────────
+   He trades futures only, so the chart, every engine, the projections and
+   the server tracker all read the SAME perpetual series — a projection
+   graded on spot while the order fills on the perp would be graded against
+   a market nobody is trading. All paths are /fapi/v1/* now; the last HOSTS
+   entries route through the backend proxy for the ISPs that block Binance
+   domains outright (same lesson as the storage failover). NOTE: track.html's
+   own spot fetches are NOT this venue switch — they price the spot-vs-perp
+   premium and need spot on purpose.                                        */
+const HOSTS = (function(){
+  const h = ["https://fapi.binance.com"];
+  try{
+    const ab = new URLSearchParams(location.search).get("apibase");
+    if (ab) h.push(ab.replace(/\/+$/,"") + "/api/wb/fapi");
+  }catch(e){}
+  if (location.protocol === "https:" || location.protocol === "http:")
+    h.push("/api/wb/fapi");                       /* vercel proxies /api/* to the backend */
+  return h;
+})();
 const FAPI = "https://fapi.binance.com";
 /* CHART PALETTE — deliberately only three ideas:
    green = up / long / bullish, red = down / short / bearish, grey = no direction. */
@@ -1389,7 +1402,12 @@ const pct = x => (x>=0?"+":"")+(x*100).toFixed(2)+"%";
    chart drawing THAT" question needs eyes on it from the console            */
 window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view,
   gen:(o)=>generateProjection(o), refusals:()=>state.prjRefused||[], levels:()=>state.levels,
-  projections:()=>state.projections, symbol:()=>state.symbol, tf:()=>state.tf };
+  projections:()=>state.projections, symbol:()=>state.symbol, tf:()=>state.tf,
+  papers:()=>state.papers,
+  placeOrders:(p)=>placeProjOrders(p), ordersFor:(id)=>projOrdersFor(id),
+  reconcile:()=>reconcileProjOrders(), updatePapers:()=>updatePapers(),
+  updateProjections:()=>updateProjections(),
+  candlesSym:(v)=>{ if(v!==undefined) state.candlesSym=v; return state.candlesSym; } };
 
 /* ---------- sizing ---------- */
 function resize(){
@@ -2340,7 +2358,7 @@ function marketStructure(){
 async function loadDepth(){
   if(!state.host) return;
   try{
-    const r=await fetch(state.host+"/api/v3/depth?symbol="+SYMBOL+"&limit=500");
+    const r=await fetch(state.host+"/fapi/v1/depth?symbol="+SYMBOL+"&limit=500");
     if(!r.ok) throw 0;
     const j=await r.json();
     const bids=j.bids.map(b=>({p:+b[0],q:+b[1]}));
@@ -2382,7 +2400,7 @@ async function loadCorr(){
   if(!state.host) return;
   const peer = SYMBOL==="BTCUSDT" ? "ETHUSDT" : "BTCUSDT";
   try{
-    const r=await fetch(`${state.host}/api/v3/klines?symbol=${peer}&interval=${state.tf}&limit=200`);
+    const r=await fetch(`${state.host}/fapi/v1/klines?symbol=${peer}&interval=${state.tf}&limit=200`);
     if(!r.ok) throw 0;
     const raw=await r.json();
     state.corr={peer, candles:raw.map(mapK)};
@@ -2540,7 +2558,7 @@ function openPaper(isLong, price, kind, meta){
   const target=TF.target;
   const isLimit = kind==="limit" || (price && Math.abs(px-mkt)/mkt > 0.0015);
   state.papers.push({
-    id:uid(), symbol:state.symbol, side:isLong?"long":"short", entry:px, stop, target,
+    id:uid(), side:isLong?"long":"short", entry:px, stop, target,
     units:sizeFor(px,stop), initialStop:stop,
     openedTime: state.candles[state.candles.length-1].time,
     filledTime:null, tf:state.tf, symbol:SYMBOL,
@@ -2563,10 +2581,20 @@ function showTrades(){
 }
 function updatePapers(){
   if(!state.candles.length) return;
+  /* refuse to run while the loaded series does not belong to the chart's
+     symbol (mid-switch, watchlist scan, backtest sweep) — the alternative was
+     real: an ETH short's 1,961 stop is "hit" by any BTC candle's 65,000 high */
+  if(state.candlesSym && state.candlesSym!==state.symbol) return;
   const c=state.candles[state.candles.length-1];
   let changed=false;
   for(const t of state.papers){
     if(t.status!=="pending" && t.status!=="open") continue;
+    /* each order is judged ONLY against its own coin's candles. The drawing
+       side learned this long ago ("a BTC order drew on an ETH chart"); the
+       TRACKING side never had the same filter, so fills, stops and cancels
+       could come from whichever chart happened to be open. Cross-coin orders
+       now simply wait until their own chart is loaded. */
+    if(String(t.symbol||state.symbol).toUpperCase()!==String(state.symbol).toUpperCase()) continue;
     /* ── EXTREMES SINCE THE ORDER EXISTED ────────────────────────────────────
        The bug this replaces: fills and stops were tested against
        state.candles[last].high/low — the CURRENT, still-forming candle. Those
@@ -2691,8 +2719,22 @@ function renderTrades(){
   const nlive=state.papers.filter(t=>t.status==="open"||t.status==="pending").length;
   $("trdCount").textContent=nlive;
   $("trdCount").className="n"+(nlive>0?" hot":"");
+  /* server-side sequences (LIVE / SHADOW twins of projections) \u2014 read-only
+     here; the watcher is their manager and the projection card their home */
+  if(!state.wbo) state.wbo={status:null, rows:[], at:0};
+  if(Date.now()-state.wbo.at>30000){
+    wboRefresh().then(()=>{ if(state.tab==="trades"){ try{ renderTrades(); }catch(e){} } }).catch(()=>{});
+  }
+  const wrows=((state.wbo&&state.wbo.rows)||[]).filter(o=>o&&o.state);
+  let wliveHtml='';
+  if(wrows.length){
+    wliveHtml='<div class="card"><div class="cardT">SERVER SEQUENCES <span class="est">placed from projections \u2014 the watcher manages them 24/7</span></div>'+
+      wrows.slice(0,12).map(o=>'<div class="calRow2"><span class="cLab wide">'+(o.mode==="live"?"\u26a1":"\ud83d\udc7b")+' '+
+        esc(String(o.symbol||"").replace("USDT",""))+' <small>'+esc(o.tf||"")+' \u00b7 '+esc(o.side||"")+' \u00b7 '+(+o.usdt||0)+' USDT</small></span>'+
+        '<span class="cN">'+esc(String(o.state||""))+(o.note? ' \u00b7 '+esc(String(o.note)) :'')+'</span></div>').join('')+'</div>';
+  }
   if(!state.papers.length){
-    el.innerHTML='<div class="empty"><b>Long-press the chart</b> at any price and pick \u25b2 long or \u25bc short.<br><br>At current price it opens immediately; away from price it becomes a <b>pending limit order</b> that fills when price arrives. Stops go just beyond your nearest line, target at 2R, size from \u2699.<br><br>Once open you can amend stop and target, move to break-even, trail the stop, or cancel.</div>';
+    el.innerHTML=wliveHtml+'<div class="empty"><b>Long-press the chart</b> at any price and pick \u25b2 long or \u25bc short \u2014 or tap <b>\ud83d\udccb Paper order</b> on a projection card to place its whole sequence.<br><br>At current price it opens immediately; away from price it becomes a <b>pending limit order</b> that fills when price arrives. Stops go just beyond your nearest line, target at 2R, size from \u2699.<br><br>Once open you can amend stop and target, move to break-even, trail the stop, or cancel.</div>';
     return;
   }
   const money=v=>(v>=0?"+":"")+fmt(v);
@@ -2759,7 +2801,7 @@ function renderTrades(){
     '<div class="ldg">'+HEAD+live.map(row).join("")+'</div>'; }
   if(done.length){ h+='<div class="cardT" style="padding:6px 2px">HISTORY</div>'+
     '<div class="ldg">'+HEAD+done.slice(-12).reverse().map(row).join("")+'</div>'; }
-  el.innerHTML=h;
+  el.innerHTML=wliveHtml+h;
   el.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{
     const a=b.dataset.a, id=b.dataset.id;
     if(a==="stop"||a==="target"||a==="entry") amend(id,a,+b.dataset.d);
@@ -3117,12 +3159,12 @@ async function runBacktestAll(onProgress){
       if(onProgress) onProgress(sym, k, syms.length);
       let C=null;
       try{
-        const url=`${state.host}/api/v3/klines?symbol=${sym}&interval=${state.tf}&limit=500`;
+        const url=`${state.host}/fapi/v1/klines?symbol=${sym}&interval=${state.tf}&limit=500`;
         const raw=await (await fetch(url)).json();
         C=Array.isArray(raw)? raw.map(mapK) : null;
       }catch(e){ C=null; }
       if(!C || C.length<300){ perCoin.push({sym, n:0, skipped:"not enough history"}); continue; }
-      SYMBOL=sym; state.candles=C; state.levels=[];
+      SYMBOL=sym; state.candles=C; state.candlesSym=sym; state.levels=[];
       state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
       let r=[]; try{ r=runBacktest(); }catch(e){ perCoin.push({sym,n:0,skipped:e.message}); continue; }
       const longShare = r.length? r.filter(x=>x.isSupport).length/r.length : 0.5;
@@ -3138,7 +3180,7 @@ async function runBacktestAll(onProgress){
       await new Promise(res=>setTimeout(res,0));               /* yield so the UI can breathe */
     }
   } finally {
-    SYMBOL=saveSym; state.candles=saveC; state.tf=saveTf; state.levels=saveLv;
+    SYMBOL=saveSym; state.candles=saveC; state.candlesSym=saveSym; state.tf=saveTf; state.levels=saveLv;
     state._vpCache=saveCache[0]; state._nbCache=saveCache[1];
     state._indCache=saveCache[2]; state._pnCache=saveCache[3];
   }
@@ -3742,7 +3784,7 @@ async function switchSymbol(sym){
   state.fib=null; state.mstruct=null; state.depth={walls:[],imbalance:null,ok:false};
   state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
   $("anaCard").style.display="none"; $("readCard").style.display="none"; $("readChip").style.display="none";
-  $("pairName").textContent=sym.replace("USDT","")+" / USDT";
+  $("pairName").textContent=sym.replace("USDT","")+" / USDT.P";   /* .P = perpetual — this chart IS the futures series */
   addTab(sym); renderCoinTabs();
   await loadCandles();
   await loadLevels();
@@ -3754,7 +3796,7 @@ async function switchSymbol(sym){
 async function loadUniverse(){
   if(state.universe.length||!state.host) return state.universe;
   try{
-    const r=await fetch(state.host+"/api/v3/ticker/24hr");
+    const r=await fetch(state.host+"/fapi/v1/ticker/24hr");
     if(!r.ok) throw 0;
     const j=await r.json();
     const STABLE=/^(USDC|FDUSD|TUSD|BUSD|DAI|USDP|USD1|RLUSD|EURI|AEUR|PYUSD|XUSD|USDS)USDT$/;
@@ -3778,11 +3820,11 @@ async function scanWatchlist(onRow){
   for(const sym of state.watch){
     let row={sym, ok:false};
     try{
-      const url=`${state.host}/api/v3/klines?symbol=${sym}&interval=${state.tf}&limit=300`;
+      const url=`${state.host}/fapi/v1/klines?symbol=${sym}&interval=${state.tf}&limit=300`;
       const raw=await (await fetch(url)).json();
       const cd=raw.map(mapK);
       if(cd.length<80) throw 0;
-      state.candles=cd;
+      state.candles=cd; state.candlesSym=sym;   /* foreign coin on deck — trackers stand down */
       state.levels = (state.store[sym]&&state.store[sym].levels) || [];
       state._vpCache=null; state._nbCache=null; state._indCache=null;
       const px=cd[cd.length-1].close;
@@ -3812,7 +3854,7 @@ async function scanWatchlist(onRow){
     rows.push(row);
     if(onRow) onRow(rows);
   }
-  state.candles=savedC; state.levels=savedL; state.symbol=savedSym; SYMBOL=savedSym; state.tf=savedTf;
+  state.candles=savedC; state.candlesSym=savedSym; state.levels=savedL; state.symbol=savedSym; SYMBOL=savedSym; state.tf=savedTf;
   state._vpCache=null; state._nbCache=null; state._indCache=null;
   state.scan=rows; state.scanning=false;
   state.scanAt=Date.now();
@@ -4943,7 +4985,7 @@ const HTF_MAP={"15m":"4h","1h":"4h","4h":"1d","1d":"1w"};
 async function loadHTF(){
   const htf=HTF_MAP[state.tf];
   try{
-    const url=`${state.host}/api/v3/klines?symbol=${SYMBOL}&interval=${htf}&limit=200`;
+    const url=`${state.host}/fapi/v1/klines?symbol=${SYMBOL}&interval=${htf}&limit=200`;
     const raw=await (await fetch(url)).json();
     state.htf={tf:htf, candles:raw.map(mapK)};
   }catch(e){ state.htf=null; }
@@ -5739,7 +5781,7 @@ async function probe(){
     try{
       const ctl = new AbortController();
       const to = setTimeout(()=>ctl.abort(), 4500);
-      const r = await fetch(h+"/api/v3/ping",{signal:ctl.signal});
+      const r = await fetch(h+"/fapi/v1/ping",{signal:ctl.signal});
       clearTimeout(to);
       if(r.ok){ state.host=h; return true; }
     }catch(e){}
@@ -5750,9 +5792,14 @@ function mapK(k){
   return {time:k[0]/1000,open:+k[1],high:+k[2],low:+k[3],close:+k[4],vol:+k[5],takerBuy:+k[9]};
 }
 async function loadCandles(){
-  const url = `${state.host}/api/v3/klines?symbol=${SYMBOL}&interval=${state.tf}&limit=500`;
+  const url = `${state.host}/fapi/v1/klines?symbol=${SYMBOL}&interval=${state.tf}&limit=500`;
   const raw = await (await fetch(url)).json();
   state.candles = raw.map(mapK);
+  /* Label the series with the symbol it belongs to. Trackers refuse to run
+     while this label disagrees with state.symbol — that mismatch is exactly
+     the window in which trades and projections used to be graded against the
+     WRONG COIN's candles (an ETH stop "hit" by a BTC high). */
+  state.candlesSym = state.symbol;
   state.view.count = Math.min(120, state.candles.length);
   state.view.right = state.candles.length-1;
   state.follow = true; state.cross=null;
@@ -5773,7 +5820,7 @@ async function loadCandles(){
 }
 async function loadFunding(){
   try{
-    const r=await fetch(FAPI+"/fapi/v1/premiumIndex?symbol="+SYMBOL,{signal:AbortSignal.timeout(5000)});
+    const r=await fetch((state.host||FAPI)+"/fapi/v1/premiumIndex?symbol="+SYMBOL,{signal:AbortSignal.timeout(5000)});
     if(r.ok){
       const j=await r.json();
       state.funding.rate=parseFloat(j.lastFundingRate);
@@ -5796,8 +5843,12 @@ function startPolling(){
   clearInterval(state.pollTimer);
   state.pollTimer=setInterval(async()=>{
     try{
-      const url=`${state.host}/api/v3/klines?symbol=${SYMBOL}&interval=${state.tf}&limit=2`;
+      const pollSym=SYMBOL;
+      const url=`${state.host}/fapi/v1/klines?symbol=${pollSym}&interval=${state.tf}&limit=2`;
       const raw=await (await fetch(url)).json();
+      /* the coin can change while this fetch is in flight — pushing the reply
+         onto the new chart would plant one foreign bar in the series */
+      if(pollSym!==state.symbol) return;
       let changed=false, newBar=false;
       for(const k of raw){
         const c=mapK(k);
@@ -7503,6 +7554,10 @@ function quickBias(C){
 
 /* Called wherever candles change, alongside updatePapers. */
 function updateProjections(){
+  /* same wrong-coin guard as updatePapers — here the stakes are higher: a
+     resolution is LATCHED, and the merge rule means the server can never
+     un-fail a projection that a foreign candle failed */
+  if(state.candlesSym && state.candlesSym!==state.symbol) return;
   let dirty=false;
   for(const p of state.projections){
     if(p.symbol!==state.symbol && !(state.vf && state.vf[p.tf])) continue;
@@ -7526,11 +7581,19 @@ function updateProjections(){
       }catch(e){}
     }
   }
-  if(dirty){ saveProjections(); try{ renderProjections(); }catch(e){} try{ render(); }catch(e){} }
+  if(dirty){ try{ reconcileProjOrders(); }catch(e){} saveProjections(); try{ renderProjections(); }catch(e){} try{ render(); }catch(e){} }
 }
 function saveProjections(){
   if(!hasStorage || !HYD.proj) return;
   try{ window.storage.set("projections:all", JSON.stringify(state.projections)); }catch(e){}
+}
+/* One cancelled row was stamped in MILLISECONDS (Date.now()) while every real
+   resolution is stamped in candle SECONDS — it sorted as permanently newest.
+   Heal any such row at every ingress point, including the copy already on the
+   server, so the fix does not depend on the row being re-written. */
+function healProjRow(p){
+  if(p && typeof p.resolvedTime==="number" && p.resolvedTime>1e11) p.resolvedTime=Math.round(p.resolvedTime/1000);
+  return p;
 }
 async function loadProjections(){
   if(!hasStorage){ HYD.proj=true; return; }
@@ -7539,6 +7602,7 @@ async function loadProjections(){
     if(r&&r.value){
       const rows=JSON.parse(r.value);
       if(Array.isArray(rows)){
+        rows.forEach(healProjRow);
         const have=new Set(state.projections.map(p=>p.id));
         state.projections=state.projections.concat(rows.filter(p=>p&&p.id&&!have.has(p.id)));
       }
@@ -7582,13 +7646,160 @@ async function syncProjections(){
   try{
     const r=await window.storage.get("projections:all");
     if(!r||!r.value) return;
-    const m=mergeProjRows(state.projections, JSON.parse(r.value));
+    const inc=JSON.parse(r.value);
+    if(Array.isArray(inc)) inc.forEach(healProjRow);
+    const m=mergeProjRows(state.projections, inc);
     if(m.changed){
       state.projections=m.rows;
+      try{ reconcileProjOrders(); }catch(e){}
       try{ renderProjections(); }catch(e){}
       try{ render(); }catch(e){}
     }
   }catch(e){}
+}
+
+/* ---- projection → order sequence -------------------------------------------
+   A projection is already an order plan: zone, stop, two targets. One tap
+   turns it into the SEQUENCE those four prices imply — limit entry at the
+   near edge of the zone, half the size exits at T1, half runs to T2 with the
+   stop moved to break-even once T1 is struck. Paper legs live in the TRADES
+   ledger; a LIVE/SHADOW twin can run server-side (wborders:all) so the
+   sequence survives with every browser closed.                              */
+function projOrdersFor(id){
+  return (state.papers||[]).filter(t=>t && t.fromProj===id);
+}
+function placeProjOrders(p){
+  if(!p || p.outcome) return {err:"This projection is already graded — nothing to place."};
+  if(projOrdersFor(p.id).length) return {err:"Orders for this projection already exist — see TRADES."};
+  const long=p.dir==="long";
+  const zoneEdge = long? p.entryHi : p.entryLo;   /* fills on the same first touch that fills the projection */
+  const mkt = (p.symbol===state.symbol && state.candles.length)? state.candles[state.candles.length-1].close : null;
+  /* waiting → pending limit at the zone. active/t1 → the zone is already
+     struck, a limit at the edge may never trade again — enter at market and
+     say so on the row instead of pretending the fill was at the zone. */
+  const late = p.status!=="waiting";
+  const entry = late? (mkt!=null? mkt : zoneEdge) : zoneEdge;
+  const qty = sizeFor(entry, p.stop);
+  if(!(qty>0)) return {err:"Cannot size this — stop equals entry."};
+  const t0 = state.candles.length? state.candles[state.candles.length-1].time : Math.floor(Date.now()/1000);
+  const base={ symbol:p.symbol, side:p.dir, stop:p.stop, initialStop:p.stop,
+    openedTime:t0, filledTime: late? t0:null, tf:p.tf,
+    status: late? "open":"pending", exit:null, exitTime:null, reason:"",
+    beMoved:false, trail:false, checks:null, replay:state.replay.on,
+    fromProj:p.id, why:"projection "+p.dir+" "+p.symbol.replace("USDT","")+" "+p.tf };
+  const zTxt="zone "+fmt(p.entryLo)+"–"+fmt(p.entryHi);
+  const lateTxt= late? " · entered at market — projection already "+p.status : "";
+  state.papers.push(
+    Object.assign({}, base, {id:uid(), entry:entry, target:p.t1, units:qty/2, legNo:1,
+      note:"🎯 from projection · "+zTxt+" · leg 1 of 2 — exits at T1"+lateTxt}),
+    Object.assign({}, base, {id:uid(), entry:entry, target:p.t2, units:qty/2, legNo:2, beAtT1:true,
+      note:"🎯 from projection · "+zTxt+" · leg 2 of 2 — runs to T2, stop→break-even at T1"+lateTxt})
+  );
+  savePapers(); beep();
+  return {ok:true, entry:entry, late:late};
+}
+/* Keep the two lifecycles honest with each other. The projection is the
+   authority on its four prices; the ledger legs follow it even when this
+   chart was closed while the move happened (the paper tracker only ever sees
+   the bar in front of it — the projection replay sees them all).            */
+function reconcileProjOrders(){
+  let changed=false;
+  for(const t of (state.papers||[])){
+    if(!t || !t.fromProj) continue;
+    if(t.status!=="pending" && t.status!=="open") continue;
+    const p=state.projections.find(x=>x.id===t.fromProj);
+    if(!p) continue;
+    /* the thesis died before the entry traded — a fill now would be a trade
+       nobody believes in */
+    if(p.outcome && t.status==="pending"){
+      t.status="cancelled";
+      t.reason="projection "+(p.status==="cancelled"?"was cancelled":"resolved "+p.status)+" before the entry filled";
+      changed=true; continue;
+    }
+    /* sequence rule (your pick): once T1 is struck the runner risks nothing */
+    if(t.beAtT1 && !t.beMoved && t.status==="open" &&
+       (p.status==="t1" || p.t1Time || (p.outcome && (p.status==="success"||p.status==="partial")))){
+      t.stop=t.entry; t.beMoved=true; changed=true;
+      t.note=(t.note||"")+" · stop moved to break-even (T1 hit)";
+    }
+    /* the projection has resolved but this leg is still open — the move
+       happened while this coin's chart was closed. Settle the leg at the
+       projection's own prices rather than leaving it to ride a dead plan. */
+    if(p.outcome && t.status==="open"){
+      const res=p.status;
+      if(res==="success"){ t.status="target"; t.exit=t.target; t.reason="target hit (settled from projection)"; }
+      else if(res==="failed"){ t.status="stopped"; t.exit=t.stop; t.reason="stop hit (settled from projection)"; }
+      else if(res==="partial"){
+        if(t.legNo===1){ t.status="target"; t.exit=t.target; t.reason="T1 hit (settled from projection)"; }
+        else { t.status = t.beMoved? "breakeven":"stopped"; t.exit=t.stop;
+               t.reason = t.beMoved? "stopped at break-even (settled from projection)":"stop hit (settled from projection)"; }
+      }
+      else { t.status="closed"; t.exit=(p.resolvedPx!=null? p.resolvedPx : t.entry);
+             t.reason="projection "+res+" — closed flat (settled from projection)"; }
+      t.exitTime=p.resolvedTime||t.exitTime; changed=true;
+    }
+  }
+  if(changed){ savePapers(); if(state.tab==="trades"){ try{ renderTrades(); }catch(e){} } }
+  return changed;
+}
+
+/* ── LIVE bridge — talks to the backend the same two-route way the storage
+   shim does (direct apibase, then the Vercel same-origin proxy), because the
+   ISP that blocks saves blocks order calls identically. ──────────────────── */
+async function wbApi(path, init){
+  const tries=[];
+  if(window.WB_API) tries.push(window.WB_API+path);
+  if(location.protocol==="https:"||location.protocol==="http:") tries.push(path);
+  let lastErr=null;
+  for(const u of tries){
+    try{ const r=await fetch(u, init); if(r.ok) return await r.json();
+         lastErr="HTTP "+r.status;
+    }catch(e){ lastErr=(e&&e.message)||"network blocked"; }
+  }
+  throw new Error(lastErr||"backend unreachable");
+}
+async function wboRefresh(force){
+  if(!state.wbo) state.wbo={status:null, rows:[], at:0};
+  if(!force && Date.now()-state.wbo.at<30000) return;
+  state.wbo.at=Date.now();                       /* stamp first — no request storms on failure */
+  try{
+    const s=await wbApi("/api/wb/orders/status");
+    const rows=await wbApi("/api/wb/orders");
+    state.wbo.status=s; state.wbo.rows=Array.isArray(rows)? rows : [];
+  }catch(e){
+    state.wbo.status={live:false, note:"backend unreachable — "+(e&&e.message||"")};
+  }
+}
+async function placeLiveOrder(p){
+  await wboRefresh(true);
+  const st=(state.wbo&&state.wbo.status)||{live:false};
+  const long=p.dir==="long";
+  /* USDT-M futures: longs AND shorts go live once the server is armed */
+  const willLive = !!st.live;
+  const why = !st.live? (st.note||"WB_LIVE is not on at the server") : null;
+  const cap=+(st.maxUsdt||50);
+  const amt=prompt((willLive? "⚡ LIVE":"👻 SHADOW")+" sequence — USDT notional (server cap "+cap+")"+
+                   "\nmargin used = notional ÷ your account leverage for "+p.symbol.replace("USDT","")+
+                   (why? "\nshadow because: "+why : ""), String(Math.min(20,cap)));
+  if(amt==null) return {cancelled:true};
+  const usdt=+amt;
+  if(!(usdt>0)) return {err:"Amount must be a number above 0."};
+  const zoneEdge= long? p.entryHi : p.entryLo;
+  const okc=confirm((willLive? "⚡ Place a LIVE sequence on Binance USDT-M futures ("+p.symbol.replace("USDT","")+" perp)?" :
+                               "👻 Place a SHADOW sequence (server-tracked at real perp prices, no exchange order)?")+"\n\n"+
+    p.symbol+" "+p.dir.toUpperCase()+" ("+p.tf+")\n"+
+    "entry limit "+fmt(zoneEdge)+" · "+usdt+" USDT notional\n"+
+    "stop "+fmt(p.stop)+" (STOP_MARKET)\n"+
+    "T1 "+fmt(p.t1)+" — half exits (limit)\n"+
+    "T2 "+fmt(p.t2)+" — half runs, stop→break-even at T1\n\n"+
+    "The server watcher manages every step, app closed or not. Your leverage setting is never touched.");
+  if(!okc) return {cancelled:true};
+  const r=await wbApi("/api/wb/orders",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({projId:p.id, symbol:p.symbol, tf:p.tf, side:p.dir,
+      entry:zoneEdge, entryLo:p.entryLo, entryHi:p.entryHi, stop:p.stop, t1:p.t1, t2:p.t2, usdt:usdt})});
+  if(r && r.error) return {err:r.error};
+  return {msg:(r&&r.mode==="live"? "⚡ LIVE":"👻 SHADOW")+" sequence created"+
+              (r&&r.note? " — "+r.note : " — the watcher advances it every minute; state shows on this card.")};
 }
 
 /* ---- the PROJECT tab -------------------------------------------------------
@@ -7629,16 +7840,30 @@ function projCard(p){
     : '<div class="cardNote">'+(p.status==="waiting"
         ? 'Waiting for price to enter the zone — expires after '+(PRJ_WAIT_MULT*projHB(p.tf))+' '+p.tf+' bars unfilled.'
         : 'Filled at '+fmt(p.filledPx)+' — tracking against stop and targets, '+p.barsHeld+' bars in.')+'</div>';
+  /* order state: paper legs in the ledger, live/shadow twin on the server */
+  const paperPlaced = projOrdersFor(p.id).length>0;
+  const wboRow=((state.wbo&&state.wbo.rows)||[]).find(o=>o&&o.projId===p.id);
+  const ordChip = (paperPlaced? '<div class="cardNote">🎯 paper sequence in TRADES — leg 1 exits at T1, leg 2 runs to T2 (stop→BE at T1)</div>':'')+
+    (wboRow? '<div class="cardNote">'+(wboRow.mode==="live"?"⚡ LIVE":"👻 SHADOW")+' sequence on server: <b>'+
+      esc(String(wboRow.state||"?"))+'</b>'+(wboRow.note? ' — '+esc(String(wboRow.note)) :'')+'</div>':'');
   return '<details class="patX" data-p="prj:'+esc(p.id)+'"'+(open?' open':'')+'>'+
     '<summary><b class="'+(long?'g':'r')+'">'+(long?'▲ LONG':'▼ SHORT')+' '+esc(p.symbol.replace("USDT",""))+
     ' <em style="font-style:normal;color:var(--dim)">'+p.tf+'</em></b>'+
     '<span class="tagS '+b[1]+'">'+b[0]+'</span></summary>'+
-    '<div class="patBody">'+rows+why+out+
-    (p.outcome? '' : '<div class="rFoot" style="margin-top:9px"><button data-cancel="'+esc(p.id)+'">Cancel this projection</button></div>')+
+    '<div class="patBody">'+rows+ordChip+why+out+
+    (p.outcome? '' : '<div class="rFoot" style="margin-top:9px">'+
+      (paperPlaced? '' : '<button data-order="'+esc(p.id)+'">📋 Paper order</button>')+
+      (wboRow? '' : '<button data-live="'+esc(p.id)+'">⚡ LIVE order</button>')+
+      '<button data-cancel="'+esc(p.id)+'">Cancel this projection</button></div>')+
     '</div></details>';
 }
 function renderProjections(){
   const el=$("projList"); if(!el) return;
+  /* refresh the server-side order picture, throttled; re-render once it lands */
+  if(!state.wbo) state.wbo={status:null, rows:[], at:0};
+  if(Date.now()-state.wbo.at>30000){
+    wboRefresh().then(()=>{ if(state.tab==="proj"){ try{ renderProjections(); }catch(e){} } }).catch(()=>{});
+  }
   const live=state.projections.filter(p=>["waiting","active","t1"].includes(p.status));
   const done=state.projections.filter(p=>p.outcome).sort((a,b)=>(b.resolvedTime||0)-(a.resolvedTime||0));
   $("projCount").textContent=String(live.length);
@@ -7653,11 +7878,7 @@ function renderProjections(){
   h+='<div class="wBar"><button class="btn primary" id="prjGen">'+
      (mine? 'Tracking one on this chart already' : '🎯 Project this chart ('+state.symbol.replace("USDT","")+' '+state.tf+')')+
      '</button></div><div id="prjMsg"></div>';
-  if(done.length) h+='<div class="cardNote" style="margin:2px 0 8px">Graded so far: <b class="g">'+wins+' success</b> · '+
-     '<b>'+part+' partial</b> · <b class="r">'+loss+' failed</b> · '+
-     indep.filter(p=>/expired/.test(p.status)).length+' expired'+
-     (echoes? ' · '+echoes+' echo'+(echoes===1?'':'es')+' (same bet, counted once)':'')+' — '+
-     '<i>at this sample size these are anecdotes, not statistics.</i></div>';
+  /* the tally moved into HISTORY below — graded rows no longer crowd the live view */
   /* what the stability gate BLOCKED — so the threshold stays auditable */
   const ref = Array.isArray(state.prjRefused)? state.prjRefused : [];
   if(ref.length){
@@ -7677,8 +7898,20 @@ function renderProjections(){
     h+='</details>';
   }
   if(live.length) h+='<div class="card"><div class="cardT">ACTIVE</div>'+live.map(projCard).join('')+'</div>';
-  if(done.length) h+='<div class="card"><div class="cardT">GRADED <span class="est">newest first</span></div>'+
-     done.slice(0,20).map(projCard).join('')+'</div>';
+  /* every graded projection — success, partial, failed, expired, cancelled —
+     lives HERE now, collapsed under the live view, newest first, reasons kept */
+  if(done.length){
+    const exp=indep.filter(p=>/expired/.test(p.status)).length;
+    h+='<div class="card"><details class="patX" data-p="prjhist"'+(state.patOpen["prjhist"]?' open':'')+'>'+
+      '<summary><b>🗂 HISTORY — '+done.length+' graded</b> <span class="est">newest first</span></summary>'+
+      '<div class="cardNote" style="margin:6px 0 8px"><b class="g">'+wins+' success</b> · <b>'+part+' partial</b> · '+
+        '<b class="r">'+loss+' failed</b> · '+exp+' expired'+
+        (echoes? ' · '+echoes+' echo'+(echoes===1?'':'es')+' (same bet, counted once)':'')+' — '+
+        '<i>at this sample size these are anecdotes, not statistics.</i></div>'+
+      done.slice(0,50).map(projCard).join('')+
+      (done.length>50? '<div class="fine">showing the 50 most recent of '+done.length+'</div>':'')+
+      '</details></div>';
+  }
   if(!live.length && !done.length)
     h+='<div class="empty">Nothing projected yet. Run a ⚡ Read so the engines have a direction, then tap the button above.</div>';
   el.innerHTML=h;
@@ -7707,10 +7940,41 @@ function renderProjections(){
     }
     arm(r);
   };
+  /* re-render FIRST, then speak — renderProjections rebuilds #prjMsg empty,
+     so a message written before the redraw was erased before it was read */
+  const sayMsg=(html)=>{ const m=$("prjMsg"); if(m) m.innerHTML=html; };
+  el.querySelectorAll("[data-order]").forEach(b=>b.onclick=()=>{
+    const p=state.projections.find(x=>x.id===b.dataset.order); if(!p) return;
+    const r=placeProjOrders(p);
+    try{ renderProjections(); }catch(e){}
+    sayMsg(r.err? '<div class="flag warn">'+esc(r.err)+'</div>'
+      : '<div class="flag good">Paper sequence placed'+(r.late?' at market':' — limit at '+fmt(r.entry))+
+        ': stop '+fmt(p.stop)+', half exits at T1 '+fmt(p.t1)+', half runs to T2 '+fmt(p.t2)+
+        ' with stop→break-even at T1. Tracking in TRADES.</div>');
+  });
+  el.querySelectorAll("[data-live]").forEach(b=>b.onclick=async()=>{
+    const p=state.projections.find(x=>x.id===b.dataset.live); if(!p) return;
+    b.disabled=true; b.textContent="⚡ placing…";
+    let html=null;
+    try{
+      const r=await placeLiveOrder(p);
+      if(r && r.cancelled){ b.disabled=false; b.textContent="⚡ LIVE order"; return; }
+      html=(r&&r.err)? '<div class="flag warn">'+esc(r.err)+'</div>'
+        : '<div class="flag good">'+esc((r&&r.msg)||"Sequence accepted.")+'</div>';
+    }catch(e){ html='<div class="flag warn">'+esc(e.message||"failed")+'</div>'; }
+    try{ await wboRefresh(true); }catch(e){}
+    try{ renderProjections(); }catch(e){}
+    sayMsg(html);
+  });
   el.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{
     const p=state.projections.find(x=>x.id===b.dataset.cancel);
     if(p && !p.outcome){ p.status="cancelled"; p.outcome={result:"cancelled",plain:"Cancelled by you before resolution.",aligned:[],against:[]};
-      p.resolvedTime=Date.now(); saveProjections(); renderProjections(); render(); }
+      /* SECONDS, like every real resolution. Date.now() here (milliseconds)
+         made every cancelled row sort as "newest" until the end of time —
+         that is why the cancelled BTC short sat pinned above fresher grades. */
+      p.resolvedTime = state.candles.length? state.candles[state.candles.length-1].time : Math.floor(Date.now()/1000);
+      try{ reconcileProjOrders(); }catch(e){}
+      saveProjections(); renderProjections(); render(); }
   });
 }
 
@@ -8076,7 +8340,7 @@ async function loadVerdictFrames(){
   for(const tf of VF_TFS){
     if(tf===state.tf){ state.vf[tf]=state.candles; continue; }
     try{
-      const url=`${state.host}/api/v3/klines?symbol=${SYMBOL}&interval=${tf}&limit=300`;
+      const url=`${state.host}/fapi/v1/klines?symbol=${SYMBOL}&interval=${tf}&limit=300`;
       const raw=await (await fetch(url)).json();
       state.vf[tf]=raw.map(mapK);
     }catch(e){ /* leave whatever we had */ }
@@ -8685,7 +8949,7 @@ async function boot(){
       SYMBOL=_q.toUpperCase(); state.symbol=SYMBOL;
       if(Array.isArray(state.watch)&&!state.watch.includes(SYMBOL)) state.watch.unshift(SYMBOL);
       const pn=document.getElementById("pairName");
-      if(pn) pn.textContent=SYMBOL.replace("USDT","")+" / USDT";
+      if(pn) pn.textContent=SYMBOL.replace("USDT","")+" / USDT.P";
     }
   }catch(e){}
   $("loadMsg").textContent="Probing Binance endpoints…";
@@ -8706,6 +8970,7 @@ async function boot(){
     await loadLevels();
     await loadPapers(); await loadVerdicts(); await loadMeasuredWeights(); await loadWatch(); await loadProjections();
     try{ updateProjections(); }catch(e){}   /* candles precede this load — replay NOW, not at the first poll */
+    try{ reconcileProjOrders(); }catch(e){} /* settle ledger legs against anything the server graded overnight */
     try{
       if(hasStorage){
         const tr=await window.storage.get("tabs:open");
