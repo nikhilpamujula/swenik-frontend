@@ -1248,7 +1248,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19d-savefix";
+window.WB_BUILD = "2026-08-19e-prefs";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -11845,7 +11845,7 @@ $("readClear").onclick=()=>{
   state.read=null; state.readAlt=null; state.readSignal=null; state.readHidden=false;
   $("readCard").style.display="none"; $("readChip").style.display="none";
   Object.assign(state.prefs,{ma:false,rsi:false,fib:false,ms:false,pat:false});
-  document.querySelectorAll(".sw").forEach(sw=>{ const k=sw.dataset.pref; if(k in state.prefs) sw.classList.toggle("on",!!state.prefs[k]); });
+  syncSwitches(); savePrefs();
   renderPane(); render();
 };
 $("pairBtn").onclick=openPairPicker;
@@ -11853,6 +11853,38 @@ $("pickClose").onclick=()=>{ $("pickModal").style.display="none"; renderWatch();
 document.body.classList.add("appmode");     /* app look from the first paint; boot may switch it back */
 $("helpBtn").onclick=()=>$("guide").classList.add("open");
 /* Density. Defaults to APP MODE — the essays are one tap away, not in the way. */
+/* Every optional engine is a switch in ⚙, and only ONE of them (teach) was ever
+   remembered. A reload put patterns, fibonacci, market structure, the four
+   indicators, the volume profile and the depth book back to off — so the chart
+   he set up came back stripped and he had to re-tick nine boxes. */
+let prefSaveT=null;
+function savePrefs(){
+  if(!hasStorage) return;
+  clearTimeout(prefSaveT);
+  prefSaveT=setTimeout(()=>{
+    try{ window.storage.set("ui:prefs", JSON.stringify(state.prefs)); }catch(e){}
+  }, 250);
+}
+function syncSwitches(){
+  document.querySelectorAll(".sw").forEach(sw=>{
+    const k=sw.dataset.pref;
+    if(k in state.prefs) sw.classList.toggle("on", !!state.prefs[k]);
+  });
+  try{ $("cmdWrap").style.display = state.prefs.cmd? "block":"none"; }catch(e){}
+}
+function applyPrefs(r){
+  try{
+    if(!r || !r.value) return false;
+    const saved=JSON.parse(r.value);
+    if(!saved || typeof saved!=="object") return false;
+    /* only keys this build knows about — a stale key from an older build must
+       not resurrect a switch that no longer exists */
+    for(const k of Object.keys(state.prefs))
+      if(typeof saved[k]==="boolean") state.prefs[k]=saved[k];
+    syncSwitches();
+    return true;
+  }catch(e){ return false; }
+}
 function applyDense(){
   /* prefs.teach ON = the original document view. OFF (default) = app view. */
   document.body.classList.toggle("appmode", !state.prefs.teach);
@@ -12010,6 +12042,7 @@ $("autoClear").onclick=()=>{
 document.querySelectorAll(".sw").forEach(s=>s.onclick=()=>{
   s.classList.toggle("on");
   state.prefs[s.dataset.pref]=s.classList.contains("on");
+  savePrefs();
   $("cmdWrap").style.display = state.prefs.cmd? "block":"none";
   if(s.dataset.pref==="teach"){          /* the essays fold away; nothing is deleted */
     applyDense();
@@ -12168,11 +12201,20 @@ async function boot(){
         }
       }
     }catch(e){}
-    try{                                   /* density preference, before first paint of a pane */
+    try{                                   /* every switch, before the first paint */
       if(hasStorage){
-        const dv=await window.storage.get("ui:dense");
-        state.prefs.teach = !!(dv && dv.value==="0");
+        /* ONE round trip, not two in a row: on a slow phone every serial KV read
+           is a second of blank screen before the first paint. */
+        const [pr, dv] = await Promise.all([
+          window.storage.get("ui:prefs").catch(()=>null),
+          window.storage.get("ui:dense").catch(()=>null),
+        ]);
+        const had=applyPrefs(pr);
+        /* ui:dense predates ui:prefs — honour it for an install that only has
+           the old key, so nobody's density flips on the upgrade */
+        if(!had && dv && typeof dv.value==="string") state.prefs.teach = dv.value==="0";
         applyDense();
+        try{ render(); }catch(e){}
       }
     }catch(e){}
     try{                                   /* reopen the tab he was last using */
