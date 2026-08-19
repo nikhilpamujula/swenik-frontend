@@ -1302,7 +1302,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19h-glide";
+window.WB_BUILD = "2026-08-19i-owner";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1694,7 +1694,7 @@ window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view, htf:()=>stat
   dPct:(v)=>dPct(v), dTxt:(f)=>dTxt(f), lastClose:()=>lastClose(),
   patOut:(P)=>patOutlook(P), patOutLine:(P,sh)=>patOutLine(P,sh),
   patLab:(v)=>{ if(v!==undefined){ state._patLab=v; try{ renderPane(); render(); }catch(e){} } return state._patLab; },
-  patterns:()=>state.patterns, patHits:()=>state._patHit||[],
+  patterns:(v)=>{ if(v!==undefined) state.patterns=v; return state.patterns; }, patHits:()=>state._patHit||[],
   cross:(o)=>{ state.cross=o; render(); return state.cross; },
   pref:(k,v)=>{ if(v!==undefined){ state.prefs[k]=v; try{ savePrefs(); syncSwitches(); renderPane(); render(); }catch(e){} } return state.prefs[k]; },
   /* the bell — state is script-scoped, so the suite needs a door in */
@@ -1913,15 +1913,24 @@ function dPill(txt, y, color){
   if(!txt) return false;
   ctx.font="10.5px ui-monospace,Menlo,monospace";
   const w=ctx.measureText(txt).width+8, h=13;
-  const x=chartW()-w-3, ly=Math.round(y)-h+3;
-  if(x<0 || ly<0 || ly+h>priceH()){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
-  if(!labelFits(x,ly,w,h)){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
-  labelBoxes.push({x,y:ly,w,h});
-  ctx.fillStyle="rgba(9,11,15,.88)"; ctx.fillRect(x,ly,w,h);
-  ctx.strokeStyle=hexA(color,0.30); ctx.lineWidth=1; ctx.strokeRect(x+.5,ly+.5,w-1,h-1);
-  ctx.fillStyle=hexA(color,0.92); ctx.fillText(txt, x+4, Math.round(y)-2);
+  const ly=Math.round(y)-h+3;
+  if(ly<0 || ly+h>priceH()){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
+  /* The Fibonacci tags park in the exact right-edge strip this pill wants, and
+     they draw first — on any fib-enabled chart every distance pill silently
+     lost the collision and the 19g feature looked like it did not exist. One
+     step further left is all it takes. */
+  for(const x of [chartW()-w-3, chartW()-2*w-11]){
+    if(x<0) continue;
+    if(!labelFits(x,ly,w,h)) continue;
+    labelBoxes.push({x,y:ly,w,h});
+    ctx.fillStyle="rgba(9,11,15,.88)"; ctx.fillRect(x,ly,w,h);
+    ctx.strokeStyle=hexA(color,0.30); ctx.lineWidth=1; ctx.strokeRect(x+.5,ly+.5,w-1,h-1);
+    ctx.fillStyle=hexA(color,0.92); ctx.fillText(txt, x+4, Math.round(y)-2);
+    ctx.font="12px ui-monospace,Menlo,monospace";
+    return true;
+  }
   ctx.font="12px ui-monospace,Menlo,monospace";
-  return true;
+  return false;
 }
 function xOf(i){ const bw = chartW()/state.view.count; return (i-(state.view.right-state.view.count+1))*bw + bw/2; }
 function yOf(p){ return (PB[1]-p)/(PB[1]-PB[0]) * priceH(); }
@@ -2396,11 +2405,21 @@ function render(){
         ctx.lineWidth=1;
       }
       if(P.lineH && P.lineL){
+        /* converging boundaries extended past their own apex cross and keep
+           going — two meaningless dashed beams shooting off the chart (top
+           right of the 19 Aug screenshot). A triangle ends where its edges
+           meet. */
+        let xe=chartW();
+        const dm=P.lineH.m-P.lineL.m;
+        if(Math.abs(dm)>1e-12){
+          const iApex=(P.lineL.b-P.lineH.b)/dm;
+          if(iApex>P.from) xe=Math.min(xe, xOf(iApex));
+        }
         ctx.strokeStyle=hexA(col,0.45); ctx.setLineDash([4,4]);
         for(const L of [P.lineH,P.lineL]){
           ctx.beginPath();
           ctx.moveTo(xOf(P.from), yOf(L.at(P.from)));
-          ctx.lineTo(chartW(), yOf(L.at(idxAtF(chartW()))));
+          ctx.lineTo(xe, yOf(L.at(idxAtF(xe))));
           ctx.stroke();
         }
         ctx.setLineDash([]);
@@ -2415,32 +2434,50 @@ function render(){
              a threshold but not what it was or how far off it sat */
           const gD=state.prefs.dpct!==false? dTxt(dPct(P.trigger)) : null;
           ctx.font="10.5px ui-monospace,Menlo,monospace";
-          tryLabel("trigger "+fmtAxis(P.trigger)+(gD? "  "+gD : ""),
-                   Math.max(4,xOf(P.from))+4, yt-3, hexA(col,0.9), "rgba(9,11,15,.8)");
+          /* the ownership prefix made these longer — clamped, because tryLabel
+             hard-rejects an overflowing x and the label for the pattern nearest
+             NOW (anchored at the right edge) is exactly the one that vanishes */
+          const gTxt=patShort(P.name)+" trigger "+fmtAxis(P.trigger)+(gD? "  "+gD : "");
+          const gW=ctx.measureText(gTxt).width+9;
+          const gX=Math.max(4,Math.min(xOf(P.from)+4, chartW()-gW-4));
+          for(const gy of [yt-3, yt+13, yt-17])
+            if(tryLabel(gTxt, gX, gy, hexA(col,0.9), "rgba(9,11,15,.8)")) break;
           ctx.font="12px ui-monospace,Menlo,monospace";
         }
       }
       if(P.target!=null){
         const yg=yOf(P.target);
         if(yg>-10&&yg<priceH()){
-          ctx.strokeStyle=hexA(col,0.5); ctx.setLineDash([2,5]);
+          const met=patTargetMet(P, lastClose());
+          ctx.strokeStyle=hexA(col, met?0.28:0.5); ctx.setLineDash([2,5]);
           ctx.beginPath(); ctx.moveTo(chartW()*0.55,yg+.5); ctx.lineTo(chartW(),yg+.5); ctx.stroke();
           ctx.setLineDash([]);
           ctx.font="11px ui-monospace,Menlo,monospace";
           const tD=state.prefs.dpct!==false? dTxt(dPct(P.target)) : null;
-          tryLabel("target "+fmtAxis(P.target)+(tD? "  "+tD : ""), chartW()*0.55+4, yg-3,
-                   hexA(col,0.95), "rgba(9,11,15,.8)");
+          /* owner first; distance only while the objective is still ahead — a
+             ±% on a passed target is an invitation to trade it backwards */
+          const tTxt=DIR_GLYPH(P.dir)+" "+patShort(P.name)+" target "+fmtAxis(P.target)+
+                     (met? " · met ✓" : (tD? "  "+tD : ""));
+          const tW=ctx.measureText(tTxt).width+9;
+          const tX=Math.max(4,Math.min(chartW()*0.55+4, chartW()-tW-4));
+          for(const ty of [yg-3, yg+13, yg-17])
+            if(tryLabel(tTxt, tX, ty, met? hexA(col,0.6) : hexA(col,0.95), "rgba(9,11,15,.8)")) break;
         }
       }
       if(P.key && P.key.length){
         const tag=(P.status==="confirmed"?"✓ ":P.status==="broken-weak"?"⚠ ":"")+P.name+" ⓘ";
         ctx.font="11.5px ui-monospace,Menlo,monospace";
-        const lx=Math.max(4,xOf(P.from)), ly=yOf(P.key[0].p)-14;
-        tryLabel(tag, lx, ly, col, "rgba(9,11,15,.85)");
+        const tagW=ctx.measureText(tag).width+10;
+        const lx=Math.max(4,Math.min(xOf(P.from), chartW()-tagW-4));
+        /* the NAME retries too — one earlier pattern's target label on the same
+           pixel row used to erase the next pattern's entire identity */
+        let ly=yOf(P.key[0].p)-14, placed=false;
+        for(const ty of [ly, ly-15, ly+15]){
+          if(tryLabel(tag, lx, ty, col, "rgba(9,11,15,.85)")){ ly=ty; placed=true; break; }
+        }
         /* Register the label so a tap can open its explanation. A name on the
            chart with nowhere to go is the thing being fixed here. */
-        let hitH=19;
-        state._patHit.push({ name:P.name, x:lx-4, y:ly-13, w:ctx.measureText(tag).width+10, h:hitH });
+        state._patHit.push({ name:P.name, x:lx-4, y:ly-13, w:tagW, h:19 });
         /* SECOND ROW: what the shape implies and whether it has ever paid on
            this chart. Naming a shape without saying where it points is half an
            answer; saying where it points without the sample behind it is worse
@@ -2454,8 +2491,15 @@ function render(){
              a pattern near the right edge is exactly the one you are looking at */
           const oW=ctx.measureText(oTag).width+10;
           const oX=Math.max(4, Math.min(lx, chartW()-oW-4));
-          if(tryLabel(oTag, oX, ly+13, inkO, "rgba(9,11,15,.8)"))
-            state._patHit.push({ name:P.name, x:oX-4, y:ly, w:oW, h:17 });
+          /* market-structure labels (HH/LH/HL) draw BEFORE patterns and reserve
+             their boxes first — one contested pixel row and the outlook used to
+             vanish without a trace. Three slots before surrender. */
+          for(const oy of [ly+13, ly+26, ly-15]){
+            if(tryLabel(oTag, oX, oy, inkO, "rgba(9,11,15,.8)")){
+              state._patHit.push({ name:P.name, x:oX-4, y:oy-13, w:oW, h:17 });
+              break;
+            }
+          }
         }
         ctx.font="12px ui-monospace,Menlo,monospace";
       }
@@ -2713,6 +2757,10 @@ function zoneBadge(txt,color,x,y){
   ctx.font="bold 10px ui-monospace,Menlo,monospace";
   const w=ctx.measureText(txt).width+11;
   const bx=Math.min(x, chartW()-w-4);
+  /* the badge never told the collision budget it existed, so the evidence
+     chips — which DO ask — were placed straight over it (the half-buried
+     TESTING on the 19 Aug screenshot) */
+  labelBoxes.push({x:bx, y:y-8, w:w, h:15});
   ctx.fillStyle="rgba(11,14,20,.82)";
   ctx.fillRect(bx,y-8,w,15);
   ctx.strokeStyle=hexA(color,0.55); ctx.lineWidth=1; ctx.strokeRect(bx+.5,y-7.5,w-1,14);
@@ -7891,6 +7939,21 @@ function gaugeBar(v, lo, hi, loLab, hiLab){
     '<div class="gauL"><span>'+esc(loLab)+'</span><span>'+esc(hiLab)+'</span></div></div>';
 }
 const DIR_GLYPH = d => d==="bullish"?"▲": d==="bearish"?"▼":"◆";
+/* A trigger/target line with no owner reads as THE CHART'S opinion. On a real
+   screen (19 Aug, ETH 1h) a long-finished bullish pattern's target printed
+   "target 1,880 −2.87%" between two OTHER bullish patterns' names — which any
+   reader would take as a live SHORT target. Every threshold line now carries
+   its owner's name, and a target price has already passed says "met ✓"
+   instead of advertising a stale distance. */
+const PAT_SHORT={ "Ascending Triangle":"Asc.Tri", "Descending Triangle":"Desc.Tri",
+  "Symmetrical Triangle":"Sym.Tri", "Rising Wedge":"R.Wedge", "Falling Wedge":"F.Wedge",
+  "Rectangle / Range":"Range", "Head & Shoulders":"H&S", "Inverse Head & Shoulders":"Inv.H&S",
+  "Double Top":"Dbl.Top", "Double Bottom":"Dbl.Bot" };
+const patShort = n => PAT_SHORT[n] || String(n||"").slice(0,8);
+function patTargetMet(P, px){
+  if(P.target==null || !isFinite(px)) return false;
+  return P.dir==="bullish" ? px>=P.target : P.dir==="bearish" ? px<=P.target : false;
+}
 
 /* ── WHAT THE SHAPE IMPLIES, AND WHETHER IT HAS EVER PAID HERE ───────────────
    "Pattern drawn fine, but what is expected after that." Two different claims,
