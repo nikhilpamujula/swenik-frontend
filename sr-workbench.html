@@ -1248,7 +1248,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19a-depth";
+window.WB_BUILD = "2026-08-19b-panel";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -8489,8 +8489,15 @@ function patLabVerdict(r){
 function patLabBlock(){
   const L=state._patLab;
   const stale = L && (L.symbol!==state.symbol || L.tf!==state.tf);
-  let h=PATLAB_CSS+'<details class="secX" id="patLabBox" style="margin-top:10px"><summary>📚 PATTERN LAB'+
-        '<span class="secSum dim">'+(L&&!stale? L.rows.length+' shapes measured' : 'not measured yet')+'</span></summary>'+
+  /* This block is raw HTML, so sectionise() never sees it and nothing was
+     remembering whether it was open — every poll-driven re-render slammed it
+     shut a second or two after it was tapped. It carries its own key now. */
+  const labOpen = state.secOpen["PATLAB"]===true;
+  let h=PATLAB_CSS+'<details class="secX" id="patLabBox" data-s="PATLAB" style="margin-top:10px"'+
+        (labOpen?' open':'')+'><summary>📚 PATTERN LAB'+
+        '<span class="secSum dim">'+(L? (stale? 'measured on '+esc(L.symbol.replace("USDT",""))+' '+esc(L.tf)
+                                               : L.rows.length+' shapes measured')
+                                     : 'not measured yet')+'</span></summary>'+
         '<div class="secBody">';
   h+='<div class="fine" style="line-height:1.55;margin-bottom:8px">Runs the detector across '+
      '<b>'+state.symbol.replace("USDT","")+' '+state.tf+'</b> history as it would have seen it live — no peeking forward — '+
@@ -8582,6 +8589,9 @@ function patLabStatFor(name){
 }
 function bindPatLab(root){
   patLabBindGallery(root);           /* the strip exists with or without the button */
+  /* remember the fold, or the next poll closes it under his hand */
+  const box=root.querySelector("#patLabBox");
+  if(box) box.addEventListener("toggle",()=>{ state.secOpen["PATLAB"]=box.open; });
   const b=root.querySelector("#patLabGo"); if(!b) return;
   b.onclick=async()=>{
     const pr=root.querySelector("#patLabProg");
@@ -9034,13 +9044,15 @@ const SEC_OPEN_BY_DEFAULT = { test: k => SEC_OPEN_NAMES.some(n => secKeyName(k).
 function sectionise(root){
   [...root.children].forEach(card=>{
     if(!card.classList || !card.classList.contains("card")) return;
-    if(card.querySelector(":scope > details.secX")) return;      // already done
+    /* only OUR OWN wrapper means "already done". A card that merely CONTAINS a
+       hand-written details.secX (the pattern lab) still needs wrapping. */
+    if(card.querySelector(':scope > details.secX[data-auto="1"]')) return;
     const head=card.querySelector(":scope > .cardT");
     if(!head) return;
     const key=(head.textContent||"").replace(/\s+/g," ").trim().slice(0,44);
     if(!key) return;
     const d=document.createElement("details");
-    d.className="secX"; d.dataset.s=key;
+    d.className="secX"; d.dataset.s=key; d.dataset.auto="1";
     const sm=document.createElement("summary");
     sm.innerHTML=head.innerHTML;
     /* a closed card still reports its one number — otherwise collapsing the
@@ -11547,27 +11559,32 @@ function structureRead(){
     label: l.label||lineTitle(l),
     touches: touchesFor(l)
   })).filter(o=>isFinite(o.p));
-  // Patterns are detected from swings, not from your lines, so they must not be
-  // hidden behind "draw a line first". This gate used to swallow the whole
-  // panel — including the pattern explanations, which were then unreachable.
-  if(!lines.length)
-    return "<div class='empty'>Draw or auto-detect some lines — this panel then reads the whole board: where price sits, what is boxing it in, and where pressure is building.</div>"
-      + patternsBlock();
-
+  /* WHAT ACTUALLY NEEDS HIS LINES: the range box and the levels list, and
+     nothing else. The old gate returned early on an empty line list, so a chart
+     with no lines drawn lost CONDITIONS, INDICATORS, MARKET STRUCTURE,
+     FIBONACCI, VOLUME AT PRICE, RESTING ORDERS, CURRENT CANDLE and COMING UP —
+     eight cards that read the candles, not the lines. Only the two that truly
+     depend on them stand down now, and they say so where they would have been. */
+  const hasLines = lines.length>0;
   const above=lines.filter(o=>o.p>px).sort((a,b)=>a.p-b.p);
   const below=lines.filter(o=>o.p<=px).sort((a,b)=>b.p-a.p);
   const R=above[0], S=below[0];
   const REG=regime(), HT=htfRead(), CR=corrRead();
-  const nearest=lines.slice().sort((a,b)=>Math.abs(a.p-px)-Math.abs(b.p-px))[0];
+  const nearest=hasLines? lines.slice().sort((a,b)=>Math.abs(a.p-px)-Math.abs(b.p-px))[0] : null;
 
   /* ---- headline: the single thing that matters right now ---- */
   let headline, hCls="mid";
-  const nd=Math.abs(nearest.p-px)/px;
-  if(nd<0.004){ headline="Price is <b>at "+nearest.label+"</b> right now — this is the decision point."; hCls="hot"; }
-  else if(nd<0.012){ headline="Price is closing in on <b>"+nearest.label+"</b> ("+pct((nearest.p-px)/px)+" away) — the next test is near."; hCls="warm"; }
-  else headline="Nothing is close. Nearest line is <b>"+nearest.label+"</b>, "+pct((nearest.p-px)/px)+" away — no action needed yet.";
+  if(!hasLines){
+    headline="No lines on this chart yet — tap <b>✨ Levels</b> to detect them. Everything below reads the candles and works without them.";
+    hCls="mid";
+  } else {
+    const nd=Math.abs(nearest.p-px)/px;
+    if(nd<0.004){ headline="Price is <b>at "+nearest.label+"</b> right now — this is the decision point."; hCls="hot"; }
+    else if(nd<0.012){ headline="Price is closing in on <b>"+nearest.label+"</b> ("+pct((nearest.p-px)/px)+" away) — the next test is near."; hCls="warm"; }
+    else headline="Nothing is close. Nearest line is <b>"+nearest.label+"</b>, "+pct((nearest.p-px)/px)+" away — no action needed yet.";
+  }
 
-  let out='<div class="plain lead">'+plainStructure(px, S?S.p:null, R?R.p:null)+'</div>'+
+  let out=(hasLines? '<div class="plain lead">'+plainStructure(px, S?S.p:null, R?R.p:null)+'</div>' : '')+
           '<div class="hl '+hCls+'">'+headline+'</div>';
 
   /* ---- range position bar ---- */
@@ -11639,11 +11656,19 @@ function structureRead(){
          the same side rule the anchor gate enforces, shown before you tap */
       armBtn('structure', o.p>px?"short":"long", o.p, o.label)+'</div>';
   };
-  const shown=[...above.slice(0,3).reverse(), ...below.slice(0,3)];
-  const nd0=Math.abs(nearest.p-px)/px;
-  out+='<div class="card" data-sum="'+(nearest.p>px?"▲":"▼")+' '+esc(nearest.label)+' '+pct((nearest.p-px)/px)+'" '+
-    'data-sumcls="'+(nd0<0.004?"warn":"dim")+'">'+
-    '<div class="cardT">🪜 LEVELS AROUND PRICE</div>'+shown.map(lvlRow).join("")+'</div>';
+  if(hasLines){
+    const shown=[...above.slice(0,3).reverse(), ...below.slice(0,3)];
+    const nd0=Math.abs(nearest.p-px)/px;
+    out+='<div class="card" data-sum="'+(nearest.p>px?"▲":"▼")+' '+esc(nearest.label)+' '+pct((nearest.p-px)/px)+'" '+
+      'data-sumcls="'+(nd0<0.004?"warn":"dim")+'">'+
+      '<div class="cardT">🪜 LEVELS AROUND PRICE</div>'+shown.map(lvlRow).join("")+'</div>';
+  } else {
+    out+='<div class="card" data-sum="none drawn" data-sumcls="dim">'+
+      '<div class="cardT">🪜 LEVELS AROUND PRICE</div>'+
+      '<div class="cardNote">Nothing drawn on this chart yet. Tap <b>✨ Levels</b> to detect '+
+      'support and resistance, or draw one with ✏️ — this card and <b>WHERE PRICE SITS</b> are '+
+      'the only two here that need them.</div></div>';
+  }
 
   /* ---- indicators ---- */
   const IRp=indicatorRead();
