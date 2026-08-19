@@ -601,7 +601,10 @@
   .pane details.patX>summary::after{content:"▾";color:var(--dim);font-size:11px;margin-left:6px;transition:transform .15s}
   .pane details.patX[open]>summary::after{transform:rotate(180deg)}
   .pane details.patX>summary .tagS{margin-left:auto}
-  .pane .pAway{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums;width:100%}
+  .pane .pAway{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .pane .pOut{font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:2px 6px;border-radius:5px;
+    border:1px solid rgba(138,148,166,.35);color:var(--dim);white-space:nowrap;margin-left:auto}
+  .pane .pOut.meas{color:#A6EBCE;border-color:rgba(45,212,160,.45);background:rgba(45,212,160,.07)}
   .pane .patBody{padding:9px 12px 12px}
   .pane .pWhat{font-size:12.5px;line-height:1.55;color:var(--text);margin-bottom:6px}
   .pane .pFacts{font-size:10.5px;color:var(--dim);margin-bottom:8px;font-family:ui-monospace,Menlo,monospace}
@@ -952,6 +955,48 @@
      a stop→target rail with the live price dot, the reasoning, REAL buttons.
      Replaces the ledger table whose bare <button>s rendered browser-default —
      the thing that read as "very old style" on his phone. */
+  /* ---- alerts (bell) ---- */
+  .pane .alBar{display:flex;gap:5px;flex-wrap:wrap;margin:0 0 9px}
+  .pane .alBar button{font-size:10px;font-weight:800;letter-spacing:.4px;padding:6px 10px;border-radius:999px;
+    border:1px solid var(--line);background:rgba(11,14,20,.5);color:var(--dim);cursor:pointer;white-space:nowrap}
+  .pane .alBar button.on{color:#04201C;background:var(--accent);border-color:var(--accent)}
+  .pane .alBar button.q{color:#8FA0FF;border-color:rgba(124,140,248,.4);background:rgba(124,140,248,.08)}
+  .pane .alG{background:var(--card);border:1px solid rgba(255,255,255,.05);border-radius:13px;margin-bottom:8px;overflow:hidden}
+  .pane .alG.sil{opacity:.72;border-style:dashed}
+  .pane .alG.fresh{border-color:rgba(45,212,191,.45);box-shadow:0 0 0 1px rgba(45,212,191,.08)}
+  .pane .alH{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer}
+  .pane .alH .ic{font-size:14px;flex:none;line-height:1}
+  .pane .alH .ttl{flex:1;min-width:0}
+  .pane .alH .ttl b{display:block;font-size:12.5px;font-weight:800;letter-spacing:-.1px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pane .alH .ttl small{display:block;font-size:10px;color:var(--dim);margin-top:2px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pane .alH .rt{flex:none;text-align:right;font-size:10px;color:var(--dim);line-height:1.45}
+  .pane .alH .rt b{display:block;font-size:11px;color:var(--text);font-variant-numeric:tabular-nums}
+  .pane .alH .cv{flex:none;font-size:11px;color:var(--dim);width:12px;text-align:center}
+  .pane .alB{border-top:1px solid #1A2030;padding:2px 11px 9px}
+  .pane .alE{border-bottom:1px solid #171D2A;padding:8px 0}
+  .pane .alE:last-child{border-bottom:none}
+  .pane .alE.cmp{cursor:pointer;padding:6px 0}
+  .pane .alE .eh{display:flex;align-items:baseline;gap:7px;font-size:10.5px;color:var(--dim);min-width:0}
+  .pane .alE .eh .ln{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#98A2B3;font-size:11px}
+  .pane .alE .eh b{color:var(--text);font-size:11px;font-variant-numeric:tabular-nums}
+  .pane .alE .msg{font-size:11.5px;line-height:1.55;color:#C5CDDC;margin-top:5px;white-space:normal;word-break:break-word}
+  .pane .alE .msg code{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:rgba(255,255,255,.05);
+    padding:1px 4px;border-radius:4px}
+  .pane .alJ{display:inline-flex;gap:4px;margin-top:7px}
+  .pane .alJ button{font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:4px 8px;border-radius:7px;
+    border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer}
+  .pane .alJ button.y.on{color:var(--up);border-color:rgba(45,212,160,.5);background:rgba(45,212,160,.1)}
+  .pane .alJ button.n.on{color:var(--down);border-color:rgba(242,73,92,.5);background:rgba(242,73,92,.1)}
+  .pane .alSil{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.4px;padding:2px 6px;
+    border-radius:5px;border:1px dashed rgba(138,148,166,.45);color:var(--dim);white-space:nowrap}
+  .pane .alCfg{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid #1A2030;flex-wrap:wrap}
+  .pane .alCfg:last-child{border-bottom:none}
+  .pane .alCfg > span{flex:1;min-width:74px;font-size:11.5px}
+  .pane .alCfg button{font-size:9.5px;font-weight:800;padding:4px 7px;border-radius:6px;border:1px solid var(--line);
+    background:transparent;color:var(--dim);cursor:pointer}
+  .pane .alCfg button.on{color:#04201C;background:var(--accent);border-color:var(--accent)}
   .tcard{background:var(--card);border:1px solid var(--line);border-radius:13px;margin-bottom:10px;overflow:hidden}
   .tcard.live{border-color:rgba(45,212,160,.28);box-shadow:0 0 0 1px rgba(45,212,160,.06)}
   .tcard.pend{border-color:rgba(124,140,248,.28)}
@@ -1104,6 +1149,8 @@
     <div class="sw" data-pref="projDone"><span>Keep finished projections on the chart</span><span class="tr"></span></div>
     <div class="sw on" data-pref="sound"><span>Sound + vibration alerts</span><span class="tr"></span></div>
     <div class="sw on" data-pref="snap"><span>Snap drawing to wicks</span><span class="tr"></span></div>
+    <div class="sw on" data-pref="dpct"><span>Distance from price (±%) on lines and cursor</span><span class="tr"></span></div>
+    <div class="sw on" data-pref="patOut"><span>Pattern outlook on the chart (direction + measured odds)</span><span class="tr"></span></div>
     <div class="sw" data-pref="teach"><span>Written explanations (off = compact app view)</span><span class="tr"></span></div>
     <div class="sw on" data-pref="showOrders"><span>Show my orders on the chart</span><span class="tr"></span></div>
     <div class="sw" data-pref="cmd"><span>Command bar (typed shortcuts)</span><span class="tr"></span></div>
@@ -1222,6 +1269,7 @@
       <button class="tab" data-tab="live">⚡ LIVE <span class="n" id="lvCount">0</span></button>
       <button class="tab" data-tab="coach">COACH</button>
       <button class="tab" data-tab="record">RECORD <span class="n" id="recCount">0</span></button>
+      <button class="tab" data-tab="alerts">🔔 ALERTS <span class="n" id="alCount">0</span></button>
     </div>
     <button id="expandBtn" title="Read full screen">⤢</button>
     <span id="caret">▾</span>
@@ -1237,6 +1285,7 @@
     <div id="liveList" class="pane"></div>
     <div id="coachList" class="pane"></div>
     <div id="recordList" class="pane"></div>
+    <div id="alertList" class="pane"></div>
   </div>
 </div>
 
@@ -1248,7 +1297,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19e-prefs";
+window.WB_BUILD = "2026-08-19g-reach";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1574,7 +1623,7 @@ const state = {
   drawMode:null, pending:null,
   pollTimer:null, fundTimer:null,
   funding:{rate:null},
-  prefs:{vol:true, proj:true, projDone:false, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false, htfRails:true, liqRails:true,
+  prefs:{vol:true, proj:true, projDone:false, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false, htfRails:true, liqRails:true, dpct:true, patOut:true,
          ma:false, boll:false, rsi:false, macd:false, teach:false},   /* teach=false → compact app view by default */
   verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
@@ -1627,7 +1676,19 @@ window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view, htf:()=>stat
   candlesSym:(v)=>{ if(v!==undefined) state.candlesSym=v; return state.candlesSym; },
   lvRefresh:()=>{ if(state.lv) state.lv.at=0; return renderLive(); },
   renderLevels:()=>renderLevelList(),
-  axisChips:()=>state._axisChips||[], axisW:()=>AXIS_W, defaultCount:()=>defaultCount() };
+  axisChips:()=>state._axisChips||[], axisW:()=>AXIS_W, defaultCount:()=>defaultCount(),
+  /* distance-from-price and the pattern outlook — script-scoped, same door */
+  dPct:(v)=>dPct(v), dTxt:(f)=>dTxt(f), lastClose:()=>lastClose(),
+  patOut:(P)=>patOutlook(P), patOutLine:(P,sh)=>patOutLine(P,sh),
+  patLab:(v)=>{ if(v!==undefined){ state._patLab=v; try{ renderPane(); render(); }catch(e){} } return state._patLab; },
+  patterns:()=>state.patterns, patHits:()=>state._patHit||[],
+  cross:(o)=>{ state.cross=o; render(); return state.cross; },
+  pref:(k,v)=>{ if(v!==undefined){ state.prefs[k]=v; try{ savePrefs(); syncSwitches(); renderPane(); render(); }catch(e){} } return state.prefs[k]; },
+  /* the bell — state is script-scoped, so the suite needs a door in */
+  note:(k,sy,e,m,o)=>noteAlert(k,sy,e,m,o), alog:()=>alState(),
+  alRender:()=>renderAlerts(), pane:()=>renderPane(), alRefresh:(n)=>alRefresh(n),
+  alFilter:(f)=>{ Object.assign(alState().f, f||{}); alState().sig=null; return renderAlerts(); },
+  sound:(v)=>{ if(v!==undefined) state.prefs.sound=!!v; return state.prefs.sound; } };
 
 /* ---------- sizing ---------- */
 function resize(){
@@ -1744,7 +1805,7 @@ function layoutAxisChips(tags, liveY, liveTxt){
   for(const t of tags){
     if(!isFinite(t.y)) continue;
     if(t.y<-8 || t.y>H0+8) continue;
-    list.push({py:t.y, y:t.y, color:t.color, txt:t.txt, auto:!!t.auto, live:false});
+    list.push({py:t.y, y:t.y, color:t.color, txt:t.txt, auto:!!t.auto, live:false, px:t.px});
   }
   if(isFinite(liveY) && liveY>=-8 && liveY<=H0+8)
     list.push({py:liveY, y:liveY, color:null, txt:liveTxt, auto:false, live:true});
@@ -1785,6 +1846,29 @@ function layoutAxisChips(tags, liveY, liveTxt){
   for(const g of groups) for(let i=0;i<g.items.length;i++) g.items[i].y=g.top+HALF+i*CHIP_GAP;
   return list;
 }
+/* ── distance from the last traded price ───────────────────────────────
+   "Is that line far?" used to be answered by reading two numbers off the rail
+   and doing the arithmetic in your head, every single time. Every line, the
+   crosshair and every pattern objective now carries its own signed distance.
+   Deliberately NOT coloured green/red: a resistance 2% above you is not "good",
+   it is simply above you, and painting it green is an opinion the chart has no
+   business having. Sign and magnitude only, in the line's own colour. */
+function lastClose(){
+  const c=state.candles[state.candles.length-1];
+  return c? c.close : null;
+}
+function dPct(price){
+  const lc=lastClose();
+  if(lc==null || !isFinite(price) || !lc) return null;
+  return (price-lc)/lc;
+}
+/* 2 decimals under 10%, 1 under 100%, 0 above — five significant digits of a
+   three-figure move is noise wearing a decimal point. */
+function dTxt(f){
+  if(f==null || !isFinite(f)) return null;
+  const p=f*100, a=Math.abs(p);
+  return (p>=0?"+":"\u2212")+(a<10? a.toFixed(2) : a<100? a.toFixed(1) : a.toFixed(0))+"%";
+}
 let labelBoxes=[];
 function labelFits(x,y,w,h){
   for(const b of labelBoxes){
@@ -1801,6 +1885,24 @@ function tryLabel(txt,x,y,color,bg){
   labelBoxes.push({x,y:ly,w,h});
   if(bg){ ctx.fillStyle=bg; ctx.fillRect(x,ly,w,h); }
   ctx.fillStyle=color; ctx.fillText(txt, x+(bg?4:0), y-2);
+  return true;
+}
+/* Right-anchored against the price rail but INSIDE the plot, so it never
+   fights the axis chips for the rail's 52-82px and never widens it. Shares the
+   one collision budget: on a chart dense enough that two would overlap, the
+   second simply is not drawn. */
+function dPill(txt, y, color){
+  if(!txt) return false;
+  ctx.font="10.5px ui-monospace,Menlo,monospace";
+  const w=ctx.measureText(txt).width+8, h=13;
+  const x=chartW()-w-3, ly=Math.round(y)-h+3;
+  if(x<0 || ly<0 || ly+h>priceH()){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
+  if(!labelFits(x,ly,w,h)){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
+  labelBoxes.push({x,y:ly,w,h});
+  ctx.fillStyle="rgba(9,11,15,.88)"; ctx.fillRect(x,ly,w,h);
+  ctx.strokeStyle=hexA(color,0.30); ctx.lineWidth=1; ctx.strokeRect(x+.5,ly+.5,w-1,h-1);
+  ctx.fillStyle=hexA(color,0.92); ctx.fillText(txt, x+4, Math.round(y)-2);
+  ctx.font="12px ui-monospace,Menlo,monospace";
   return true;
 }
 function xOf(i){ const bw = chartW()/state.view.count; return (i-(state.view.right-state.view.count+1))*bw + bw/2; }
@@ -2285,6 +2387,13 @@ function render(){
           ctx.strokeStyle=hexA(col,0.75); ctx.setLineDash([8,4]); ctx.lineWidth=1.3;
           ctx.beginPath(); ctx.moveTo(xOf(P.from),yt+.5); ctx.lineTo(chartW(),yt+.5); ctx.stroke();
           ctx.setLineDash([]); ctx.lineWidth=1;
+          /* the trigger was an unlabelled dashed line — you could see there was
+             a threshold but not what it was or how far off it sat */
+          const gD=state.prefs.dpct!==false? dTxt(dPct(P.trigger)) : null;
+          ctx.font="10.5px ui-monospace,Menlo,monospace";
+          tryLabel("trigger "+fmtAxis(P.trigger)+(gD? "  "+gD : ""),
+                   Math.max(4,xOf(P.from))+4, yt-3, hexA(col,0.9), "rgba(9,11,15,.8)");
+          ctx.font="12px ui-monospace,Menlo,monospace";
         }
       }
       if(P.target!=null){
@@ -2294,7 +2403,9 @@ function render(){
           ctx.beginPath(); ctx.moveTo(chartW()*0.55,yg+.5); ctx.lineTo(chartW(),yg+.5); ctx.stroke();
           ctx.setLineDash([]);
           ctx.font="11px ui-monospace,Menlo,monospace";
-          tryLabel("target "+fmtAxis(P.target), chartW()*0.55+4, yg-3, hexA(col,0.95), "rgba(9,11,15,.8)");
+          const tD=state.prefs.dpct!==false? dTxt(dPct(P.target)) : null;
+          tryLabel("target "+fmtAxis(P.target)+(tD? "  "+tD : ""), chartW()*0.55+4, yg-3,
+                   hexA(col,0.95), "rgba(9,11,15,.8)");
         }
       }
       if(P.key && P.key.length){
@@ -2304,7 +2415,24 @@ function render(){
         tryLabel(tag, lx, ly, col, "rgba(9,11,15,.85)");
         /* Register the label so a tap can open its explanation. A name on the
            chart with nowhere to go is the thing being fixed here. */
-        state._patHit.push({ name:P.name, x:lx-4, y:ly-13, w:ctx.measureText(tag).width+10, h:19 });
+        let hitH=19;
+        state._patHit.push({ name:P.name, x:lx-4, y:ly-13, w:ctx.measureText(tag).width+10, h:hitH });
+        /* SECOND ROW: what the shape implies and whether it has ever paid on
+           this chart. Naming a shape without saying where it points is half an
+           answer; saying where it points without the sample behind it is worse
+           than none. Both, on one line, or neither. */
+        if(state.prefs.patOut!==false){
+          const O=patOutlook(P);
+          const oTag=patOutLine(P, true);
+          ctx.font="10.5px ui-monospace,Menlo,monospace";
+          const inkO = O.kind==="measured"? hexA(col,0.95) : "rgba(163,167,173,.92)";
+          /* pull it back inside the plot rather than letting tryLabel drop it —
+             a pattern near the right edge is exactly the one you are looking at */
+          const oW=ctx.measureText(oTag).width+10;
+          const oX=Math.max(4, Math.min(lx, chartW()-oW-4));
+          if(tryLabel(oTag, oX, ly+13, inkO, "rgba(9,11,15,.8)"))
+            state._patHit.push({ name:P.name, x:oX-4, y:ly, w:oW, h:17 });
+        }
         ctx.font="12px ui-monospace,Menlo,monospace";
       }
     }
@@ -2464,6 +2592,11 @@ function render(){
     ctx.fillStyle="rgba(11,14,20,.94)"; ctx.fillRect(bx,t.y-9,bw,18);
     ctx.fillStyle=hexA(t.color,0.95);   ctx.fillRect(bx,t.y-9,2.5,18);
     ctx.fillStyle=hexA(t.color,0.98);   ctx.fillText(t.txt, bx+4, t.y+1);
+    /* anchored to t.py, the line's TRUE y — not t.y, which is wherever the
+       anti-collision pass had to park the chip. A distance floating beside the
+       wrong line is worse than no distance. */
+    if(state.prefs.dpct!==false && t.px!=null) dPill(dTxt(dPct(t.px)), t.py, t.color);
+    ctx.font="12px ui-monospace,Menlo,monospace";
   }
 
   if(ly>=0 && ly<=priceH()){
@@ -2489,8 +2622,15 @@ function render(){
       ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,panesBottom()); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
       ctx.setLineDash([]); ctx.lineWidth=1;
-      ctx.fillStyle=big?C_N1:"#232A38"; ctx.fillRect(chartW(),y-9,AXIS_W,18);
-      ctx.fillStyle=big?"#10131A":"#E8EAED"; ctx.fillText(fmtAxis(priceAt(y)), chartW()+5, y);
+      const cPx=priceAt(y), cD=state.prefs.dpct!==false? dTxt(dPct(cPx)) : null;
+      ctx.fillStyle=big?C_N1:"#232A38"; ctx.fillRect(chartW(), y-(cD?13:9), AXIS_W, cD?26:18);
+      ctx.fillStyle=big?"#10131A":"#E8EAED"; ctx.fillText(fmtAxis(cPx), chartW()+5, cD? y-5 : y);
+      if(cD){
+        ctx.font="10.5px ui-monospace,Menlo,monospace";
+        ctx.fillStyle=big?"rgba(16,19,26,.78)":"rgba(232,234,237,.72)";
+        ctx.fillText(cD, chartW()+5, y+8);
+        ctx.font="12px ui-monospace,Menlo,monospace";
+      }
       if(big){
         const tl=timeLabel(state.candles[i].time,true);
         ctx.font="11.5px ui-monospace,Menlo,monospace";
@@ -2502,9 +2642,11 @@ function render(){
       }
       const c=state.candles[i];
       $("ohlc").style.display="block";
+      const oD=state.prefs.dpct!==false? dTxt(dPct(priceAt(y))) : null;
       $("ohlc").innerHTML =
         timeLabel(c.time,true)+"&nbsp; O <b>"+fmt(c.open)+"</b> H <b>"+fmt(c.high)+
-        "</b> L <b>"+fmt(c.low)+"</b> C <b>"+fmt(c.close)+"</b>";
+        "</b> L <b>"+fmt(c.low)+"</b> C <b>"+fmt(c.close)+"</b>"+
+        (oD? "&nbsp; cursor <b>"+fmt(priceAt(y))+"</b> <b>"+oD+"</b> from price" : "");
     }
   } else {
     $("ohlc").style.display="none";
@@ -2568,7 +2710,7 @@ function drawHLevel(lvl){
   ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
   ctx.setLineDash([]); ctx.lineWidth=1;
   ctx.font="12px ui-monospace,Menlo,monospace";
-  axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price), auto:!!lvl.auto});
+  axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price), auto:!!lvl.auto, px:lvl.price});
   if(lvl.label) labelPill(lvl.label, 6, y, lvl.color);
   if(sty.badge) zoneBadge(sty.badge, sty.bc, chartW()*0.42, yUp-10);
   evNote(lvl, y);            /* hand this line to the evidence pass */
@@ -2603,7 +2745,7 @@ function drawDiag(lvl){
   ctx.lineWidth=1;
   ctx.fillStyle=lvl.color;
   for(const p of [a,b]){ ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,Math.PI*2); ctx.fill(); }
-  if(ye>=0 && ye<=priceH()) axisTags.push({y:ye, color:lvl.color, txt:fmtAxis(priceAt(ye)), auto:!!lvl.auto});
+  if(ye>=0 && ye<=priceH()) axisTags.push({y:ye, color:lvl.color, txt:fmtAxis(priceAt(ye)), auto:!!lvl.auto, px:priceAt(ye)});
   if(lvl.label) labelPill(lvl.label, Math.max(6,a.x), a.y-14, lvl.color);
   if(sty.badge) zoneBadge(sty.badge, sty.bc, Math.max(6,a.x)+4, a.y-30);
   evNote(lvl, ye);           /* hand this line to the evidence pass */
@@ -3383,7 +3525,12 @@ function updatePapers(){
     const HI=t.hiSince, LO=t.loSince;
     if(t.status==="pending"){
       const filled = t.side==="long" ? LO<=t.entry : HI>=t.entry;
-      if(filled){ t.status="open"; t.filledTime=c.time; changed=true; beep(); }
+      if(filled){ t.status="open"; t.filledTime=c.time; changed=true;
+        noteAlert("paper", t.symbol, "FILLED",
+          "\u{1F7E2} <b>PAPER FILLED</b> \u2014 "+(t.side==="long"?"long":"short")+" "+
+          String(t.symbol||"").replace("USDT","")+" "+(t.tf||"")+"\n<code>entry  "+fmt(t.entry)+
+          "</code>\n<code>stop   "+fmt(t.stop)+"</code>\n<code>target "+fmt(t.target)+"</code>",
+          {symbol:t.symbol, tf:t.tf}); }
       else if(t.side==="long" ? c.close<t.stop : c.close>t.stop){
         t.status="cancelled"; t.reason="price ran past the stop before filling"; changed=true;
       }
@@ -3397,8 +3544,15 @@ function updatePapers(){
     const hitStop  = t.side==="long"? LO<=t.stop  : HI>=t.stop;
     const hitTarget= t.side==="long"? HI>=t.target: LO<=t.target;
     if(hitStop){ t.status= t.beMoved&&Math.abs(t.stop-t.entry)/t.entry<0.0005 ? "breakeven":"stopped";
-                 t.exit=t.stop; t.exitTime=c.time; t.reason= t.status==="breakeven"?"stopped at break-even":"stop hit"; changed=true; beep(); }
-    else if(hitTarget){ t.status="target"; t.exit=t.target; t.exitTime=c.time; t.reason="target hit"; changed=true; beep(); }
+                 t.exit=t.stop; t.exitTime=c.time; t.reason= t.status==="breakeven"?"stopped at break-even":"stop hit"; changed=true;
+                 noteAlert("paper", t.symbol, t.status==="breakeven"?"BREAK_EVEN":"STOPPED",
+                   (t.status==="breakeven"?"\u{1F7E1} <b>STOPPED AT BREAK-EVEN</b>":"\u{1F534} <b>STOPPED OUT</b>")+" \u2014 "+
+                   String(t.symbol||"").replace("USDT","")+" "+(t.tf||"")+"\n<code>exit "+fmt(t.stop)+
+                   "</code> from <code>"+fmt(t.entry)+"</code>", {symbol:t.symbol, tf:t.tf}); }
+    else if(hitTarget){ t.status="target"; t.exit=t.target; t.exitTime=c.time; t.reason="target hit"; changed=true;
+      noteAlert("paper", t.symbol, "TARGET",
+        "\u{1F3AF} <b>TARGET HIT</b> \u2014 "+String(t.symbol||"").replace("USDT","")+" "+(t.tf||"")+
+        "\n<code>exit "+fmt(t.target)+"</code> from <code>"+fmt(t.entry)+"</code>", {symbol:t.symbol, tf:t.tf}); }
   }
   if(changed){ savePapers(); if(state.tab==="trades") renderTrades(); }
 }
@@ -5081,7 +5235,14 @@ function checkSignalAlerts(){
     now[s.id]={code:s.status.code, trig:!!s.trigger, grade:s.grade, label:s.label, dir:s.dir};
     const prev=state.sigSeen[s.id];
     if(prev && (prev.code!==s.status.code || prev.trig!==!!s.trigger)){
-      if(s.status.rank>=2 || s.trigger) beep();
+      if(s.status.rank>=2 || s.trigger)
+        noteAlert("signal", state.symbol, s.status.code,
+          "\u{1F4E1} <b>"+String(s.status.label||s.status.code)+"</b> \u2014 "+
+          String(s.label||"")+" "+(s.dir==="long"?"\u25B2 long":"\u25BC short")+" ("+s.grade+")"+
+          (s.trigger? "\n\u2705 trigger: "+s.trigger.names.join(", ")+
+                      (s.trigger.closed? " on a closed candle":" \u2014 candle not closed yet") : "")+
+          (prev? "\n<i>was: "+String(prev.code)+"</i>":""),
+          {tf:state.tf});
     }
   }
   state.sigSeen=now;
@@ -6690,7 +6851,11 @@ function trackAnalysis(){
   a.statusShort=short;
   if(prevShort && prevShort!==short &&
      ["🎯 at the line","💥 break confirmed","🔨 weak break","🪤 false break"].includes(short)){
-    beep();
+    noteAlert("level", state.symbol, short.replace(/[^A-Za-z ]/g,"").trim().toUpperCase().replace(/ +/g,"_"),
+      "<b>"+short+"</b> \u2014 "+String(lvl && lvl.name || "line")+
+      "\n<code>line "+fmt(lpNow)+"</code> \u00b7 price <code>"+fmt(last.close)+"</code>"+
+      "\n<i>was: "+prevShort+"</i>",
+      {tf:state.tf});
   }
   const strip=document.getElementById("trackStrip");
   if(strip) strip.innerHTML=status;
@@ -6840,6 +7005,26 @@ function startPolling(){
   state.fundTimer=setInterval(()=>{ loadFunding(); loadDepth(); }, 60*1000);
   clearInterval(state.projTimer);
   state.projTimer=setInterval(syncProjections, 60*1000);
+  /* The bell has to count while its pane is CLOSED, otherwise the badge is a
+     decoration. It must also not become a data tap: a backgrounded tab polls
+     nothing, a closed pane polls 30 rows every 2.5 minutes, and only the pane
+     actually on screen pulls the full 200-row window. */
+  clearInterval(state.alTimer);
+  state.alTimer=setInterval(()=>{
+    try{
+      if(document.hidden) return;
+      const A=alState();
+      const openHere = state.tab==="alerts" && $("sheet").classList.contains("open");
+      const floor = openHere? 25000 : (IS_PANE? 300000 : 150000);
+      if(Date.now()-A.at < floor) return;
+      alRefresh(openHere? 200 : 30)
+        .then(()=>{ if(state.tab==="alerts"){ try{ renderAlerts(); }catch(e){} } })
+        .catch(()=>{});
+    }catch(e){}
+  }, 20000);
+  /* One immediate read, early: a bell that only becomes truthful five seconds
+     after the chart lands is a bell you learn to ignore. */
+  setTimeout(()=>{ try{ alRefresh(60).catch(()=>{}); }catch(e){} }, 900);
 }
 
 /* ---------- lines ---------- */
@@ -7605,6 +7790,56 @@ function gaugeBar(v, lo, hi, loLab, hiLab){
 }
 const DIR_GLYPH = d => d==="bullish"?"▲": d==="bearish"?"▼":"◆";
 
+/* ── WHAT THE SHAPE IMPLIES, AND WHETHER IT HAS EVER PAID HERE ───────────────
+   "Pattern drawn fine, but what is expected after that." Two different claims,
+   and they must never be allowed to merge:
+
+     DIRECTION is a definition. An inverse head-and-shoulders resolves upward
+     because that is what the name means. Stating it invents nothing.
+
+     ODDS are a measurement, and the only ones this app will ever show are the
+     ones Pattern Lab took off THESE candles, carrying the sample they came
+     from. There is no textbook hit-rate table anywhere in this file and there
+     is not going to be one.
+
+   Below 8 resolved instances the rate is withheld entirely and the count is
+   shown instead — the same floor patLabVerdict() already refuses to speak
+   under. A percentage without its sample size is a lie with a decimal point
+   in it; a percentage over n=3 is the same lie with extra confidence.        */
+const PATOUT_MIN = 8;
+function patOutlook(P){
+  const dir  = P.dir==="bullish"? "up" : P.dir==="bearish"? "down" : "either way";
+  const g    = DIR_GLYPH(P.dir);
+  const col  = P.dir==="bullish"? C_UP : P.dir==="bearish"? C_DOWN : C_N2;
+  const LB   = patLabStatFor(P.name);
+  let stat, state_;
+  /* "n=0" would read as "this shape has never appeared", which is a different
+     and much stronger claim than "it appeared and nothing resolved yet". Seen
+     and resolved are separate counts and are named separately. */
+  if(!LB)                        { stat="not measured here"; state_="none"; }
+  else if(!LB.decided)           { stat="seen "+LB.n+"×, none resolved yet"; state_="thin"; }
+  else if(LB.decided<PATOUT_MIN) { stat="too few resolved (n="+LB.decided+")"; state_="thin"; }
+  else                           { stat=(LB.rate*100).toFixed(0)+"% of "+LB.decided; state_="measured"; }
+  return { dir, g, col, stat, LB, kind:state_ };
+}
+/* One line, two lengths. The chart gets the short one: a 430px phone has room
+   for about 36 characters beside a pattern, and a label that does not fit is a
+   label tryLabel() silently drops — which is how a feature ships as invisible.
+   The objective is left out of the short form because the target line on the
+   chart already prints its own price and distance. */
+function patOutLine(P, short){
+  const O=patOutlook(P);
+  if(short){
+    const st = O.kind==="measured" ? O.stat
+             : O.kind==="thin"     ? ((O.LB && O.LB.decided)? "too few (n="+O.LB.decided+")"
+                                                            : "none resolved yet")
+             :                       "unmeasured here";
+    return O.g+" "+O.dir+" · "+st;
+  }
+  const tgt = (P.target!=null && state.prefs.dpct!==false)? dTxt(dPct(P.target)) : null;
+  return O.g+" "+O.dir+(tgt? " · tgt "+tgt : "")+" · "+O.stat;
+}
+
 /* One collapsible block per pattern. Numbers and shapes on the surface; the
    teaching text is one tap away, never deleted — a shape with no measured hit
    rate that LOOKS like a signal is exactly how this panel would start lying. */
@@ -7703,6 +7938,15 @@ function patternCard(P, idx){
     '<summary><b class="'+col+'">'+G+' '+P.name+'</b>'+
       '<span class="tagS '+st[1]+'">'+st[0]+'</span>'+
       (E.away!=null? '<span class="pAway">'+(E.away>0?"▲":"▼")+' '+pct(E.away)+' to trigger</span>':'')+
+      /* the shut card must already answer "and then what": direction is a
+         definition, the rate is a measurement off these candles, and below the
+         8-resolved floor only the count is shown. Same rule as the chart. */
+      (function(){ const O=patOutlook(P);
+        return '<span class="pOut'+(O.kind==="measured"?" meas":"")+'" title="'+
+          (O.kind==="measured"? 'Measured on this chart: '+O.stat+' resolved to the objective.'
+           : O.kind==="thin"? 'Too few resolved instances on this chart to state a rate. Run Pattern Lab for more history.'
+           : 'Pattern Lab has not measured this chart yet. Open STRUCTURE → Pattern Lab.')+
+          '">\u{1F4D0} '+esc(O.stat)+'</span>'; })()+
     '</summary>'+
     '<div class="patBody">'+
       '<div class="vLine"><span class="vg '+col+'">'+G+'</span><span>'+verdict+'</span></div>'+
@@ -11231,6 +11475,455 @@ function renderRecord(){
   if(btn) btn.onclick=()=>runBacktestUI(btn, $("btOut"), "Run walk-forward backtest");
   if(state._btHtml && $("btOut")){ $("btOut").innerHTML=state._btHtml; if(btn) btn.style.display="none"; }
 }
+/* ── ALERTS (the bell) ───────────────────────────────────────────────────────
+   Two alerting systems were running and NEITHER left anything you could look
+   at afterwards:
+
+   1) The server watcher decides every minute, sends Telegram, and writes every
+      decision — fired AND silenced, with the reason — to wb_alert_log. Four
+      API routes have always exposed it. Nothing in this app had ever called
+      them, so the phone buzzed and the workbench showed no trace of why.
+   2) beep() fires in THIS page on a signal grade change, a line break, a paper
+      fill and a paper stop. Sound only. Once the tone ends the event is gone
+      from the universe — that is the "only sound is coming" complaint, and no
+      server round-trip can recover it because it was never recorded anywhere.
+
+   So this pane does both: it reads (1) over the API and keeps a device-local
+   journal for (2). It groups by subject by default and not as a flat feed,
+   because the log is running roughly 470 sent and 4,900 silenced per week and
+   a 200-row river of that is exactly as untrackable as the beep was.        */
+const AL_MAX_LOCAL = 150;
+const AL_KIND = {
+  level:{i:"\u{1F4CF}", t:"line"},        zone:{i:"\u{1F3AF}", t:"zone"},
+  trade:{i:"\u{1F4BC}", t:"trade"},       structure:{i:"\u{1F3D7}", t:"structure"},
+  projection:{i:"\u{1F4D0}", t:"projection"}, order:{i:"⚡", t:"order"},
+  signal:{i:"\u{1F4E1}", t:"signal"},     paper:{i:"\u{1F9FE}", t:"paper"},
+  line:{i:"\u{1F4CF}", t:"line"}
+};
+const alK = k => AL_KIND[k] || { i:"\u{1F514}", t:(k||"alert") };
+const alEvent = e => String(e||"").replace(/_/g," ").toLowerCase();
+function alAgo(t){
+  if(!t) return "—";
+  const s=Math.max(0, Math.round((Date.now()-t)/1000));
+  if(s<60)    return s+"s";
+  if(s<3600)  return Math.round(s/60)+"m";
+  if(s<86400){ const h=s/3600; return (h<10? h.toFixed(1).replace(/\.0$/,"") : Math.round(h))+"h"; }
+  return Math.round(s/86400)+"d";
+}
+function alClock(t){
+  try{ return new Date(t).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}); }catch(e){ return ""; }
+}
+/* Alert text is Telegram HTML straight out of Postgres. It is escaped WHOLE
+   and then exactly four tags are handed back; everything else in that string
+   — including anything a symbol name could smuggle in — stays inert text.   */
+function alText(s){
+  return esc(s==null? "" : s)
+    .replace(/&lt;(\/?)(b|i|u|code)&gt;/g, (m,sl,tag)=>"<"+sl+tag+">")
+    .replace(/\n/g, "<br>");
+}
+function alHead(s){
+  const first=String(s==null? "" : s).split("\n")[0].replace(/<[^>]+>/g,"").trim();
+  return esc(first);
+}
+function alState(){
+  if(!state.alog) state.alog={ rows:[], local:[], at:0, busy:false, err:null,
+                               st:null, cfg:null, prec:null, seen:0, seenTs:0,
+                               open:{}, sig:null, f:{view:"grouped", show:"all", kind:"all"} };
+  return state.alog;
+}
+
+/* ---- the device-local journal for beep() events ------------------------- */
+let alSaveT=null;
+function alSaveLocal(){
+  if(!hasStorage) return;
+  clearTimeout(alSaveT);
+  alSaveT=setTimeout(()=>{
+    try{ window.storage.set("alerts:local", JSON.stringify(alState().local.slice(0,AL_MAX_LOCAL))); }catch(e){}
+  }, 500);
+}
+/* Record first, sound second — deliberately in that order. The sound is a
+   preference; the record is not. Muting the beep must never also erase the
+   history of what happened while it was muted.                             */
+function noteAlert(kind, symbol, event, message, opts){
+  opts=opts||{};
+  try{
+    const A=alState();
+    /* the watchlist scan and the multi-coin sweep borrow SYMBOL and state.*
+       and await inside the loop. An entry written in that window would be
+       filed under a coin you are not looking at — the same bug class that
+       once wrote an empty level list under SOLUSDT. */
+    if(typeof STATE_BORROWED==="number" && STATE_BORROWED>0 && !opts.symbol) return;
+    const sym=String(opts.symbol || symbol || state.symbol || "").toUpperCase();
+    A.local.unshift({ id:"L"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+                      kind:kind, symbol:sym, event:event, message:message,
+                      tf:opts.tf||state.tf, created_at:new Date().toISOString() });
+    if(A.local.length>AL_MAX_LOCAL) A.local.length=AL_MAX_LOCAL;
+    alSaveLocal();
+    A.sig=null;
+    alBadge();
+    if(state.tab==="alerts"){ try{ renderAlerts(); }catch(e){} }
+  }catch(e){}
+  if(opts.beep!==false){ try{ beep(); }catch(e){} }
+}
+
+/* ---- merge server log + local journal into one ordered list ------------- */
+function alRows(){
+  const A=alState(), out=[];
+  for(const r of (A.rows||[])){
+    if(!r) continue;
+    out.push({ key:"S"+r.id, id:r.id, local:false, kind:r.kind, symbol:r.symbol||"",
+               event:r.event||"", message:r.message||"", sent:r.sent!==false,
+               reason:r.reason||null, acted:(r.acted_on==null? null : !!r.acted_on),
+               ts:Date.parse(r.created_at)||0 });
+  }
+  for(const r of (A.local||[])){
+    if(!r) continue;
+    out.push({ key:r.id, id:r.id, local:true, kind:r.kind, symbol:r.symbol||"",
+               event:r.event||"", message:r.message||"", sent:true,
+               reason:null, acted:null, ts:Date.parse(r.created_at)||0 });
+  }
+  return out.sort((a,b)=>b.ts-a.ts);
+}
+function alGroups(rows){
+  const m=new Map();
+  for(const r of rows){
+    const k=r.kind+"|"+r.symbol+"|"+r.event;
+    let g=m.get(k);
+    if(!g){ g={ key:k, kind:r.kind, symbol:r.symbol, event:r.event, rows:[],
+                sent:0, sil:0, loc:0, reasons:{}, last:0, lastSent:0, lastMsg:"" }; m.set(k,g); }
+    g.rows.push(r);
+    if(r.local) g.loc++;
+    if(r.sent){ g.sent++; if(r.ts>g.lastSent){ g.lastSent=r.ts; g.lastMsg=r.message; } }
+    else { g.sil++; if(r.reason) g.reasons[r.reason]=(g.reasons[r.reason]||0)+1; }
+    if(r.ts>g.last) g.last=r.ts;
+    if(!g.lastMsg) g.lastMsg=r.message;
+  }
+  return [...m.values()].sort((a,b)=>b.last-a.last);
+}
+/* Unseen counts SENT alerts only. A cooldown-silenced row is not something you
+   missed — badging it would make the bell scream about its own restraint.   */
+function alUnseen(){
+  const A=alState();
+  let n=0;
+  for(const r of (A.rows||[])) if(r && r.sent!==false && +r.id > (A.seen||0)) n++;
+  for(const r of (A.local||[])) if(r && (Date.parse(r.created_at)||0) > (A.seenTs||0)) n++;
+  return n;
+}
+function alBadge(){
+  const b=$("alCount"); if(!b) return;
+  const n=alUnseen();
+  b.textContent=String(n);
+  b.className="n"+(n? " hot":"");
+}
+function alMarkSeen(){
+  const A=alState();
+  let maxId=A.seen||0, maxTs=A.seenTs||0;
+  for(const r of (A.rows||[])) if(r && r.sent!==false && +r.id>maxId) maxId=+r.id;
+  for(const r of (A.local||[])){ const t=Date.parse(r.created_at)||0; if(t>maxTs) maxTs=t; }
+  if(maxId===A.seen && maxTs===A.seenTs) return;
+  A.seen=maxId; A.seenTs=maxTs;
+  if(hasStorage){ try{ window.storage.set("alerts:seen", JSON.stringify({id:maxId, ts:maxTs})); }catch(e){} }
+  alBadge();
+}
+
+/* ---- network ------------------------------------------------------------ */
+async function alRefresh(limit){
+  const A=alState();
+  if(A.busy) return;
+  A.busy=true; A.at=Date.now();                 /* stamp first — no request storms on failure */
+  const lim=limit||60;
+  try{
+    const rows=await wbApi("/api/wb/watch/log?limit="+lim);
+    A.rows=Array.isArray(rows)? rows : [];
+    A.err=null; A.sig=null;
+    /* status / config / precision are only interesting with the pane on
+       screen. Three extra round trips behind a closed sheet is the sort of
+       background chatter that eats a phone plan for nothing. */
+    if(lim>=200){
+      const [st,cfg,pr]=await Promise.all([
+        wbApi("/api/wb/watch/status").catch(()=>null),
+        wbApi("/api/wb/watch/config").catch(()=>null),
+        wbApi("/api/wb/watch/precision").catch(()=>null)]);
+      if(st) A.st=st; if(cfg) A.cfg=cfg; if(pr) A.prec=pr;
+    }
+  }catch(e){ A.err=(e&&e.message)||"backend unreachable"; A.sig=null; }
+  finally{ A.busy=false; alBadge(); }
+}
+async function alJudge(id, v){
+  const A=alState();
+  const row=(A.rows||[]).find(r=>r && String(r.id)===String(id));
+  if(row){ row.acted_on=v; A.sig=null; renderAlerts(); }    /* optimistic — the pane must not feel dead */
+  try{
+    await wbApi("/api/wb/watch/log/"+encodeURIComponent(id),
+      { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({acted_on:!!v}) });
+    if(A.prec) A.prec=null;                                  /* the ratio it showed is now stale */
+    alRefresh(200).then(()=>{ if(state.tab==="alerts") renderAlerts(); }).catch(()=>{});
+  }catch(e){
+    if(row){ row.acted_on=null; A.sig=null; renderAlerts(); }
+    cmdSay("Could not save that judgement — "+((e&&e.message)||"backend unreachable"));
+  }
+}
+async function alSetCfg(patch){
+  const A=alState();
+  try{
+    const cfg=await wbApi("/api/wb/watch/config",
+      { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(patch) });
+    A.cfg=cfg; A.sig=null; renderAlerts();
+    cmdSay("Alert rules updated. They apply from the next tick — nothing already silenced comes back.");
+  }catch(e){ cmdSay("Could not update alert rules — "+((e&&e.message)||"backend unreachable")); }
+}
+async function alTickNow(btn){
+  if(btn){ btn.disabled=true; btn.textContent="checking…"; }
+  try{
+    await wbApi("/api/wb/watch/tick", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    alState().at=0;
+    await alRefresh(200);
+  }catch(e){ cmdSay("Could not force a check — "+((e&&e.message)||"backend unreachable")); }
+  if(state.tab==="alerts") renderAlerts();
+}
+
+/* ---- the pane ----------------------------------------------------------- */
+function alFilter(rows){
+  const f=alState().f;
+  return rows.filter(r=>{
+    if(f.show==="sent" && !r.sent) return false;
+    if(f.show==="silenced" && r.sent) return false;
+    if(f.kind!=="all" && r.kind!==f.kind) return false;
+    return true;
+  });
+}
+function alEntry(r){
+  const A=alState();
+  const jud = !r.local && r.sent;
+  return '<div class="alE">'+
+    '<div class="eh"><b>'+alClock(r.ts)+'</b><span>'+alAgo(r.ts)+' ago</span>'+
+      (r.local? '<span title="recorded by this device — it never went to Telegram">\u{1F4F1} on-device</span>':'')+
+      (r.sent? '' : '<span class="alSil">\u{1F515} silenced: '+esc(r.reason||"no reason recorded")+'</span>')+
+    '</div>'+
+    '<div class="msg">'+alText(r.message)+'</div>'+
+    (jud? '<div class="alJ">'+
+       '<button class="y'+(r.acted===true?" on":"")+'" data-al-judge="'+esc(String(r.id))+'" data-al-v="1">✓ acted</button>'+
+       '<button class="n'+(r.acted===false?" on":"")+'" data-al-judge="'+esc(String(r.id))+'" data-al-v="0">✕ ignored</button>'+
+       '</div>' : '')+
+    '</div>';
+}
+function alEntryLine(r, gkey){
+  return '<div class="alE cmp" data-al-ent="'+esc(gkey+"#"+r.key)+'">'+
+    '<div class="eh"><b>'+alClock(r.ts)+'</b><span>'+alAgo(r.ts)+'</span>'+
+      (r.local? '<span title="recorded by this device">\u{1F4F1}</span>':'')+
+      (r.sent? '' : '<span class="alSil">\u{1F515} '+esc(r.reason||"silenced")+'</span>')+
+      '<span class="ln">'+alHead(r.message)+'</span></div></div>';
+}
+function alGroupCard(g, openKeys){
+  const K=alK(g.kind);
+  const on=!!openKeys[g.key];
+  const fresh = g.lastSent && (Date.now()-g.lastSent < 30*60*1000);
+  const reasons=Object.entries(g.reasons).sort((a,b)=>b[1]-a[1]);
+  /* a shut group must say WHERE it came from. Without this the pane looked
+     identical for a Telegram alert and a beep this browser invented. */
+  const sub = (g.loc===g.rows.length? "\u{1F4F1} on-device"
+              : (g.sent? g.sent+" sent" : "0 sent") + (g.loc? " ("+g.loc+" on-device)" : ""))
+            + (g.sil? " · "+g.sil+" silenced"+(reasons.length? " ("+esc(reasons[0][0])+")":"") : "");
+  let h='<div class="alG'+(g.sent?"":" sil")+(fresh&&on===false?" fresh":"")+'">'+
+    '<div class="alH" data-al-grp="'+esc(g.key)+'">'+
+      '<span class="ic">'+K.i+'</span>'+
+      '<span class="ttl"><b>'+esc((g.symbol||"?").replace("USDT",""))+' · '+esc(alEvent(g.event))+'</b>'+
+        '<small>'+sub+(g.lastMsg? ' · '+alHead(g.lastMsg) : '')+'</small></span>'+
+      '<span class="rt"><b>'+alAgo(g.last)+'</b>'+g.rows.length+'×</span>'+
+      '<span class="cv">'+(on? "▾":"▸")+'</span>'+
+    '</div>';
+  if(on){
+    h+='<div class="alB">';
+    /* Newest 12 firings of this one subject, and only the FIRST in full. A
+       zone alert is fifteen lines; twelve of them stacked is a wall you scroll
+       past, which is the reading-book problem again. The rest collapse to
+       when-and-whether, and open on tap. */
+    const rs=g.rows.slice(0,12);
+    for(let i=0;i<rs.length;i++)
+      h += (i===0 || openKeys[g.key+"#"+rs[i].key]) ? alEntry(rs[i]) : alEntryLine(rs[i], g.key);
+    if(g.rows.length>12) h+='<div class="cardNote" style="font-size:10.5px">'+(g.rows.length-12)+
+      ' older entr'+(g.rows.length-12===1?"y":"ies")+' for this subject are in the window but not shown.</div>';
+    h+='<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">'+
+      '<button class="alJ" style="font-size:9.5px;font-weight:800;padding:5px 9px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer" data-al-sym="'+esc(g.symbol)+'">\u{1F4C8} open '+esc((g.symbol||"").replace("USDT",""))+' chart</button>'+
+      '</div>';
+    h+='</div>';
+  }
+  return h+'</div>';
+}
+function renderAlerts(){
+  const el=$("alertList"); if(!el) return;
+  const A=alState();
+  const f=A.f;
+
+  /* refresh policy: a pane that is actually on screen gets the full 200-row
+     window; a pane in the background gets a small one, rarely. */
+  const openHere = state.tab==="alerts";
+  const floor = openHere ? 25000 : (IS_PANE? 300000 : 150000);
+  if(Date.now()-A.at > floor)
+    alRefresh(openHere? 200 : 30).then(()=>{ if(state.tab==="alerts"){ try{ renderAlerts(); }catch(e){} } }).catch(()=>{});
+
+  const rows=alRows();
+  const shown=alFilter(rows);
+  const kinds=[...new Set(rows.map(r=>r.kind))].filter(Boolean).sort();
+
+  /* The 5s candle poll calls renderPane(). Re-writing this pane's innerHTML on
+     every tick would slam every open fold shut and throw the scroll position
+     away every five seconds — the exact "it closes in 2 or 3 seconds" bug from
+     the pattern folds. Repaint only when something actually changed. */
+  const sig=[rows.length, rows[0]&&rows[0].key, f.view, f.show, f.kind,
+             Object.keys(A.open).filter(k=>A.open[k]).sort().join(","),
+             A.err, A.st&&A.st.lastTick, A.prec&&A.prec.sent, A.prec&&A.prec.acted,
+             A.cfg&&JSON.stringify(A.cfg)].join("|");
+  if(A.sig===sig && el.innerHTML) { alMarkSeen(); return; }
+  A.sig=sig;
+  const wrap=$("paneWrap");
+  const keepTop = wrap? wrap.scrollTop : 0;
+
+  let h='';
+
+  /* ── status strip ─────────────────────────────────────────────────────── */
+  const st=A.st, prec=A.prec, cfg=A.cfg;
+  const tickAgo = st&&st.lastTick? alAgo(st.lastTick) : null;
+  const stale = st&&st.lastTick && (Date.now()-st.lastTick > 5*60*1000);
+  h+='<div class="chipGrid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px">'+
+    '<div class="chip '+(st? (st.running&&!stale? "good":"bad") : "")+'"><span class="chL">WATCHER</span>'+
+      '<span class="chV">'+(st? (st.running? (stale? "STALLED":"ON") : "OFF") : "—")+'</span>'+
+      '<span class="chN">'+(tickAgo? "tick "+tickAgo+" ago":"no status")+'</span></div>'+
+    '<div class="chip info"><span class="chL">SENT 7D</span><span class="chV">'+(prec? prec.sent : "—")+'</span>'+
+      '<span class="chN">'+(prec? Math.round(prec.sent/7)+"/day":"")+'</span></div>'+
+    '<div class="chip"><span class="chL">SILENCED 7D</span><span class="chV">'+(prec? prec.suppressed : "—")+'</span>'+
+      '<span class="chN">'+(prec&&(prec.sent+prec.suppressed)? Math.round(prec.suppressed/(prec.sent+prec.suppressed)*100)+"% of all":"")+'</span></div>'+
+    '<div class="chip '+(prec&&prec.precisionPct!=null? (prec.precisionPct>=30?"good":"bad") : "")+'">'+
+      '<span class="chL">PRECISION</span><span class="chV">'+(prec&&prec.precisionPct!=null? prec.precisionPct+"%":"—")+'</span>'+
+      '<span class="chN">'+(prec? (prec.acted+prec.ignored)+" judged":"")+'</span></div>'+
+    '</div>';
+
+  if(A.err) h+='<div class="hl hot" style="font-size:12.5px"><b>⚠ The alert log is unreachable.</b> '+esc(A.err)+
+    '<br><span style="font-size:11px;opacity:.85">Anything below is this device’s own journal only.</span></div>';
+
+  /* The uncomfortable arithmetic, computed from his own counters — never a
+     guess, and never two stacked banners: on a 430px phone that was most of
+     the first screen before a single alert was visible. */
+  if(prec && (prec.sent+prec.suppressed)>0){
+    const tot=prec.sent+prec.suppressed, silPct=Math.round(prec.suppressed/tot*100);
+    const bits=[];
+    if(silPct>=70) bits.push('<b>\u{1F515} '+silPct+'% of the last 7 days\u2019 alert decisions were silenced</b> \u2014 '+
+      prec.suppressed.toLocaleString()+' of '+tot.toLocaleString()+
+      '. The detector produces far more events than the rules let through and the cooldown absorbs the difference. '+
+      'Tap <b>\u{1F515} silenced</b> to see what is being held back \u2014 or raise that subject\u2019s cooldown in <b>\u2699 rules</b>.');
+    if(prec.sent>0 && (prec.acted+prec.ignored)===0)
+      bits.push('<span style="opacity:.9">None of the '+prec.sent+' sent alerts have been judged, so precision is unmeasurable. '+
+        'Mark a few \u2713 acted / \u2715 ignored and it becomes a number instead of an opinion \u2014 mine included.</span>');
+    if(bits.length) h+='<div class="hl warm" style="font-size:12.5px">'+bits.join('<div style="height:7px"></div>')+'</div>';
+  }
+
+  /* ── controls ─────────────────────────────────────────────────────────── */
+  h+='<div class="alBar">'+
+    '<button data-al-view="grouped" class="'+(f.view==="grouped"?"on":"")+'">\u{1F5C2} grouped</button>'+
+    '<button data-al-view="feed" class="'+(f.view==="feed"?"on":"")+'">≡ feed</button>'+
+    '<span style="width:8px"></span>'+
+    '<button data-al-show="all" class="'+(f.show==="all"?"on":"")+'">all</button>'+
+    '<button data-al-show="sent" class="'+(f.show==="sent"?"on":"")+'">\u{1F514} sent</button>'+
+    '<button data-al-show="silenced" class="'+(f.show==="silenced"?"on":"")+'">\u{1F515} silenced</button>'+
+    '</div>';
+  if(kinds.length>1){
+    h+='<div class="alBar">'+
+      '<button data-al-kind="all" class="'+(f.kind==="all"?"on":"")+'">every type</button>'+
+      kinds.map(k=>'<button data-al-kind="'+esc(k)+'" class="'+(f.kind===k?"on":"")+'">'+alK(k).i+' '+esc(alK(k).t)+'</button>').join("")+
+      '</div>';
+  }
+  h+='<div class="alBar">'+
+    '<button class="q" id="alTick">↻ check now</button>'+
+    '<button class="q" id="alRules">⚙ rules</button>'+
+    '</div>';
+
+  /* ── rules fold ───────────────────────────────────────────────────────── */
+  if(A.open["__rules"]){
+    h+='<div class="card"><div class="cardT">ALERT RULES · LIVE ON THE SERVER</div>';
+    if(!cfg) h+='<div class="cardNote">Config not loaded.</div>';
+    else{
+      const MODES=["instant","digest","off"];
+      const CDS=[10,30,90,240,720];
+      const allK=[...new Set(Object.keys(cfg.modes||{}).concat(Object.keys(cfg.cooldownMin||{})))].sort();
+      for(const k of allK){
+        const md=(cfg.modes||{})[k]||"off", cd=(cfg.cooldownMin||{})[k];
+        h+='<div class="alCfg"><span>'+alK(k).i+' <b>'+esc(alK(k).t)+'</b></span>'+
+          MODES.map(m=>'<button data-al-mode="'+esc(k)+'" data-al-v="'+m+'" class="'+(md===m?"on":"")+'">'+m+'</button>').join("")+
+          '</div>'+
+          '<div class="alCfg"><span style="font-size:10.5px;color:var(--dim);padding-left:18px">cooldown</span>'+
+          CDS.map(c=>'<button data-al-cd="'+esc(k)+'" data-al-v="'+c+'" class="'+(+cd===c?"on":"")+'">'+
+            (c>=60? (c/60)+"h" : c+"m")+'</button>').join("")+
+          '</div>';
+      }
+      h+='<div class="kv"><span>Quiet hours</span><b>'+(cfg.quietHours? cfg.quietHours.from+":00 → "+cfg.quietHours.to+":00 IST":"—")+'</b></div>';
+      h+='<div class="alCfg"><span>Hourly ceiling</span>'+
+        [6,12,24,60].map(n=>'<button data-al-cap="'+n+'" class="'+(+cfg.maxPerHour===n?"on":"")+'">'+n+'</button>').join("")+
+        '</div>';
+      h+='<div class="cardNote"><b>off</b> stops that type entirely. <b>digest</b> records it but sends nothing until the '+
+        (cfg.digestHours||6)+'-hour roll-up. <b>cooldown</b> is per subject — the same coin, same event stays quiet for that long. '+
+        'Stop-outs pierce quiet hours regardless; that is deliberate.</div>';
+    }
+    h+='</div>';
+  }
+
+  /* ── the list ─────────────────────────────────────────────────────────── */
+  if(!shown.length){
+    h+='<div class="hl mid" style="font-size:12.5px"><b>Nothing matches that filter.</b>'+
+      (rows.length? ' There are '+rows.length+' entries in the window — widen the filters above.'
+                  : ' The log is empty. Alerts appear here the moment the watcher decides anything, '+
+                    'and on-device events (signal changes, line breaks, paper fills and stops) are journalled here too, '+
+                    'whether or not the sound is on.')+'</div>';
+  } else if(f.view==="grouped"){
+    const gs=alGroups(shown);
+    h+='<div class="cardT" style="padding:2px">'+gs.length+' SUBJECT'+(gs.length===1?"":"S")+
+       ' · '+shown.length+' ENTR'+(shown.length===1?"Y":"IES")+'</div>';
+    for(const g of gs) h+=alGroupCard(g, A.open);
+  } else {
+    h+='<div class="cardT" style="padding:2px">'+shown.length+' ENTR'+(shown.length===1?"Y":"IES")+' · NEWEST FIRST</div>';
+    for(const r of shown.slice(0,120)){
+      const K=alK(r.kind);
+      h+='<div class="alG'+(r.sent?"":" sil")+'">'+
+        '<div class="alH" style="cursor:default"><span class="ic">'+K.i+'</span>'+
+        '<span class="ttl"><b>'+esc((r.symbol||"?").replace("USDT",""))+' · '+esc(alEvent(r.event))+'</b>'+
+        '<small>'+alHead(r.message)+'</small></span>'+
+        '<span class="rt"><b>'+alAgo(r.ts)+'</b>'+alClock(r.ts)+'</span></div>'+
+        '<div class="alB">'+alEntry(r)+'</div></div>';
+    }
+    if(shown.length>120) h+='<div class="cardNote">Showing the newest 120 of '+shown.length+'.</div>';
+  }
+
+  h+='<div class="cardNote" style="margin-top:10px;font-size:10.5px">'+
+     'Server entries come from the watcher’s own decision log — including the ones it chose not to send, with the reason. '+
+     '\u{1F4F1} on-device entries are recorded by this browser when it beeps, and live only on this device.</div>';
+
+  el.innerHTML=h;
+  if(wrap && keepTop) { try{ wrap.scrollTop=keepTop; }catch(e){} }
+  alWire(el);
+  alMarkSeen();
+}
+function alWire(el){
+  const A=alState();
+  el.querySelectorAll("[data-al-view]").forEach(b=>b.onclick=()=>{ A.f.view=b.dataset.alView; A.sig=null; renderAlerts(); });
+  el.querySelectorAll("[data-al-show]").forEach(b=>b.onclick=()=>{ A.f.show=b.dataset.alShow; A.sig=null; renderAlerts(); });
+  el.querySelectorAll("[data-al-kind]").forEach(b=>b.onclick=()=>{ A.f.kind=b.dataset.alKind; A.sig=null; renderAlerts(); });
+  el.querySelectorAll("[data-al-grp]").forEach(b=>b.onclick=()=>{
+    const k=b.dataset.alGrp; A.open[k]=!A.open[k]; A.sig=null; renderAlerts(); });
+  el.querySelectorAll("[data-al-ent]").forEach(b=>b.onclick=e=>{
+    e.stopPropagation(); const k=b.dataset.alEnt; A.open[k]=!A.open[k]; A.sig=null; renderAlerts(); });
+  el.querySelectorAll("[data-al-judge]").forEach(b=>b.onclick=e=>{
+    e.stopPropagation(); alJudge(b.dataset.alJudge, b.dataset.alV==="1"); });
+  el.querySelectorAll("[data-al-sym]").forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const s=b.dataset.alSym; if(s) try{ switchSymbol(s); }catch(err){} });
+  el.querySelectorAll("[data-al-mode]").forEach(b=>b.onclick=()=>{
+    const p={modes:{}}; p.modes[b.dataset.alMode]=b.dataset.alV; alSetCfg(p); });
+  el.querySelectorAll("[data-al-cd]").forEach(b=>b.onclick=()=>{
+    const p={cooldownMin:{}}; p.cooldownMin[b.dataset.alCd]=+b.dataset.alV; alSetCfg(p); });
+  el.querySelectorAll("[data-al-cap]").forEach(b=>b.onclick=()=>alSetCfg({maxPerHour:+b.dataset.alCap}));
+  const t=el.querySelector("#alTick"); if(t) t.onclick=()=>alTickNow(t);
+  const r=el.querySelector("#alRules"); if(r) r.onclick=()=>{ A.open["__rules"]=!A.open["__rules"]; A.sig=null; renderAlerts(); };
+}
+
 function renderPane(){
   if(state.tab==="watch") renderWatch();
   else if(state.tab==="signals") renderSignals();
@@ -11241,6 +11934,7 @@ function renderPane(){
   else if(state.tab==="record") renderRecord();
   else if(state.tab==="trades") renderTrades();
   else if(state.tab==="live") renderLive();
+  else if(state.tab==="alerts") renderAlerts();
 }
 document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
   e.stopPropagation();
@@ -11252,11 +11946,14 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=e=>{
      panes read the preference and never write it. */
   try{ if(hasStorage && !IS_PANE) window.storage.set("ui:tab", state.tab); }catch(e){}
   document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
-  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",proj:"projList",structure:"structList",record:"recordList",trades:"tradeList",live:"liveList",coach:"coachList"};
+  const map={watch:"watchList",signals:"sigList",lines:"levelList",zones:"zoneList",proj:"projList",structure:"structList",record:"recordList",trades:"tradeList",live:"liveList",coach:"coachList",alerts:"alertList"};
   if(map[state.tab]) $(map[state.tab]).classList.add("on");
   /* Opening the money screen always pulls fresh exchange state — a 20s-stale
      position, P&L or pending approval is worse than a half-second wait. */
   if(state.tab==="live" && state.lv) state.lv.at=0;
+  /* opening the bell always re-reads the log: a five-minute-stale alert list
+     is the same failure as no alert list. */
+  if(state.tab==="alerts" && state.alog) state.alog.at=0;
   $("sheet").classList.add("open");
   /* The strip scrolls horizontally, so the tab you just chose can end up half
      under the caret and expand button — which is how STRUCTURE read as "STR".
@@ -12205,10 +12902,20 @@ async function boot(){
       if(hasStorage){
         /* ONE round trip, not two in a row: on a slow phone every serial KV read
            is a second of blank screen before the first paint. */
-        const [pr, dv] = await Promise.all([
+        const [pr, dv, aj, as_] = await Promise.all([
           window.storage.get("ui:prefs").catch(()=>null),
           window.storage.get("ui:dense").catch(()=>null),
+          window.storage.get("alerts:local").catch(()=>null),
+          window.storage.get("alerts:seen").catch(()=>null),
         ]);
+        /* the bell's journal and read-marker ride the SAME batch. Two more
+           serial KV reads on the boot path is two more seconds of blank
+           screen on a phone — the mistake 19e already paid for once. */
+        try{
+          const A=alState();
+          if(aj && aj.value){ const j=JSON.parse(aj.value); if(Array.isArray(j)) A.local=j.slice(0,AL_MAX_LOCAL); }
+          if(as_ && as_.value){ const v=JSON.parse(as_.value); if(v&&typeof v==="object"){ A.seen=+v.id||0; A.seenTs=+v.ts||0; } }
+        }catch(e){}
         const had=applyPrefs(pr);
         /* ui:dense predates ui:prefs — honour it for an install that only has
            the old key, so nobody's density flips on the upgrade */
