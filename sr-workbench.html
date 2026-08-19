@@ -145,6 +145,10 @@
 
   #chartWrap{flex:1;position:relative;min-height:0}
   canvas{position:absolute;inset:0;width:100%;height:100%}
+  /* the overlay carries ONLY the crosshair, so a finger-follow repaint is a
+     few dashed lines instead of the whole chart. It must never eat input. */
+  #ov{pointer-events:none}
+  #cv{touch-action:none}
   #drawHint{
     position:absolute;top:10px;left:50%;transform:translateX(-50%);
     background:rgba(45,212,191,.14);border:1px solid rgba(45,212,191,.5);
@@ -1188,6 +1192,7 @@
 
 <div id="chartWrap">
   <canvas id="cv"></canvas>
+  <canvas id="ov"></canvas>
   <div id="ohlc" class="mono"></div>
   <div id="drawHint"></div>
   <div id="anaChip">✦ analysis</div>
@@ -1297,7 +1302,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19g-reach";
+window.WB_BUILD = "2026-08-19h-glide";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1652,6 +1657,7 @@ const state = {
 
 const $ = id => document.getElementById(id);
 const cv = $("cv"), ctx = cv.getContext("2d");
+const ov = $("ov"), octx = ov.getContext("2d");
 const wrap = $("chartWrap");
 let W=0, H=0, DPR=1;
 
@@ -1677,6 +1683,13 @@ window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view, htf:()=>stat
   lvRefresh:()=>{ if(state.lv) state.lv.at=0; return renderLive(); },
   renderLevels:()=>renderLevelList(),
   axisChips:()=>state._axisChips||[], axisW:()=>AXIS_W, defaultCount:()=>defaultCount(),
+  /* the glide layer — the suite drives gestures and reads the frame ledger */
+  renders:()=>state._renders||0, renderMs:()=>state._renderMs||0,
+  render:()=>render(),                     /* synchronous, for canvas-text capture */
+  gesturing:()=>GESTURING(), zoomBusy:()=>zRun, inertiaOn:()=>INERTIA,
+  zoomToward:(f,ax)=>zoomToward(f,ax), zoomAt:(c,ax)=>zoomAt(c,ax),
+  setCount:(c)=>setCount(c), idxAtF:(x)=>idxAtF(x), chartW:()=>chartW(),
+  startInertia:(v)=>startInertia(v), drawCross:()=>drawCross(),
   /* distance-from-price and the pattern outlook — script-scoped, same door */
   dPct:(v)=>dPct(v), dTxt:(f)=>dTxt(f), lastClose:()=>lastClose(),
   patOut:(P)=>patOutlook(P), patOutLine:(P,sh)=>patOutLine(P,sh),
@@ -1696,6 +1709,8 @@ function resize(){
   W = wrap.clientWidth; H = wrap.clientHeight;
   cv.width = W*DPR; cv.height = H*DPR;
   ctx.setTransform(DPR,0,0,DPR,0,0);
+  ov.width = W*DPR; ov.height = H*DPR;
+  octx.setTransform(DPR,0,0,DPR,0,0);
   measureAxisW();
   render();
 }
@@ -1767,7 +1782,10 @@ function panesBottom(){ const L=paneLayout(); return L.subs.length? L.subs[L.sub
 
 function visibleRange(){
   const r = Math.round(state.view.right);
-  const l = r - state.view.count + 1;
+  /* count is fractional now (that is what makes zoom glide instead of step) —
+     the left edge must floor to a real array index or every per-bar loop
+     downstream starts at candles[3.7] and reads undefined. */
+  const l = Math.floor(r - state.view.count + 1);
   return [Math.max(0,l), Math.min(state.candles.length-1, r)];
 }
 function autoBounds(){
@@ -1927,6 +1945,7 @@ function diagPriceAt(lvl, i){
 /* ---------- render ---------- */
 function render(){
   if(!W||!H) return;
+  const _rt0=performance.now();
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle="#090B0F"; ctx.fillRect(0,0,W,H);
   if(!state.candles.length) return;
@@ -2313,7 +2332,12 @@ function render(){
   /* HOOK-RAILS: context that is already computed but was never drawn — higher
      timeframe levels, unswept liquidity clusters. Under the user's own lines,
      because his lines win any argument about where price is going. */
-  try{ if(typeof drawContextRails==="function") drawContextRails(); }catch(e){}
+  /* On a phone that takes >12ms a frame, the two decorative layers sit out
+     while a finger is down — exactly what the big charting apps do while
+     scrolling. They return on the settle render, and fast devices never
+     notice because the gate reads the PREVIOUS frame's cost. */
+  let FAST=false; try{ FAST = GESTURING() && (state._renderMs||0)>12; }catch(e){}
+  try{ if(!FAST && typeof drawContextRails==="function") drawContextRails(); }catch(e){}
 
   for(const lvl of state.levels){
     if(lvl.kind==="h") drawHLevel(lvl);
@@ -2324,7 +2348,7 @@ function render(){
   /* HOOK-EVIDENCE: what actually happened AT these lines and at past
      projections. One layer, one collision budget — two independent glyph
      systems fighting over the same pixels is how a chart becomes soup. */
-  try{ if(typeof drawEvidenceMarks==="function") drawEvidenceMarks(); }catch(e){}
+  try{ if(!FAST && typeof drawEvidenceMarks==="function") drawEvidenceMarks(); }catch(e){}
 
   if(state.pending){
     const x=xOf(idxOfTime(state.pending.t)), y=yOf(state.pending.p);
@@ -2611,34 +2635,48 @@ function render(){
     ctx.fillText(fmtAxis(lc.close), chartW()+CHIP_GUT+3, lch.y+1);
   }
 
+  drawCross();                       /* keep the overlay in step with new geometry */
+  state._renders=(state._renders||0)+1;
+  state._renderMs=performance.now()-_rt0;
+}
+
+/* ── the crosshair, on its own canvas ───────────────────────────────────────
+   It used to be the last block of render(): every finger move repainted the
+   ENTIRE chart — candles, rails, patterns, orders — to move two dashed lines.
+   That full repaint is the lag you feel. Now a move touches only this layer;
+   render() calls it once at the end so pan/zoom keep the lines in step. */
+function drawCross(){
+  octx.clearRect(0,0,W,H);
+  octx.font="12px ui-monospace,Menlo,monospace";
+  octx.textBaseline=ctx.textBaseline;
   if(state.cross){
     const {i,y}=state.cross;
     if(i>=0 && i<state.candles.length){
       const x=xOf(i);
       const big=state.cross.big;
-      ctx.setLineDash(big?[6,4]:[3,3]);
-      ctx.lineWidth=big?1.4:1;
-      ctx.strokeStyle=big?C_N1:"#6A6E75";
-      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,panesBottom()); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
-      ctx.setLineDash([]); ctx.lineWidth=1;
+      octx.setLineDash(big?[6,4]:[3,3]);
+      octx.lineWidth=big?1.4:1;
+      octx.strokeStyle=big?C_N1:"#6A6E75";
+      octx.beginPath(); octx.moveTo(x,0); octx.lineTo(x,panesBottom()); octx.stroke();
+      octx.beginPath(); octx.moveTo(0,y+.5); octx.lineTo(chartW(),y+.5); octx.stroke();
+      octx.setLineDash([]); octx.lineWidth=1;
       const cPx=priceAt(y), cD=state.prefs.dpct!==false? dTxt(dPct(cPx)) : null;
-      ctx.fillStyle=big?C_N1:"#232A38"; ctx.fillRect(chartW(), y-(cD?13:9), AXIS_W, cD?26:18);
-      ctx.fillStyle=big?"#10131A":"#E8EAED"; ctx.fillText(fmtAxis(cPx), chartW()+5, cD? y-5 : y);
+      octx.fillStyle=big?C_N1:"#232A38"; octx.fillRect(chartW(), y-(cD?13:9), AXIS_W, cD?26:18);
+      octx.fillStyle=big?"#10131A":"#E8EAED"; octx.fillText(fmtAxis(cPx), chartW()+5, cD? y-5 : y);
       if(cD){
-        ctx.font="10.5px ui-monospace,Menlo,monospace";
-        ctx.fillStyle=big?"rgba(16,19,26,.78)":"rgba(232,234,237,.72)";
-        ctx.fillText(cD, chartW()+5, y+8);
-        ctx.font="12px ui-monospace,Menlo,monospace";
+        octx.font="10.5px ui-monospace,Menlo,monospace";
+        octx.fillStyle=big?"rgba(16,19,26,.78)":"rgba(232,234,237,.72)";
+        octx.fillText(cD, chartW()+5, y+8);
+        octx.font="12px ui-monospace,Menlo,monospace";
       }
       if(big){
         const tl=timeLabel(state.candles[i].time,true);
-        ctx.font="11.5px ui-monospace,Menlo,monospace";
-        const w=ctx.measureText(tl).width+12;
+        octx.font="11.5px ui-monospace,Menlo,monospace";
+        const w=octx.measureText(tl).width+12;
         const bx=Math.min(Math.max(0,x-w/2), chartW()-w);
-        ctx.fillStyle=C_N1; ctx.fillRect(bx, panesBottom()+2, w, 16);
-        ctx.fillStyle="#10131A"; ctx.fillText(tl, bx+6, panesBottom()+10);
-        ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fillStyle=C_N1; ctx.fill();
+        octx.fillStyle=C_N1; octx.fillRect(bx, panesBottom()+2, w, 16);
+        octx.fillStyle="#10131A"; octx.fillText(tl, bx+6, panesBottom()+10);
+        octx.beginPath(); octx.arc(x,y,4,0,Math.PI*2); octx.fillStyle=C_N1; octx.fill();
       }
       const c=state.candles[i];
       $("ohlc").style.display="block";
@@ -5630,9 +5668,48 @@ function setRight(v){
   state.follow = state.view.right >= n-2;
 }
 function setCount(c){
-  state.view.count = Math.min(500, Math.max(15, Math.round(c)));
+  /* No rounding. Snapping to whole bars quantised every zoom to ~3% jumps —
+     at 30 bars a pinch moved in visible clicks. right is already fractional;
+     count now matches it. */
+  state.view.count = Math.min(500, Math.max(15, c));
   setRight(state.view.right);
 }
+/* zoom that holds the bar under the cursor/fingers still — the difference
+   between "the chart zooms" and "the chart zooms AT ME". */
+function zoomAt(c, ax){
+  const a = idxAtF(ax);
+  state.view.count = Math.min(500, Math.max(15, c));
+  setRight(a + state.view.count*(1 - ax/chartW()) - 0.5);
+}
+/* ── eased wheel/button zoom ──────────────────────────────────────────────
+   Each wheel tick moves a TARGET; a rAF loop closes 32% of the gap per frame
+   (settles in ~150ms). Ten ticks in one frame become one smooth glide, and
+   the anchor maths runs on every frame so the cursor bar never drifts. */
+let zTarget=null, zAx=0, zRun=false;
+function zoomToward(f, ax){
+  zAx = ax;
+  zTarget = Math.min(500, Math.max(15, (zTarget==null? state.view.count : zTarget)*f));
+  if(!zRun){ zRun=true; requestAnimationFrame(zoomStep); }
+}
+function zoomStep(){
+  if(zTarget==null){ zRun=false; return; }
+  const d = zTarget - state.view.count;
+  if(Math.abs(d) < 0.12){
+    zoomAt(zTarget, zAx); zTarget=null; zRun=false;
+    render(); return;                       /* settle frame draws the full chart */
+  }
+  zoomAt(state.view.count + d*0.32, zAx);
+  render();
+  requestAnimationFrame(zoomStep);
+}
+/* one render per displayed frame, however many input events arrived */
+let _rafR=0, _dirtyR=false;
+function scheduleRender(){
+  _dirtyR=true;
+  if(_rafR) return;
+  _rafR=requestAnimationFrame(()=>{ _rafR=0; if(_dirtyR){ _dirtyR=false; render(); } });
+}
+function GESTURING(){ try{ return !!(touch || mouse || INERTIA || zRun); }catch(e){ return false; } }
 function lockY(){
   if(!state.view.yLock){
     const b=priceBounds();
@@ -5663,18 +5740,29 @@ function resetView(){
   render();
 }
 
+let INERTIA=false;
 function startInertia(vx){
   stopInertia();
   if(Math.abs(vx)<0.15) return;
-  inertia=setInterval(()=>{
-    vx*=0.92;
-    if(Math.abs(vx)<0.05){ stopInertia(); return; }
+  /* rAF, not setInterval(16): the old timer beat against the display refresh
+     and the glide stuttered exactly when it was supposed to feel expensive.
+     Decay is TIME-based, so a 120Hz phone and a 60Hz laptop coast the same
+     distance instead of the fast screen stopping in half the time. */
+  INERTIA=true;
+  let last=performance.now();
+  const step=(now)=>{
+    if(!INERTIA) return;
+    const dt=Math.min(50, now-last); last=now;
+    vx*=Math.pow(0.945, dt/16.7);
+    if(Math.abs(vx)<0.04){ INERTIA=false; render(); return; }
     const bw=chartW()/state.view.count;
-    setRight(state.view.right - vx/bw);
+    setRight(state.view.right - vx*(dt/16.7)/bw);
     render();
-  },16);
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
-function stopInertia(){ if(inertia){ clearInterval(inertia); inertia=null; } }
+function stopInertia(){ INERTIA=false; }
 
 function longPressMenu(x,y){
   const price=priceAt(y);
@@ -5725,9 +5813,14 @@ cv.addEventListener("touchstart", e=>{
   } else if(e.touches.length===2){
     clearTimeout(pressTimer);
     const a=pt(e,0), b=pt(e,1);
+    const midX=(a.x+b.x)/2;
     touch={mode:"pinch",
       dx0:Math.max(12,Math.abs(a.x-b.x)), dy0:Math.max(12,Math.abs(a.y-b.y)),
       count0:state.view.count, right0:state.view.right,
+      /* the bar between the fingers, captured ONCE — every move re-anchors to
+         it, so the price you are pinching stays under your fingers instead of
+         the chart sliding toward its right edge */
+      aMid: idxAtF(midX),
       midY:(a.y+b.y)/2,
       yLo0:null, yHi0:null};
     lockY();
@@ -5741,12 +5834,14 @@ cv.addEventListener("touchmove", e=>{
   if(touch.mode==="edit" && e.touches.length===1){
     const p=pt(e,0);
     if(Math.abs(p.x-touch.sx)>4||Math.abs(p.y-touch.sy)>4){ touch.moved=true; clearTimeout(pressTimer); }
-    applyEdit(touch.edit,p.x,p.y); render(); e.preventDefault(); return;
+    applyEdit(touch.edit,p.x,p.y); scheduleRender(); e.preventDefault(); return;
   }
   if(touch.mode==="cross" && e.touches.length===1){
     const p=pt(e,0);
     state.cross={i:idxAt(Math.min(chartW(),Math.max(0,p.x))), y:Math.min(priceH(),Math.max(0,p.y)), big:true};
-    render(); e.preventDefault(); return;
+    drawCross();                 /* the whole point: two dashed lines move, two
+                                    dashed lines repaint — nothing else */
+    e.preventDefault(); return;
   }
   if(e.touches.length===1 && (touch.mode==="pan"||touch.mode==="scaleY"||touch.mode==="scaleX")){
     const p=pt(e,0);
@@ -5758,29 +5853,36 @@ cv.addEventListener("touchmove", e=>{
       setRight(state.view.right - dx/bw);
       /* vertical pan only on a clearly vertical drag, and damped */
       if(Math.abs(dy)>Math.abs(dx)*2.2) panY(dy*0.4);
-      touch.vx=(p.x-touch.lx)/dt*16;
+      /* blended, not raw: one noisy 120Hz sample used to decide the whole
+         glide velocity at finger-up */
+      touch.vx=0.75*((p.x-touch.lx)/dt*16)+0.25*(touch.vx||0);
     } else if(touch.mode==="scaleY"){
       zoomY(1 - dy/520, priceH()/2);
     } else {
       setCount(state.view.count * (1 + dx/520));
     }
     touch.x=p.x; touch.y=p.y; touch.lx=p.x; touch.lastT=now;
-    render(); e.preventDefault(); return;
+    scheduleRender(); e.preventDefault(); return;
   }
   if(touch.mode==="pinch" && e.touches.length===2){
     const a=pt(e,0), b=pt(e,1);
     const dx=Math.max(12,Math.abs(a.x-b.x)), dy=Math.max(12,Math.abs(a.y-b.y));
-    const damp=r=>1+(r-1)*0.42;
-    setCount(touch.count0 * damp(touch.dx0/dx));
+    const midX=(a.x+b.x)/2;
+    /* 1:1 — the fingers ARE the easing. The old 0.42 damping meant a 2× spread
+       zoomed 1.4×, which reads as "the chart is resisting me". Anchoring to the
+       CURRENT midpoint also folds two-finger panning into the same gesture,
+       the way the reference app does it. */
+    state.view.count=Math.min(500,Math.max(15, touch.count0 * (touch.dx0/dx)));
+    setRight(touch.aMid + state.view.count*(1 - midX/chartW()) - 0.5);
     const v=state.view, span0=touch.yHi0-touch.yLo0;
-    const f=damp(touch.dy0/dy);
+    const f=touch.dy0/dy;
     /* only rescale price if the pinch is meaningfully vertical */
-    if(Math.abs(touch.dy0-dy) < 20){ render(); e.preventDefault(); return; }
+    if(Math.abs(touch.dy0-dy) < 20){ scheduleRender(); e.preventDefault(); return; }
     const anchor=touch.yHi0-(touch.midY/priceH())*span0;
     const ns=Math.max(span0*0.02, Math.min(span0*50, span0*f));
     const rel=(anchor-touch.yLo0)/span0;
     v.yLo=anchor-ns*rel; v.yHi=v.yLo+ns;
-    render(); e.preventDefault(); return;
+    scheduleRender(); e.preventDefault(); return;
   }
   e.preventDefault();
 },{passive:false});
@@ -5793,9 +5895,9 @@ cv.addEventListener("touchend", e=>{
       else if(Date.now()-touch.t0<400) handleTap(touch.sx,touch.sy);
     } else if(touch.mode==="pan" && !touch.moved && Date.now()-touch.t0<400){
       const now=Date.now();
-      if(now-lastTap<300){ /* double tap: gentle zoom in */
-        setCount(state.view.count*0.75);
-        lastTap=0; render();
+      if(now-lastTap<300){ /* double tap: glide in, anchored where you tapped */
+        zoomToward(0.72, touch.sx);
+        lastTap=0;
       } else { lastTap=now; handleTap(touch.sx,touch.sy); }
     } else if(touch.mode==="cross"){
       const c=state.cross;
@@ -5826,7 +5928,7 @@ window.addEventListener("mousemove", e=>{
   const sx=e.clientX-r.left, sy=e.clientY-r.top;
   if(mouse.mode==="edit"){
     if(Math.abs(sx-mouse.sx)>3||Math.abs(sy-mouse.sy)>3) mouse.moved=true;
-    applyEdit(mouse.edit,sx,sy); render(); return;
+    applyEdit(mouse.edit,sx,sy); scheduleRender(); return;
   }
   const dx=sx-mouse.x, dy=sy-mouse.y;
   if(Math.abs(dx)>3||Math.abs(dy)>3) mouse.moved=true;
@@ -5836,7 +5938,7 @@ window.addEventListener("mousemove", e=>{
     if(Math.abs(dy)>Math.abs(dx)*1.8) panY(dy*0.55);
   } else if(mouse.mode==="scaleY") zoomY(1-dy/520, priceH()/2);
   else setCount(state.view.count*(1+dx/520));
-  mouse.x=sx; mouse.y=sy; render();
+  mouse.x=sx; mouse.y=sy; scheduleRender();
 });
 window.addEventListener("mouseup", ()=>{
   if(mouse && mouse.mode==="edit" && mouse.moved) finishEdit(mouse.edit);
@@ -5852,9 +5954,9 @@ cv.addEventListener("wheel", e=>{
   const r=cv.getBoundingClientRect();
   const sy=e.clientY-r.top, sx=e.clientX-r.left;
   const f = e.deltaY>0?1.06:0.95;
-  if(sx>chartW() || e.shiftKey) zoomY(f, sy);
-  else setCount(state.view.count*f);
-  render(); e.preventDefault();
+  if(sx>chartW() || e.shiftKey){ zoomY(f, sy); scheduleRender(); }
+  else zoomToward(f, sx);        /* eased, and the bar under the cursor stays put */
+  e.preventDefault();
 },{passive:false});
 
 /* context menu actions */
@@ -12724,8 +12826,8 @@ $("rStep2").onclick=()=>replayStep(1);
 $("rExit").onclick=replayExit;
 $("ptCancel").onclick=()=>{ $("ptModal").style.display="none"; state.pending=null; };
 $("ptGo").onclick=confirmPreTrade;
-$("zIn").onclick=()=>{ setCount(state.view.count*0.7); if(state.view.yLock) zoomY(0.7,priceH()/2); render(); };
-$("zOut").onclick=()=>{ setCount(state.view.count/0.7); if(state.view.yLock) zoomY(1/0.7,priceH()/2); render(); };
+$("zIn").onclick=()=>{ zoomToward(0.7, chartW()/2); if(state.view.yLock) zoomY(0.7,priceH()/2); };
+$("zOut").onclick=()=>{ zoomToward(1/0.7, chartW()/2); if(state.view.yLock) zoomY(1/0.7,priceH()/2); };
 $("cmdBar").addEventListener("keydown",e=>{
   if(e.key==="Enter"){ runCommand(e.target.value); e.target.value=""; e.target.blur(); }
 });
