@@ -1112,6 +1112,8 @@
     <div class="sw" data-pref="depth"><span>Order book walls</span><span class="tr"></span></div>
     <div class="sw" data-pref="fib"><span>Fibonacci levels</span><span class="tr"></span></div>
     <div class="sw" data-pref="ms"><span>Market structure (HH/HL/LH/LL)</span><span class="tr"></span></div>
+    <div class="sw on" data-pref="htfRails"><span>Higher-timeframe high / low / close</span><span class="tr"></span></div>
+    <div class="sw on" data-pref="liqRails"><span>Unswept equal highs / lows (stop clusters)</span><span class="tr"></span></div>
     <div class="pTitle" style="margin-top:12px">INDICATORS</div>
     <div class="sw" data-pref="ma"><span>Moving averages (EMA 20/50/200)</span><span class="tr"></span></div>
     <div class="sw" data-pref="boll"><span>Bollinger bands (20, 2σ)</span><span class="tr"></span></div>
@@ -1246,7 +1248,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-18s-upgrade";
+window.WB_BUILD = "2026-08-19a-depth";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1572,7 +1574,7 @@ const state = {
   drawMode:null, pending:null,
   pollTimer:null, fundTimer:null,
   funding:{rate:null},
-  prefs:{vol:true, proj:true, projDone:false, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false,
+  prefs:{vol:true, proj:true, projDone:false, sound:true, snap:true, showOrders:true, cmd:false, vp:false, pat:false, depth:false, fib:false, ms:false, htfRails:true, liqRails:true,
          ma:false, boll:false, rsi:false, macd:false, teach:false},   /* teach=false → compact app view by default */
   verdicts:[], tab:"signals", sigSeen:{}, sigFilter:{side:"all", only:"any", sort:"grade"}, proposals:[], cmdTimer:null,
   htf:null, risk:{account:10000, pct:1},
@@ -1611,7 +1613,7 @@ const fmtAxis = p => (p==null||!isFinite(p)) ? "—" : p >= 1000 ? p.toLocaleStr
 const pct = x => (x>=0?"+":"")+(x*100).toFixed(2)+"%";
 /* read-only debug accessors — state is script-scoped, and every "why is the
    chart drawing THAT" question needs eyes on it from the console            */
-window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view,
+window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view, htf:()=>state.htf,
   gen:(o)=>generateProjection(o), refusals:()=>state.prjRefused||[], levels:()=>state.levels,
   projections:()=>state.projections, symbol:()=>state.symbol, tf:()=>state.tf,
   papers:()=>state.papers,
@@ -2202,11 +2204,21 @@ function render(){
     ctx.font="12px ui-monospace,Menlo,monospace";
   }
 
+  /* HOOK-RAILS: context that is already computed but was never drawn — higher
+     timeframe levels, unswept liquidity clusters. Under the user's own lines,
+     because his lines win any argument about where price is going. */
+  try{ if(typeof drawContextRails==="function") drawContextRails(); }catch(e){}
+
   for(const lvl of state.levels){
     if(lvl.kind==="h") drawHLevel(lvl);
     else if(lvl.kind==="d") drawDiag(lvl);
     else if(lvl.kind==="v") drawVert(lvl);
   }
+
+  /* HOOK-EVIDENCE: what actually happened AT these lines and at past
+     projections. One layer, one collision budget — two independent glyph
+     systems fighting over the same pixels is how a chart becomes soup. */
+  try{ if(typeof drawEvidenceMarks==="function") drawEvidenceMarks(); }catch(e){}
 
   if(state.pending){
     const x=xOf(idxOfTime(state.pending.t)), y=yOf(state.pending.p);
@@ -2555,6 +2567,7 @@ function drawHLevel(lvl){
   axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price), auto:!!lvl.auto});
   if(lvl.label) labelPill(lvl.label, 6, y, lvl.color);
   if(sty.badge) zoneBadge(sty.badge, sty.bc, chartW()*0.42, yUp-10);
+  evNote(lvl, y);            /* hand this line to the evidence pass */
 }
 function drawDiag(lvl){
   const i1=idxOfTime(lvl.t1), i2=idxOfTime(lvl.t2);
@@ -2589,7 +2602,340 @@ function drawDiag(lvl){
   if(ye>=0 && ye<=priceH()) axisTags.push({y:ye, color:lvl.color, txt:fmtAxis(priceAt(ye)), auto:!!lvl.auto});
   if(lvl.label) labelPill(lvl.label, Math.max(6,a.x), a.y-14, lvl.color);
   if(sty.badge) zoneBadge(sty.badge, sty.bc, Math.max(6,a.x)+4, a.y-30);
+  evNote(lvl, ye);           /* hand this line to the evidence pass */
 }
+/* ---------- the evidence layer ---------------------------------------------
+   ONE pass, ONE collision budget, for two things that both want the same few
+   pixels: what already happened AT his lines, and how his past reads on this
+   chart actually ended. Deliberately kept in a single function — two glyph
+   systems bidding independently for the same space is how a chart turns to
+   soup.  Everything drawn here is COUNTS and DISTANCES measured from these
+   candles. No rates and no odds: a percentage without its sample size is a lie
+   with a decimal point in it.                                               */
+let evLines=[], evTok=null, evEpKey="", evEpMap={}, evMiss=0,
+    evDbg={marks:[], chips:[], lines:[], pre:[], miss:0, bw:0, budget:0};
+
+/* drawHLevel/drawDiag call this, so the evidence pass only ever marks a line
+   that was really painted this frame — a level culled off-screen gets nothing.
+   render() hands out a fresh labelBoxes array every frame, so that array's
+   identity is a free frame stamp and no hook into render() is needed.       */
+function evNote(lvl, yRight){
+  if(evTok!==labelBoxes){ evTok=labelBoxes; evLines.length=0; }
+  if(evLines.length<24 && isFinite(yRight)) evLines.push({lvl:lvl, y:yRight});
+}
+
+/* touchEpisodes is O(candles) PER LEVEL and render() runs on every pan frame,
+   so the answer is cached. The key carries the candle window AND the line's own
+   geometry: dragging a line to a new price must not keep showing the tests that
+   belonged to where it used to be.                                          */
+function evEpisodes(lvl){
+  const C=state.candles;
+  const wk=state.symbol+"|"+state.tf+"|"+C.length+"|"+(C.length? C[C.length-1].time : 0);
+  if(evEpKey!==wk){ evEpKey=wk; evEpMap={}; }
+  const lk=(lvl.id||"?")+"@"+(lvl.kind==="d"? lvl.p1+","+lvl.p2+","+lvl.t1+","+lvl.t2 : lvl.price);
+  let v=evEpMap[lk];
+  if(v===undefined){
+    evMiss++;
+    try{ v=touchEpisodes(lvl)||[]; }catch(err){ v=[]; }
+    evEpMap[lk]=v;
+  }
+  return v;
+}
+
+/* held / broke / still open, in that order of certainty. An episode whose
+   follow-through has not happened yet is OPEN — never shown as a hold. The
+   right edge of the chart is exactly where that flattery would cost money.  */
+function evKind(e){
+  if(!e.resolved) return "open";
+  if(e.broke)     return "break";
+  if(e.held)      return "hold";
+  return "flat";                       /* tested, went nowhere either way */
+}
+
+/* how far the wick actually pushed through the line, and whether the last bar
+   of the episode closed back on the side it arrived from. Distances, not
+   verdicts.                                                                 */
+function evDetail(lvl, e){
+  const C=state.candles;
+  const lineAt = i => lvl.kind==="h" ? lvl.price : diagPriceAt(lvl, i);
+  let thr=0;
+  for(let k=e.from; k<=e.to && k<C.length; k++){
+    const p=lineAt(k); if(!isFinite(p)||p<=0) continue;
+    const d = e.side>0 ? (p-C[k].low) : (C[k].high-p);
+    if(d>thr) thr=d;
+  }
+  const last=Math.min(e.to, C.length-1), pl=lineAt(last);
+  const back = e.side>0 ? C[last].close>=pl : C[last].close<=pl;
+  return { thr:(isFinite(pl)&&pl>0&&thr>0)? thr/pl : 0, back:back, ago:(C.length-1)-last };
+}
+
+/* every mark books its pixels in the SAME labelBoxes the pills and axis labels
+   use, so the two features cannot collide with each other or with them.     */
+function evPlace(x,y,r,kind){
+  const b={x:x-r-1, y:y-r-1, w:r*2+2, h:r*2+2, kind:kind};
+  if(!isFinite(b.x)||!isFinite(b.y)) return false;
+  if(b.x<0||b.y<0||b.x+b.w>chartW()||b.y+b.h>priceH()) return false;
+  if(!labelFits(b.x,b.y,b.w,b.h)) return false;
+  labelBoxes.push(b);
+  evDbg.marks.push(b);
+  return true;
+}
+
+/* SHAPE carries the meaning here; colour only agrees with it. He reads this
+   chart on a phone in daylight, where red vs green is the first thing to go. */
+function evGlyph(kind,x,y,r,dir){
+  ctx.lineWidth=1.4;
+  if(kind==="hold"){                    /* solid arrow, pointing the way price left */
+    ctx.fillStyle=hexA(C_UP,0.92);
+    ctx.beginPath();
+    ctx.moveTo(x, y-r*dir);
+    ctx.lineTo(x-r*0.85, y+r*0.75*dir);
+    ctx.lineTo(x+r*0.85, y+r*0.75*dir);
+    ctx.closePath(); ctx.fill();
+  } else if(kind==="break"){            /* crossed out */
+    ctx.strokeStyle=hexA(C_DOWN,0.95);
+    ctx.beginPath();
+    ctx.moveTo(x-r,y-r); ctx.lineTo(x+r,y+r);
+    ctx.moveTo(x+r,y-r); ctx.lineTo(x-r,y+r);
+    ctx.stroke();
+  } else if(kind==="open"){             /* hollow ring = not decided yet */
+    ctx.strokeStyle=hexA(C_N1,0.85);
+    ctx.beginPath(); ctx.arc(x,y,r*0.85,0,Math.PI*2); ctx.stroke();
+  } else if(kind==="flat"){             /* dash = tested, went nowhere */
+    ctx.strokeStyle=hexA(C_N3,0.95);
+    ctx.beginPath(); ctx.moveTo(x-r,y); ctx.lineTo(x+r,y); ctx.stroke();
+  } else if(kind==="hit"){              /* filled diamond = target reached */
+    ctx.fillStyle=hexA(C_UP,0.95);
+    ctx.beginPath();
+    ctx.moveTo(x,y-r); ctx.lineTo(x+r,y); ctx.lineTo(x,y+r); ctx.lineTo(x-r,y);
+    ctx.closePath(); ctx.fill();
+  } else if(kind==="part"){             /* half-filled diamond = took part of it */
+    ctx.strokeStyle=hexA(C_UP,0.9); ctx.fillStyle=hexA(C_UP,0.9);
+    ctx.beginPath();
+    ctx.moveTo(x,y-r); ctx.lineTo(x+r,y); ctx.lineTo(x,y+r); ctx.lineTo(x-r,y);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x,y); ctx.lineTo(x+r,y); ctx.lineTo(x,y+r);
+    ctx.closePath(); ctx.fill();
+  } else if(kind==="stop"){             /* boxed cross = stopped out */
+    ctx.strokeStyle=hexA(C_DOWN,0.95);
+    ctx.strokeRect(x-r+0.5, y-r+0.5, r*2-1, r*2-1);
+    ctx.beginPath();
+    ctx.moveTo(x-r*0.55,y-r*0.55); ctx.lineTo(x+r*0.55,y+r*0.55);
+    ctx.moveTo(x+r*0.55,y-r*0.55); ctx.lineTo(x-r*0.55,y+r*0.55);
+    ctx.stroke();
+  } else if(kind==="nofill"){           /* ringed dot = never traded */
+    ctx.strokeStyle=hexA(C_N2,0.9);
+    ctx.beginPath(); ctx.arc(x,y,r*0.85,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle=hexA(C_N2,0.9);
+    ctx.beginPath(); ctx.arc(x,y,Math.max(0.8,r*0.28),0,Math.PI*2); ctx.fill();
+  } else if(kind==="pin"){              /* where the read was made, and which way */
+    ctx.strokeStyle=hexA(dir>0? C_UP : C_DOWN, 0.8);
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x, y-r*1.7*dir); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y-r*2.6*dir);
+    ctx.lineTo(x-r*0.75, y-r*1.4*dir);
+    ctx.lineTo(x+r*0.75, y-r*1.4*dir);
+    ctx.closePath(); ctx.stroke();
+  }
+  ctx.lineWidth=1;
+}
+
+/* One small chip. Each candidate is a list of LINES, richest first, and each is
+   tried in every slot before falling back to a poorer wording — on a 390px
+   phone the full sentence only fits when it is allowed two lines.          */
+function evChip(cands, slots){
+  ctx.font="10px ui-monospace,Menlo,monospace";   /* 10px floor, as everywhere else */
+  for(const lines of cands){
+    let w=0;
+    for(const t of lines) w=Math.max(w, ctx.measureText(t).width);
+    w+=11;
+    const h=6+lines.length*11;
+    /* the floating zoom buttons sit ON the right edge of the canvas; a chip
+       parked under them is a chip he cannot read */
+    const guard=50;
+    if(w>chartW()-6-guard) continue;
+    for(const sl of slots){
+      if(!isFinite(sl.x)||!isFinite(sl.y)) continue;
+      const bx=Math.max(2, Math.min(sl.x, chartW()-w-3-guard)), by=Math.round(sl.y-h/2);
+      if(by<1 || by+h>priceH()-1) continue;
+      if(!labelFits(bx,by,w,h)) continue;
+      labelBoxes.push({x:bx,y:by,w:w,h:h});
+      evDbg.marks.push({x:bx,y:by,w:w,h:h,kind:"chip"});
+      ctx.fillStyle="rgba(9,11,15,.88)"; ctx.fillRect(bx,by,w,h);
+      ctx.fillStyle=hexA(C_N2,0.55);     ctx.fillRect(bx,by,1.5,h);
+      ctx.fillStyle=hexA(C_N1,0.92);
+      for(let i=0;i<lines.length;i++) ctx.fillText(lines[i], bx+7, by+12+i*11);
+      evDbg.chips.push(lines.join(" | "));
+      return true;
+    }
+  }
+  return false;
+}
+
+function drawEvidenceMarks(){
+  if(!W||!H||!state.candles||!state.candles.length) return;
+  /* evNote clears this list when the first level of a frame registers — but a
+     chart with NO levels never registers, so the previous frame's lines (and,
+     after a coin switch, the previous COIN's lines) survived and were redrawn
+     against candles they have nothing to do with. Same token, checked here. */
+  if(evTok!==labelBoxes){ evTok=labelBoxes; evLines.length=0; }
+  const C=state.candles, n=C.length;
+  const bw=chartW()/state.view.count;
+  const vr0=visibleRange(), vl=vr0[0], vr=vr0[1];
+  evDbg={marks:[], chips:[], lines:[], pre:labelBoxes.slice(), miss:0, bw:bw, budget:0};
+  evMiss=0;
+  ctx.save();
+  try{
+    ctx.textBaseline="alphabetic";
+    /* ONE budget for BOTH features. The phone gets a smaller one because the
+       pixels it is spending are the same pixels the candles need.           */
+    let budget = chartW()<520 ? 14 : 30;
+    const r = Math.max(2.6, Math.min(bw*0.34, 5.2));
+
+    /* ---- (1) what already happened AT these lines --------------------- */
+    /* below this bar width the glyphs smear into one another; the episodes
+       are still readable in the ANALYSE card, so nothing is lost by waiting */
+    const legible = bw>=4.2;
+    const px=C[n-1].close, band=atrPct()*px*2;   /* only lines price can actually reach */
+    const near=[];
+    for(const L of evLines){
+      const lvl=L.lvl;
+      if(!lvl || lvl.kind==="v") continue;
+      const lp = lvl.kind==="h" ? lvl.price : diagPriceAt(lvl, n-1);
+      if(!isFinite(lp) || lp<=0) continue;
+      if(Math.abs(lp-px) > band) continue;
+      near.push({lvl:lvl, y:L.y, d:Math.abs(lp-px)});
+    }
+    near.sort((a,b)=>a.d-b.d);
+    let chipped=false;
+    for(let li=0; li<near.length && li<4 && budget>0; li++){
+      const lvl=near[li].lvl;
+      let eps=[];
+      try{ eps=evEpisodes(lvl); }catch(err){ eps=[]; }
+      evDbg.lines.push({id:lvl.id, eps:eps.length});
+      if(!eps.length) continue;
+      const shown=eps.slice(-6);                 /* only the recent history is decision-relevant */
+      if(legible){
+        for(const ep of shown){
+          if(budget<=0) break;
+          const bi=Math.round((ep.from+ep.to)/2);
+          if(bi<vl-1 || bi>vr+1) continue;
+          const lp = lvl.kind==="h" ? lvl.price : diagPriceAt(lvl, bi);
+          if(!isFinite(lp)||lp<=0) continue;
+          const gx=xOf(bi), gy=yOf(lp) - (ep.side>0 ? (r+3) : -(r+3));
+          const gk=evKind(ep);
+          if(!evPlace(gx,gy,r,gk)) continue;
+          evGlyph(gk, gx, gy, r, ep.side>0? 1 : -1);
+          budget--;
+        }
+      }
+      /* ONE chip only, on the nearest line that has anything to report */
+      if(!chipped && budget>0){
+        chipped=true;
+        let held=0, broke=0, open=0;
+        for(const ep of eps){
+          if(!ep.resolved) open++;
+          else if(ep.broke) broke++;
+          else if(ep.held)  held++;
+        }
+        const last=eps[eps.length-1], d=evDetail(lvl,last);
+        const agoTxt = d.ago<=0 ? "this bar" : d.ago+" bar"+(d.ago===1?"":"s")+" ago";
+        const openTxt = open? " · "+open+" still open" : "";
+        let tail;
+        if(!last.resolved)   tail="not resolved yet";
+        else if(d.thr>0)     tail="wick "+(d.thr*100).toFixed(2)+"% through, closed "+(d.back? "back":"through");
+        else                 tail=d.back? "closed back" : "closed through";
+        const head=held+" held · "+broke+" broke"+openTxt;
+        const ly=near[li].y, sx=Math.min(chartW()*0.26, chartW()-8);
+        if(evChip([ [head+" · last test "+agoTxt+", "+tail],
+                    [head+" · last test "+agoTxt, tail],
+                    [held+" held · "+broke+" broke", "last test "+agoTxt],
+                    [held+" held · "+broke+" broke"] ],
+                  [ {x:sx,y:ly-(r+20)}, {x:sx,y:ly+(r+20)},
+                    {x:sx,y:ly-(r+38)}, {x:sx,y:ly+(r+38)},
+                    {x:6,y:ly-(r+20)},  {x:chartW()*0.52,y:ly-(r+20)} ])) budget--;
+      }
+    }
+
+    /* ---- (2) how his past reads on THIS chart ended -------------------- */
+    /* With finished projections switched off the chart forgets everything the
+       engine ever said here; with them on the full boxes bury price. A pin, a
+       thread and one glyph keep the memory at a cost price can afford.      */
+    const P = state.projections || [];
+    let hit=0, part=0, stop=0, nofill=0, flat=0, drawn=0;
+    for(const p of P){
+      if(budget<=0) break;
+      if(!p || !p.outcome || p.cleared) continue;
+      if(p.symbol!==state.symbol || p.tf!==state.tf) continue;
+      const res=p.outcome.result;
+      if(res==="cancelled") continue;
+      /* the same exclusion the tally, the R book and the scorecard make — two
+         counts of one window disagreeing on one screen is worse than no count */
+      if((typeof projDependent==="function")? projDependent(p) : !!p.echo) continue;
+      if(!isFinite(p.resolvedTime) || p.resolvedPx==null) continue;
+      /* if the full box is already being drawn for this one, a trail on top of
+         it is just noise — the box says everything the trail would say */
+      const boxed = state.prefs.projDone && !p.cleared &&
+        ["waiting","active","t1","success","partial","failed"].includes(p.status) &&
+        p.resolvedTime >= C[Math.max(0,n-90)].time;
+      if(boxed) continue;
+      const i1=Math.round(idxOfTime(p.resolvedTime));
+      if(i1<vl || i1>vr) continue;               /* the RESOLUTION bar must be in view */
+      const y1=yOf(p.resolvedPx), x1=xOf(i1);
+      if(!isFinite(x1)||!isFinite(y1)) continue;
+      const kind = res==="success" ? "hit" : res==="partial" ? "part" :
+                   res==="failed"  ? "stop": res==="expired-unfilled" ? "nofill" : "flat";
+      /* counted the moment it qualifies, not when its glyph finds room: the
+         chip says "in view", so it must mean in view */
+      if(kind==="hit") hit++; else if(kind==="part") part++;
+      else if(kind==="stop") stop++; else if(kind==="nofill") nofill++; else flat++;
+      if(!evPlace(x1,y1,r+0.5,kind)) continue;
+      const long=p.dir==="long";
+      const i0=Math.round(idxOfTime(p.createdTime));
+      const x0=xOf(i0), y0=yOf((p.entryLo+p.entryHi)/2);
+      if(isFinite(x0)&&isFinite(y0)){
+        ctx.strokeStyle=hexA(long? C_UP : C_DOWN, 0.26);
+        ctx.setLineDash([2,3]); ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(Math.max(0,x0), y0); ctx.lineTo(x1,y1); ctx.stroke();
+        ctx.setLineDash([]);
+        const pd=long? 1 : -1;
+        if(x0>=0 && x0<=chartW() && evPlace(x0, y0-r*1.3*pd, r*1.5, "pin")){
+          evGlyph("pin", x0, y0, r, pd);
+          budget--;
+        }
+      }
+      evGlyph(kind, x1, y1, r+0.5, long? 1 : -1);
+      budget--; drawn++;
+    }
+    if(drawn && budget>0){
+      /* COUNTS ONLY. A win rate off four trades is a number that lies with a
+         straight face, and he already has the full ledger in PROJECT.       */
+      const bits=[], terse=[];
+      if(hit){    bits.push(hit+" reached target");   terse.push(hit+" target"); }
+      if(part){   bits.push(part+" partial");         terse.push(part+" partial"); }
+      if(stop){   bits.push(stop+" stopped");         terse.push(stop+" stopped"); }
+      if(nofill){ bits.push(nofill+" never filled");  terse.push(nofill+" no fill"); }
+      if(flat){   bits.push(flat+" timed out");       terse.push(flat+" timed out"); }
+      const join=bits.join(" · ");
+      /* every fallback keeps the words "past reads" — a bare "1 stopped" on the
+         chart could be mistaken for something happening now */
+      evChip([ ["past reads in view: "+join], ["past reads in view:", join],
+               ["past reads: "+terse.join(" · ")], ["past reads:", terse.join(" · ")],
+               [(hit+part+stop+nofill+flat)+" past reads in view"] ],
+             [ {x:6,y:priceH()-13}, {x:6,y:priceH()-34},
+               {x:chartW()*0.42,y:priceH()-13}, {x:chartW()*0.62,y:priceH()-13},
+               {x:chartW()*0.62,y:priceH()-34}, {x:6,y:priceH()-55},
+               {x:6,y:priceH()*0.58}, {x:6,y:priceH()*0.34} ]);
+    }
+    evDbg.budget=budget;
+  }catch(err){ /* one bad level must never blank the chart */ }
+  ctx.restore();
+  evDbg.miss=evMiss;
+}
+/* read-only, for the layout suite: what the evidence pass actually placed */
+window.WB_EV = function(){ return evDbg; };
+
 function drawVert(lvl){
   const x=xOf(idxOfTime(lvl.t));
   if(x<-10||x>chartW()+10) return;
@@ -5419,7 +5765,10 @@ async function loadHTF(){
   try{
     const url=`${state.host}/fapi/v1/klines?symbol=${SYMBOL}&interval=${htf}&limit=200`;
     const raw=await (await fetch(url)).json();
-    state.htf={tf:htf, candles:raw.map(mapK)};
+    /* stamp the SYMBOL too: kline open times are identical across coins, so
+       without this neither the draw guard nor the cache key can tell LINK's
+       daily high from SOL's, and the chart quietly labels one as the other */
+    state.htf={sym:SYMBOL, tf:htf, candles:raw.map(mapK)};
   }catch(e){ state.htf=null; }
 }
 function ema(arr,p){
@@ -5491,6 +5840,148 @@ function liquidityPools(){
   build(H,"high"); build(L,"low");
   return pools.sort((a,b)=>b.count-a.count).slice(0,4);
 }
+
+/* ---------- context rails: things the app already knew and never showed ----------
+   Two of them, both grey, both thin, both drawn UNDER his own lines:
+
+   1) the previous COMPLETED higher-timeframe candle's high / low / close.
+      loadHTF() has been fetching 200 of these candles on every symbol and
+      timeframe switch since forever and the chart never showed one, so a 4h
+      target could sit a fifth of a percent past yesterday's high with nothing
+      on screen to say so.
+   2) the equal highs / equal lows liquidityPools() finds and nobody drew —
+      price clusters that have not been taken out yet, i.e. where the stops are.
+
+   These are context, not calls. Grey is the palette's "no direction" colour and
+   that is exactly the claim being made here. Nothing below shows a probability,
+   only a member count, which is a thing that was counted in his own candles. */
+const HTF_SEC={"4h":14400,"1d":86400,"1w":604800};
+
+/* The previous CLOSED higher-timeframe candle, or null if we cannot be sure. */
+function railHTF(){
+  const want=HTF_MAP[state.tf];
+  /* A timeframe switch refires loadHTF, and until it lands state.htf still
+     holds the PREVIOUS chart's higher timeframe. Drawing yesterday's answer to
+     a different question is worse than drawing nothing, so: nothing. */
+  if(!want || !state.htf || state.htf.tf!==want) return null;
+  if(state.htf.sym && state.htf.sym!==state.symbol) return null;   /* another coin's answer */
+  if(!state.htf.sym) return null;                                  /* pre-stamp payload: unknown owner */
+  const c=state.htf.candles;
+  if(!c || c.length<2) return null;
+  const sec=HTF_SEC[want]||0;
+  let i=c.length-1;
+  /* the last kline is normally the one still forming — its high and low are not
+     final, so step back one. If it has already closed, it IS the completed one. */
+  if(sec && (c[i].time+sec) > Date.now()/1000) i--;
+  const k=c[i];
+  if(!k || !isFinite(k.high) || !isFinite(k.low) || !isFinite(k.close)) return null;
+  if(!(k.high>0) || !(k.low>0)) return null;
+  return {tf:want, high:k.high, low:k.low, close:k.close, time:k.time};
+}
+
+/* The unswept clusters worth pixels: the two nearest above price and the two
+   nearest below. Anything further away is not in the way of this trade. */
+function railPools(){
+  const n=state.candles.length; if(n<30) return [];
+  let pools=[];
+  try{ pools=liquidityPools()||[]; }catch(e){ return []; }
+  const px=state.candles[n-1].close;
+  if(!isFinite(px)) return [];
+  const good=pools.filter(P=>P && isFinite(P.p) && P.p>0 && P.count>=2);
+  const above=good.filter(P=>P.p>px).sort((a,b)=>a.p-b.p).slice(0,2);
+  const below=good.filter(P=>P.p<px).sort((a,b)=>b.p-a.p).slice(0,2);
+  return above.concat(below);
+}
+
+/* pivots() + a full sweep scan on every pan would be a stutter he can feel, and
+   a pan changes neither. Recompute only when the candles or the HTF set do. */
+function contextRails(){
+  const n=state.candles.length;
+  if(!n) return {htf:null, pools:[]};
+  const key=state.symbol+"|"+state.tf+"|"+n+"|"+state.candles[0].time+"|"+
+            state.candles[n-1].time+"|"+(state.htf?state.htf.tf:"-")+"|"+
+            /* the HTF's OWNER, not just its shape: kline open times match across
+               coins, so without the symbol the cache happily serves LINK's
+               daily high on SOL's chart until the next bar closes */
+            (state.htf&&state.htf.sym?state.htf.sym:"-")+"|"+
+            (state.htf&&state.htf.candles?state.htf.candles.length:0)+"|"+
+            (state.htf&&state.htf.candles&&state.htf.candles.length?
+             state.htf.candles[state.htf.candles.length-1].time:0);
+  const C=state._railCache;
+  if(C && C.key===key) return C.data;
+  const data={htf:railHTF(), pools:railPools()};
+  state._railCache={key, data};
+  return data;
+}
+
+function drawContextRails(){
+  if(!state.candles.length) return;
+  const showH = state.prefs.htfRails!==false, showL = state.prefs.liqRails!==false;
+  state._railsDrawn={htf:0, liq:0};
+  if(!showH && !showL) return;
+  const R=contextRails();
+  const ph=priceH(), cw=chartW();
+  if(!(ph>0) || !(cw>0)) return;
+  /* Our labels take part in collision detection so they do not stack on each
+     other — but they are dropped from the list before his lines draw, because a
+     context caption must never be the reason one of HIS labels goes missing. */
+  const mark=labelBoxes.length;
+  ctx.save();
+  ctx.textAlign="left";
+  ctx.font="10.5px ui-monospace,Menlo,monospace";
+  try{
+    if(showH && R.htf){
+      const tag=R.htf.tf.toUpperCase();
+      const rows=[["high",R.htf.high],["low",R.htf.low],["close",R.htf.close]];
+      for(let q=0;q<rows.length;q++){
+        const nm=rows[q][0], p=rows[q][1];
+        const y=yOf(p);
+        if(!isFinite(y) || y<0 || y>ph) continue;
+        /* high and low are edges price had to fight through; the close is only
+           where it stopped — so the close gets the fainter, broken line. */
+        ctx.strokeStyle=hexA(C_N3, nm==="close"?0.40:0.62);
+        ctx.lineWidth=1;
+        if(nm==="close") ctx.setLineDash([2,5]);
+        ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(cw,y+.5); ctx.stroke();
+        ctx.setLineDash([]);
+        const t=tag+" "+nm;
+        const w=ctx.measureText(t).width+9;
+        /* right gutter: his own level pills live at x=6 on the left */
+        tryLabel(t, Math.max(0,cw-w-4), y-2, hexA(C_N2,0.82), "rgba(9,11,15,.80)");
+        state._railsDrawn.htf++;
+      }
+    }
+  }catch(e){}
+  try{
+    if(showL && R.pools && R.pools.length){
+      for(let q=0;q<R.pools.length;q++){
+        const P=R.pools[q];
+        const y=yOf(P.p);
+        if(!isFinite(y) || y<0 || y>ph) continue;
+        /* deliberately short: it runs back to the last candle that built the
+           cluster, but never far enough to become another line across the chart */
+        const maxLen=Math.max(70, cw*0.45);
+        let x0=xOf(P.lastIdx);
+        if(!isFinite(x0) || x0 < cw-maxLen) x0=cw-maxLen;
+        if(x0<0) x0=0;
+        ctx.strokeStyle=hexA(C_N2,0.40); ctx.lineWidth=1; ctx.setLineDash([1,3]);
+        ctx.beginPath(); ctx.moveTo(x0,y+.5); ctx.lineTo(cw,y+.5); ctx.stroke();
+        ctx.setLineDash([]);
+        /* the count is a measured member count from his own candles, not a rate */
+        const t=P.count+" equal "+(P.type==="high"?"highs":"lows");
+        const w=ctx.measureText(t).width+9;
+        tryLabel(t, Math.max(0,Math.min(x0+4, cw-w-4)), y-2, hexA(C_N2,0.78), "rgba(9,11,15,.80)");
+        state._railsDrawn.liq++;
+      }
+    }
+  }catch(e){}
+  ctx.setLineDash([]); ctx.lineWidth=1;
+  ctx.restore();
+  ctx.font="12px ui-monospace,Menlo,monospace";
+  labelBoxes.length=mark;
+}
+try{ if(window.WB_DEBUG){ window.WB_DEBUG.rails=()=>contextRails();
+  window.WB_DEBUG.railsDrawn=()=>state._railsDrawn||null; } }catch(e){}
 
 /* ---------- risk: the number that actually decides a trade ---------- */
 function tradePlan(lvl, isSupport, target){
@@ -5630,14 +6121,16 @@ function zFor(alpha, k) {
    Cancelled rows are excluded: you ended those, the market did not, so they
    carry no information about whether a factor was right.                     */
 function projFactorEvidence(projections){
-  /* echoes are deliberate re-takes of an already-open bet: their outcomes are
-     correlated with the original by construction, so counting them would let
-     one market move vote several times in the factor scorecard              */
+  /* correlation and cooldown echoes are deliberate re-takes of an already-open
+     bet: their outcomes are correlated with the original by construction, so
+     counting them would let one market move vote several times in the factor
+     scorecard. Other overrides are separate trades and do count — excluding
+     those too was starving the scorecard every time a gate was forced.      */
   /* and only rows the market decided a DIRECTION for: resolveProjection stores
      actualDir:null on an expiry now, because an expired-flat close one tick
      either side of the entry is a coin flip, not evidence. The result test
      beside it heals rows an older build graded off that coin flip.          */
-  const done=(projections||[]).filter(p => p && p.outcome && !p.echo && p.outcome.result!=='cancelled'
+  const done=(projections||[]).filter(p => p && p.outcome && !projDependent(p) && p.outcome.result!=='cancelled'
     && (p.outcome.actualDir==='up' || p.outcome.actualDir==='down')
     && !/expired/.test(String(p.outcome.result||''))
     && (Array.isArray(p.outcome.aligned) || Array.isArray(p.outcome.against)));
@@ -7172,6 +7665,7 @@ function patternCard(P, idx){
         patLabRateLine(LB)+'<br>'+esc(patLabVerdict(LB))+
         (LB.medBars!=null? '<br>Typically <b>'+LB.medBars+'</b> bars to the objective once triggered'+
           (LB.medMae!=null? ', after going <b>'+(LB.medMae*100).toFixed(1)+'%</b> against you first':'')+'.' : '')+
+        patLabLadderMini(LB)+
         '<br><span class="est">'+(LB.n-LB.trig)+' of '+LB.n+' never triggered at all.</span>'+
       '</div></details>'
     : '';
@@ -7243,6 +7737,60 @@ const PATLAB_PAGES = 4, PATLAB_PAGE = 1000;
    anything by. Drawing is cheap: no detector runs, only a forward read. */
 const PATLAB_DRAWS = 30, PATLAB_MINDRAW = 240;
 
+/* THE PARTIAL-MOVE LADDER. "Target reached: yes/no" is one bit, and the two
+   decisions he actually makes are where to put the target and how much room to
+   give the stop. So every triggered structure also records how far the move
+   ACTUALLY got as a fraction of the measured move, and what it had already cost
+   him at the moment it got there. */
+const PATLAB_RUNGS = [0.25, 0.5, 0.75, 1];
+/* Bars behind the sample bar used for the higher-timeframe direction of the ONE
+   conditional slice. Exactly one slice: every extra way to cut a sample
+   multiplies the chance of finding a difference that is not there, and these
+   sample sizes cannot carry more than one cut. */
+const PATLAB_HTF = 200;
+/* Examples kept per shape for the gallery, and how many bars of run-up to keep
+   in front of each. Nobody learns a shape from four paragraphs; he learns it
+   from a dozen labelled examples on the coin he trades — and looking at the 13
+   is the only way to trust "38% of 13". */
+const PATLAB_GAL = 12, PATLAB_GAL_PRE = 40;
+/* Scoped to the lab's own surfaces and shipped with the block that uses them,
+   so the styles cannot drift away from the markup they dress. */
+const PATLAB_CSS = '<style id="patLabCss">'+
+  '.pane .patLad{margin:8px 0 2px}'+
+  '.pane .patLadR{display:flex;align-items:center;gap:7px;margin:3px 0;font-size:10.5px;color:#A7B1C4}'+
+  '.pane .patLadK{flex:none;width:32px;text-align:right;font-weight:800;color:var(--dim)}'+
+  /* capped, so on a 1680px monitor the rungs stay a readable bar chart instead
+     of four hairlines stretched across the whole screen */
+  '.pane .patLadB{flex:1 1 0;max-width:460px;height:8px;border-radius:4px;background:var(--panel2);'+
+    'border:1px solid var(--line);overflow:hidden;position:relative}'+
+  '.pane .patLadB i{display:block;height:100%;background:rgba(45,212,160,.5)}'+
+  '.pane .patLadB u{position:absolute;top:0;bottom:0;width:0;border-left:1px dashed rgba(255,255,255,.35)}'+
+  '.pane .patLadN{flex:none;min-width:96px;font-size:9.5px;color:var(--dim)}'+
+  '.pane .patLadN b{color:var(--text);font-size:10.5px}'+
+  '.pane .patGal{display:flex;gap:6px;overflow-x:auto;padding:5px 0 6px;'+
+    'scrollbar-width:thin;-webkit-overflow-scrolling:touch}'+
+  '.pane .patGal::-webkit-scrollbar{height:5px}'+
+  '.pane .patGal::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}'+
+  '.pane .patGi{flex:none;width:96px;cursor:pointer;padding:3px;border-radius:8px;'+
+    'border:1px solid var(--line);background:var(--panel2)}'+
+  '.pane .patGi.t{border-color:rgba(45,212,160,.45)}'+
+  '.pane .patGi.i{border-color:rgba(242,73,92,.42)}'+
+  '.pane .patGi.o{border-color:rgba(124,140,248,.38)}'+
+  /* the app has a global canvas{position:absolute;inset:0} for the chart layers;
+     a thumbnail must be pulled back into normal flow or it has no height at all */
+  '.pane .patGi canvas{position:static;inset:auto;display:block;width:100%;height:56px}'+
+  '.pane .patGi .lb{display:flex;justify-content:space-between;gap:4px;'+
+    'font-size:9px;font-weight:700;padding:2px 1px 0;color:var(--dim)}'+
+  '.pane .patGi.t .lb b{color:var(--up)}'+
+  '.pane .patGi.i .lb b{color:var(--down)}'+
+  '.pane .patArm{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}'+
+  '.pane .patArmC{flex:1 1 148px;min-width:138px;padding:6px 8px;border-radius:8px;'+
+    'border:1px solid var(--line);background:var(--panel2);font-size:10px;color:#A7B1C4}'+
+  '.pane .patArmC .h{font-size:9px;font-weight:800;letter-spacing:.4px;'+
+    'text-transform:uppercase;color:var(--dim)}'+
+  '.pane .patArmC .v{font-size:15px;font-weight:800;color:var(--text);line-height:1.3}'+
+  '</style>';
+
 /* MORE DATA, WITHOUT DISTURBING THE CHART. The live chart only ever loads 500
    bars, and 500 bars of one symbol is a thin plate to measure anything on. This
    walks backwards through fapi klines with endTime, page by page, de-duplicated
@@ -7310,6 +7858,27 @@ function wilson(k, n){
   return [Math.max(0,c-h), Math.min(1,c+h)];
 }
 
+/* THE ONE CONDITIONAL SLICE. The crudest honest reading of the higher
+   timeframe: is this bar above or below where price was PATLAB_HTF bars ago,
+   measured at the moment the shape was seen — never later. Returns null when
+   there is not that much history behind the bar, so those samples are excluded
+   rather than quietly filed on one side. */
+function patLabTrend(C, i){
+  const j=i-PATLAB_HTF;
+  if(j<0 || !C[j] || !C[i]) return null;
+  const a=C[j].close, b=C[i].close;
+  if(!(a>0) || !(b>0) || a===b) return null;
+  return b>a? "up" : "down";
+}
+/* A distribution reduced to the numbers a stop is actually placed from. A
+   median alone hides the one instance that needed three times the room, so the
+   tail is carried too — and n travels with it. */
+function patQ(a){
+  if(!a || !a.length) return null;
+  const x=a.slice().sort((p,q)=>p-q), at=f=>x[Math.min(x.length-1, Math.floor(f*x.length))];
+  return { n:x.length, p50:at(0.5), p75:at(0.75), p90:at(0.9), max:x[x.length-1] };
+}
+
 /* Read one detection forward and see what actually happened. */
 function patOutcome(P, C, i0, look){
   let trig=P.trigger, tgt=P.target, inv=P.invalid, bilat=false;
@@ -7327,18 +7896,34 @@ function patOutcome(P, C, i0, look){
   }
   if(ti<0) return { result:"notrig", waited:end-i0, bars:0, mae:0 };
   const entry=C[ti].close;
-  let mae=0;
+  /* `move` is the measured move, entry → objective. `fav` is the best the trade
+     ever did as a fraction of it, and maeAt[k] is how far it had gone AGAINST
+     him at the moment rung k was first touched — that is the room the stop
+     needed to still be alive there. A degenerate zero-length move yields no
+     fraction at all rather than a divide-by-zero dressed up as 0%. */
+  const move=Math.abs(tgt-entry);
+  let mae=0, fav=(move>0? 0 : null), maeAt=[null,null,null,null];
   for(let i=ti+1;i<=end;i++){
     const c=C[i];
     mae=Math.max(mae, dirUp? (entry-c.low)/entry : (c.high-entry)/entry);
     const hitT = dirUp? c.high>=tgt : c.low<=tgt;
     const hitI = dirUp? c.low<=inv  : c.high>=inv;
     /* both inside one candle → the order is unknowable → counted against */
-    if(hitT && hitI) return { result:"invalid", ambiguous:true, bars:i-ti, mae, trigBars:ti-i0 };
-    if(hitI)         return { result:"invalid", bars:i-ti, mae, trigBars:ti-i0 };
-    if(hitT)         return { result:"target",  bars:i-ti, mae, trigBars:ti-i0 };
+    if(hitT && hitI) return { result:"invalid", ambiguous:true, bars:i-ti, mae, trigBars:ti-i0, up:dirUp, fav, maeAt };
+    if(hitI)         return { result:"invalid", bars:i-ti, mae, trigBars:ti-i0, up:dirUp, fav, maeAt };
+    /* Rungs are credited only from a bar that did NOT also kill the trade —
+       the same reasoning as the same-bar rule above: inside one candle the
+       order is unknowable, so a bar that reached up and then stopped him out
+       is not allowed to hand the ladder a rung it may never have had. */
+    if(move>0){
+      const f=(dirUp? (c.high-entry) : (entry-c.low))/move;
+      if(f>fav){ fav=f;
+        for(let k=0;k<PATLAB_RUNGS.length;k++) if(fav>=PATLAB_RUNGS[k] && maeAt[k]==null) maeAt[k]=mae; }
+    }
+    if(hitT)         return { result:"target",  bars:i-ti, mae, trigBars:ti-i0, up:dirUp,
+                              fav:(fav==null? null : Math.max(fav,1)), maeAt };
   }
-  return { result:"open", bars:end-ti, mae, trigBars:ti-i0 };
+  return { result:"open", bars:end-ti, mae, trigBars:ti-i0, up:dirUp, fav, maeAt };
 }
 
 /* One pass over a candle series, sampling the detector as it would have run
@@ -7381,6 +7966,7 @@ function patLabPass(C, look, step, onEach, seg){
         if(!o) continue;
         lastSpan.set(sig, {from, to:Math.max(to, i)});
         rows.push({ name:P.name, dir:P.dir, quality:P.quality, at:i, from,
+                    htf:patLabTrend(C, i),
                     geo:patLabGeom(P, C[i].close, look), ...o });
       }
       if(onEach) onEach(i);
@@ -7437,12 +8023,54 @@ function patLabRandomPass(rows, C, draws, rnd){
   return out;
 }
 
+/* THE TRUNCATION RULE, in one place. An instance that was still running when
+   the look-ahead ended counts in every rung it DID reach, and is left out of
+   the rungs it had no time to reach — counting those as failures is how a
+   ladder understates itself at the top, which is exactly the end he sets
+   targets from. An instance that died at invalidation had its chance and
+   counts as a failure at every rung above the one it got to. */
+function patLabRung(b, r){
+  if(r.fav==null) return;                     /* no measurable move to score against */
+  const trunc = r.result==="open";
+  if(trunc) b.ladTrunc++;
+  for(let k=0;k<PATLAB_RUNGS.length;k++){
+    const got = r.fav>=PATLAB_RUNGS[k];
+    if(!got && trunc) continue;               /* it had no time — not a failure */
+    b.lad[k].n++;
+    if(got){ b.lad[k].hit++;
+      if(r.maeAt && r.maeAt[k]!=null && isFinite(r.maeAt[k])) b.ladMae[k].push(r.maeAt[k]); }
+  }
+}
+/* Which side of the higher-timeframe direction this structure was on. A
+   bilateral shape has no direction until it breaks, so it is filed by the way
+   it actually broke, and left unfiled when it never triggered. */
+function patLabSide(r){
+  if(r.htf!=="up" && r.htf!=="down") return null;
+  const up = r.htf==="up";
+  if(r.dir==="bullish") return up;
+  if(r.dir==="bearish") return !up;
+  if(r.up===true || r.up===false) return r.up===up;
+  return null;
+}
 function patLabAgg(rows){
   const by={};
   for(const r of rows){
     const b=by[r.name]||(by[r.name]={name:r.name, n:0, trig:0, target:0, invalid:0, open:0,
-                                     ambiguous:0, bars:[], mae:[], waits:[]});
+                                     ambiguous:0, bars:[], mae:[], waits:[],
+                                     lad:PATLAB_RUNGS.map(()=>({hit:0,n:0})),
+                                     ladMae:PATLAB_RUNGS.map(()=>[]), ladTrunc:0,
+                                     armW:{n:0,decided:0,target:0}, armA:{n:0,decided:0,target:0},
+                                     armU:0});
     b.n++;
+    /* the ONE slice, counted on every structure seen — including the ones that
+       never triggered, so neither arm can quietly drop its misses */
+    const side=patLabSide(r);
+    if(side===null) b.armU++;
+    else {
+      const A = side? b.armW : b.armA;
+      A.n++;
+      if(r.result==="target"||r.result==="invalid"){ A.decided++; if(r.result==="target") A.target++; }
+    }
     if(r.result==="notrig"){ b.waits.push(r.waited); continue; }
     b.trig++;
     if(r.ambiguous) b.ambiguous++;
@@ -7450,14 +8078,51 @@ function patLabAgg(rows){
     else if(r.result==="invalid") b.invalid++;
     else b.open++;
     if(isFinite(r.mae)) b.mae.push(r.mae);
+    patLabRung(b, r);
   }
   const med=a=>{ if(!a.length) return null; const x=a.slice().sort((p,q)=>p-q); return x[Math.floor(x.length/2)]; };
+  const arm=a=>({ n:a.n, decided:a.decided, target:a.target,
+                  rate:a.decided? a.target/a.decided : null,
+                  ci:a.decided? wilson(a.target, a.decided) : null });
   return Object.values(by).map(b=>{
     const decided=b.target+b.invalid;
     const rate= decided? b.target/decided : null;
     const ci  = decided? wilson(b.target, decided) : null;
-    return { ...b, decided, rate, ci, medBars:med(b.bars), medMae:med(b.mae) };
+    /* each rung keeps its OWN n: the truncation rule gives the far rungs a
+       smaller denominator than the near ones, so one shared "of 13" would be a
+       lie at the top of the ladder */
+    const lad=b.lad.map((L,k)=>({ frac:PATLAB_RUNGS[k], hit:L.hit, n:L.n,
+                                  rate:L.n? L.hit/L.n : null,
+                                  ci:L.n? wilson(L.hit, L.n) : null,
+                                  mae:patQ(b.ladMae[k]) }));
+    return { ...b, decided, rate, ci, medBars:med(b.bars), medMae:med(b.mae),
+             lad, arm:{ with:arm(b.armW), against:arm(b.armA), unknown:b.armU } };
   }).sort((a,b)=>b.n-a.n);
+}
+
+/* THE INSTANCE GALLERY, assembled once at the end of the run. The bars are
+   copied here rather than carried on every row, so the walk itself stays cheap
+   and the kept slice is bounded: at most PATLAB_GAL examples per shape, each of
+   them a little run-up, the structure, and the look-ahead that scored it. */
+function patLabGallery(rows, C, look){
+  const byName={}, out={};
+  for(const r of rows){ if(!C[r.at]) continue; (byName[r.name]||(byName[r.name]=[])).push(r); }
+  for(const name in byName){
+    const list=byName[name].slice().sort((x,y)=>y.at-x.at).slice(0, PATLAB_GAL);
+    out[name]=list.map(r=>{
+      const from=isFinite(r.from)? r.from : r.at;
+      const a=Math.max(0, Math.min(from, r.at-PATLAB_GAL_PRE));
+      const z=Math.min(C.length-1, r.at+look);
+      const bars=[];
+      for(let i=a;i<=z;i++){ const c=C[i]; if(c) bars.push([c.open,c.high,c.low,c.close]); }
+      return { at:r.at-a, from:Math.max(0, from-a), bars,
+               result:r.result, fav:(r.fav==null? null : r.fav), mae:r.mae,
+               htf:r.htf||null, dir:r.dir,
+               t0:(C[a]&&C[a].time)||null, t1:(C[z]&&C[z].time)||null,
+               tAt:(C[r.at]&&C[r.at].time)||null };
+    });
+  }
+  return out;
 }
 
 /* The whole measurement, chunked so the UI keeps breathing. */
@@ -7528,6 +8193,7 @@ async function patLabRun(onProgress){
     view:PATLAB_VIEW, draws:PATLAB_DRAWS,
     paged:(state._patHist && state._patHist.key===sym+"|"+tf)? state._patHist.rows.length : 0,
     collapsedTotal:real._collapsed||0,
+    gal:patLabGallery(real, C, look),
     rows:agg.map(a=>({ ...a,
       collapsed:(colBy[a.name+"|bullish"]||0)+(colBy[a.name+"|bearish"]||0)+(colBy[a.name+"|bilateral"]||0),
       rand:rMap[a.name]? {n:rMap[a.name].n, decided:rMap[a.name].decided,
@@ -7554,11 +8220,235 @@ try{
     window.__patlab={ wilson, patOutcome, patLabAgg, patLabPass, patLabRun, patLabVerdict,
                       patLabGeom, patLabRandomPass, patLabHistory, patLabSeries,
                       patLabMerge, patLabStart, patLabRateLine, patLabRandRate,
+                      patLabTrend, patQ, patLabRung, patLabSide, patLabGallery,
+                      patLabLadder, patLabSlice, patLabLadderMini, patLabGalleryHTML,
+                      RUNGS:PATLAB_RUNGS, HTF:PATLAB_HTF, GAL:PATLAB_GAL,
+                      /* the suite has to be able to put a KNOWN result on screen and
+                         read the markup back — otherwise the ladder and the gallery
+                         are only ever checked against whatever the market gave us */
+                      show:(r)=>{ state._patLab=r; renderStructure(); return !!r; },
+                      thumb:patThumbDraw, jump:patThumbJump,
                       liveBars:()=>state.candles.length };
   }
 }catch(e){}
 
 /* ---- presentation ---- */
+/* THE LADDER, read out. Four rungs, each with its own n, because the far rungs
+   have a smaller denominator than the near ones — see patLabRung. */
+function patLabLadder(r){
+  const lad=r&&r.lad;
+  if(!lad || !lad.length || !lad.some(x=>x.n>0)) return '';
+  let h='<div class="patLad"><div class="fine" style="margin-bottom:4px">'+
+    '<b>How far the move actually got.</b> Share of triggered structures whose best excursion '+
+    'reached that fraction of the measured move (entry → objective) before the shape resolved. '+
+    'Dashes mark the 95% range. Structures still running when the look-ahead ended count in the '+
+    'rungs they reached and are left out of the rungs they had no time for'+
+    (r.ladTrunc? ' ('+r.ladTrunc+' here)' : '')+'.</div>';
+  for(const x of lad){
+    const w=x.n? Math.max(1, Math.round(x.rate*100)) : 0;
+    h+='<div class="patLadR"><span class="patLadK">'+Math.round(x.frac*100)+'%</span>'+
+       '<span class="patLadB"><i style="width:'+w+'%"></i>'+
+       (x.n? '<u style="left:'+Math.round(x.ci[0]*100)+'%"></u>'+
+             '<u style="left:'+Math.round(x.ci[1]*100)+'%"></u>' : '')+'</span>'+
+       '<span class="patLadN">'+(x.n
+         ? '<b>'+(x.rate*100).toFixed(0)+'%</b> · '+x.hit+' of '+x.n+
+           (x.n<8? ' <span class="est">thin</span>' : '')
+         : '<span class="est">no sample</span>')+'</span></div>';
+  }
+  /* the room the stop needed — the other half of the decision the ladder is for */
+  const top=lad[lad.length-1], q=top&&top.mae;
+  if(q && q.n>=5)
+    h+='<div class="fine" style="margin-top:5px">Room it needed: of the <b>'+q.n+
+       '</b> that reached the full move, half had first gone <b>'+(q.p50*100).toFixed(1)+
+       '%</b> against, nine in ten stayed inside <b>'+(q.p90*100).toFixed(1)+
+       '%</b>, and the worst was <b>'+(q.max*100).toFixed(1)+'%</b>.</div>';
+  else if(q && q.n)
+    h+='<div class="fine" style="margin-top:5px">Only <b>'+q.n+'</b> reached the full move — '+
+       'too few to describe how far they went against you first.</div>';
+  return h+'</div>';
+}
+/* The ladder compressed to one line for the on-chart card; the rungs live in
+   the lab. Rungs with no sample are skipped, never printed as 0%. */
+function patLabLadderMini(r){
+  const lad=r&&r.lad;
+  if(!lad || !lad.length) return '';
+  const parts=lad.filter(x=>x.n>0)
+    .map(x=>'<b>'+(x.rate*100).toFixed(0)+'%</b> got '+Math.round(x.frac*100)+'% (of '+x.n+')');
+  return parts.length? '<br>How far the move got: '+parts.join(' · ')+'.' : '';
+}
+/* THE ONE CONDITIONAL SLICE. Both arms, each with its own n and interval, and
+   an explicit sentence when the two ranges cannot be told apart — which, at
+   these sample sizes, is the usual answer and the honest one. */
+function patLabSlice(r){
+  const A=r&&r.arm;
+  if(!A || !A.with || !A.against) return '';
+  const w=A.with, g=A.against;
+  if(!w.n && !g.n) return '';
+  const cell=(t,a)=>'<div class="patArmC"><div class="h">'+t+'</div>'+
+    (a.decided
+      ? '<div class="v">'+(a.rate*100).toFixed(0)+'%</div><div>'+a.target+' of '+a.decided+
+        ' resolved · '+(a.ci[0]*100).toFixed(0)+'–'+(a.ci[1]*100).toFixed(0)+'% at 95%</div>'+
+        '<div class="est">'+a.n+' seen'+(a.decided<8? ' · too few to lean on':'')+'</div>'
+      : '<div class="v">—</div><div class="est">'+a.n+' seen, none resolved</div>')+'</div>';
+  return '<div class="fine" style="margin-top:9px"><b>With or against the higher timeframe.</b> '+
+    'Split by whether price was above or below where it stood '+PATLAB_HTF+
+    ' bars earlier, read at the bar the shape was seen on. Exactly one split: more of them '+
+    'would multiply the false positives these sample sizes cannot carry.'+
+    (A.unknown? ' '+A.unknown+' had no direction to file them under.' : '')+'</div>'+
+    '<div class="patArm">'+cell('With the '+PATLAB_HTF+'-bar direction', w)+
+    cell('Against it', g)+'</div>'+
+    '<div class="fine">'+esc(patLabSliceVerdict(w,g))+'</div>';
+}
+function patLabSliceVerdict(w, g){
+  const q=a=>(a.rate*100).toFixed(0)+'% of '+a.decided+' ('+(a.ci[0]*100).toFixed(0)+'–'+
+             (a.ci[1]*100).toFixed(0)+'%)';
+  if(w.decided<8 || g.decided<8)
+    return 'One side has too few resolved cases ('+w.decided+' with, '+g.decided+
+           ' against) to compare — no difference is claimed.';
+  if(w.ci[0]<=g.ci[1] && g.ci[0]<=w.ci[1])
+    return 'The two ranges overlap ('+q(w)+' versus '+q(g)+
+           '), so this chart cannot tell the two sides apart yet — read them as one number.';
+  return (w.rate>g.rate? 'With' : 'Against')+' the '+PATLAB_HTF+
+    '-bar direction resolves better here and the ranges do not overlap ('+q(w)+' versus '+q(g)+
+    ') — measured on this chart, on this timeframe, nowhere else.';
+}
+/* THE INSTANCE GALLERY. Every measured structure as a small chart, most recent
+   first, tinted by what happened — the ugly ones teach more than the clean
+   ones, and they are what makes "38% of 13" auditable. */
+function patLabGalleryHTML(name, L){
+  const g=L && L.gal && L.gal[name];
+  if(!g || !g.length) return '';
+  let h='<div class="fine" style="margin-top:9px">Every structure measured here, most recent first — '+
+        'the bars the detector saw, then the look-ahead that scored it (shaded). '+
+        'Tap one to put the chart on it.</div><div class="patGal">';
+  g.forEach((it,i)=>{
+    const cls = it.result==="target"? "t" : it.result==="invalid"? "i"
+              : it.result==="notrig"? "n" : "o";
+    const lab = it.result==="target"? "reached" : it.result==="invalid"? "died"
+              : it.result==="notrig"? "no trigger" : "unresolved";
+    const far = it.fav==null? '—' : Math.round(Math.max(0,Math.min(1,it.fav))*100)+'%';
+    h+='<div class="patGi '+cls+'" data-g="'+esc(name)+'" data-i="'+i+'" title="'+
+       esc(lab+' · reached '+far+' of the measured move')+'">'+
+       '<canvas width="192" height="112"></canvas>'+
+       '<div class="lb"><b>'+lab+'</b><span>'+far+'</span></div></div>';
+  });
+  return h+'</div>';
+}
+/* One example, drawn small. Its OWN canvas context, everything it touches is
+   saved and restored, and the whole body is wrapped — a thumbnail that throws
+   must never be able to take the pane or the chart down with it. */
+function patThumbDraw(el){
+  try{
+    const cv=el.querySelector("canvas"); if(!cv) return;
+    const L=state._patLab; if(!L || !L.gal) return;
+    const g=L.gal[el.dataset.g]; if(!g) return;
+    const it=g[+el.dataset.i]; if(!it || !it.bars || it.bars.length<2) return;
+    const W=cv.clientWidth||96, H=cv.clientHeight||56;
+    if(!(W>4 && H>4)) return;              /* still inside a closed <details> */
+    const dpr=Math.min(2, window.devicePixelRatio||1);
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    const x=cv.getContext("2d"); if(!x) return;
+    x.save();
+    try{
+      x.setTransform(dpr,0,0,dpr,0,0);
+      x.clearRect(0,0,W,H);
+      const B=it.bars;
+      let lo=Infinity, hi=-Infinity;
+      for(const b of B){ if(b[2]<lo) lo=b[2]; if(b[1]>hi) hi=b[1]; }
+      if(!(hi>lo)) return;
+      const pad=2, yOf=p=>pad+(hi-p)/(hi-lo)*(H-pad*2);
+      const bw=W/B.length, w=Math.max(1, Math.min(3, bw*0.62));
+      const cut=Math.max(0, Math.min(B.length-1, it.at));
+      /* the look-ahead sits on a lighter ground, so the bars the detector
+         actually saw are never confused with what happened afterwards */
+      x.fillStyle="rgba(255,255,255,.045)";
+      x.fillRect((cut+1)*bw, 0, W-(cut+1)*bw, H);
+      x.lineWidth=1;
+      for(let i=0;i<B.length;i++){
+        const b=B[i], up=b[3]>=b[0], cx=i*bw+bw/2, seen=i<=cut;
+        const col = up? (seen? "#2DD4A0" : "rgba(45,212,160,.6)")
+                      : (seen? "#F2495C" : "rgba(242,73,92,.6)");
+        x.strokeStyle=col; x.fillStyle=col;
+        x.beginPath(); x.moveTo(cx, yOf(b[1])); x.lineTo(cx, yOf(b[2])); x.stroke();
+        const y0=yOf(Math.max(b[0],b[3])), y1=yOf(Math.min(b[0],b[3]));
+        x.fillRect(cx-w/2, y0, w, Math.max(1, y1-y0));
+      }
+      /* the bar it was scored from, and the span the shape was drawn across */
+      x.strokeStyle="rgba(255,255,255,.42)"; x.setLineDash([2,2]);
+      x.beginPath(); x.moveTo(cut*bw+bw/2, 0); x.lineTo(cut*bw+bw/2, H); x.stroke();
+      x.setLineDash([]);
+      x.strokeStyle="rgba(124,140,248,.6)"; x.lineWidth=1.5;
+      x.beginPath(); x.moveTo(Math.max(0,it.from)*bw, H-1.2);
+      x.lineTo(cut*bw+bw, H-1.2); x.stroke();
+    } finally { x.restore(); }
+  }catch(e){}
+}
+/* Tap an example → put the chart on it. The lab measures up to ~4,000 paged
+   bars while the chart itself holds 500, so an older example is simply not on
+   the chart: say so plainly instead of scrolling to the wrong place. */
+function patThumbJump(el){
+  try{
+    const L=state._patLab; if(!L || !L.gal) return;
+    const g=L.gal[el.dataset.g]; if(!g) return;
+    const it=g[+el.dataset.i]; if(!it || it.t0==null || it.t1==null) return;
+    if(L.symbol!==state.symbol || L.tf!==state.tf){
+      cmdSay("Those examples were measured on "+L.symbol.replace("USDT","")+" "+L.tf+
+             " — re-measure this chart to jump to them.");
+      return;
+    }
+    const C=state.candles||[];
+    let a=-1, z=-1;
+    for(let i=0;i<C.length;i++){
+      if(a<0 && C[i].time>=it.t0) a=i;
+      if(C[i].time<=it.t1) z=i;
+    }
+    /* `a` is the first bar at or after t0 — which is bar 0 when the example
+       starts BEFORE the loaded window. Without the t0 test below, z-a stayed
+       large, the refusal never fired, and the chart moved somewhere else while
+       announcing a date that was not on screen. The scored bar itself must be
+       loaded, not merely overlapped. */
+    const scoredLoaded = it.tAt==null || (C.length && C[0].time<=it.tAt && C[C.length-1].time>=it.tAt);
+    if(a<0 || z<0 || z-a<4 || !C.length || C[0].time>it.t0 || !scoredLoaded){
+      cmdSay("That example is older than the "+C.length+
+             " bars this chart holds — its thumbnail is the whole picture for it.");
+      return;
+    }
+    const span=(z-a)+8;
+    setCount(span*1.2);
+    setRight(z+Math.max(2, span*0.06));
+    state.view.yLock=false;                  /* let the price axis refit that stretch */
+    try{ if(typeof setSheetFull==="function") setSheetFull(false); }catch(e){}
+    render();
+    const d=it.tAt? new Date(it.tAt*1000).toISOString().slice(0,10) : "";
+    cmdSay("Chart moved to that "+el.dataset.g+(d? " of "+d : "")+" — "+
+      (it.result==="target"? "it reached the objective"
+       : it.result==="invalid"? "it died at invalidation"
+       : it.result==="notrig"? "it never triggered"
+       : "it was still unresolved when the look-ahead ended")+".");
+  }catch(e){}
+}
+/* A hundred canvases is what eight shapes × a dozen examples comes to, so they
+   are drawn only when they scroll into view — and a shape whose <details> is
+   still shut has zero-size canvases, which is why opening one redraws it. */
+function patLabBindGallery(root){
+  const cells=root.querySelectorAll(".patGi");
+  if(!cells.length) return;
+  let io=null;
+  try{
+    if(window.IntersectionObserver) io=new IntersectionObserver(es=>{
+      for(const e of es) if(e.isIntersecting){ patThumbDraw(e.target); io.unobserve(e.target); }
+    },{rootMargin:"140px"});
+  }catch(e){ io=null; }
+  cells.forEach(el=>{
+    if(io){ try{ io.observe(el); }catch(e){ patThumbDraw(el); } } else patThumbDraw(el);
+    el.addEventListener("click", ()=>patThumbJump(el));
+  });
+  root.querySelectorAll("details.patX").forEach(d=>{
+    d.addEventListener("toggle", ()=>{
+      if(d.open) d.querySelectorAll(".patGi").forEach(patThumbDraw);
+    });
+  });
+}
 function patLabRateLine(r){
   if(!r || !r.decided) return '<span class="est">never resolved inside the window</span>';
   const pctv=(r.rate*100).toFixed(0);
@@ -7599,7 +8489,7 @@ function patLabVerdict(r){
 function patLabBlock(){
   const L=state._patLab;
   const stale = L && (L.symbol!==state.symbol || L.tf!==state.tf);
-  let h='<details class="secX" id="patLabBox" style="margin-top:10px"><summary>📚 PATTERN LAB'+
+  let h=PATLAB_CSS+'<details class="secX" id="patLabBox" style="margin-top:10px"><summary>📚 PATTERN LAB'+
         '<span class="secSum dim">'+(L&&!stale? L.rows.length+' shapes measured' : 'not measured yet')+'</span></summary>'+
         '<div class="secBody">';
   h+='<div class="fine" style="line-height:1.55;margin-bottom:8px">Runs the detector across '+
@@ -7668,7 +8558,10 @@ function patLabRow(r, L){
          (r.ambiguous? '<span class="pill">⚖️ '+r.ambiguous+' same-bar → counted as losses</span>':'')+
          (r.open? '<span class="pill">unresolved '+r.open+'</span>':'')+
        '</div>'+
-       '<div class="vLine"><span class="vg">📐</span><span>'+esc(patLabVerdict(r))+'</span></div>';
+       '<div class="vLine"><span class="vg">📐</span><span>'+esc(patLabVerdict(r))+'</span></div>'+
+       patLabLadder(r)+
+       patLabSlice(r)+
+       patLabGalleryHTML(r.name, L);
   }
   if(I){
     h+='<div class="pWhat" style="margin-top:8px">'+I.shape+'</div>'+
@@ -7688,6 +8581,7 @@ function patLabStatFor(name){
   return L.rows.find(r=>r.name===name)||null;
 }
 function bindPatLab(root){
+  patLabBindGallery(root);           /* the strip exists with or without the button */
   const b=root.querySelector("#patLabGo"); if(!b) return;
   b.onclick=async()=>{
     const pr=root.querySelector("#patLabProg");
@@ -8428,6 +9322,251 @@ function projGates(g){
   return null;
 }
 
+/* ---- WHICH OVERRIDES ACTUALLY POISON THE SCOREBOARD -------------------------
+   Every gate is overridable now, and the old accounting excluded EVERY
+   override from the independent tally. That let habitual overriding quietly
+   empty the scoreboard: the more he forced, the less the tool had measured.
+
+   Only two overrides are genuinely the same bet twice. Correlation arms a
+   second position in a direction already open, and cooldown re-takes the bet
+   that just lost twice — in both cases the outcome is the first bet's outcome,
+   so counting it would let one market move vote more than once. Stability,
+   R:R, anchor and side overrides are separate trades with separate results:
+   they belong in the tally, tagged with what was forced.
+
+   Rows armed before flags existed carry only the old binary echo, so they keep
+   exactly the behaviour their history was graded under.                      */
+const PRJ_DEP_GATES=["correlation","cooldown"];
+function projDependent(p){
+  if(!p) return false;
+  if(p.gateFlags){
+    for(let i=0;i<PRJ_DEP_GATES.length;i++) if(p.gateFlags[PRJ_DEP_GATES[i]]) return true;
+    return false;
+  }
+  return !!p.echo;                     /* legacy row: no flags, old behaviour */
+}
+/* which gates a row forced — one list, so the card and the tally cannot
+   disagree about what happened */
+function projGateList(p){
+  if(!p) return [];
+  if(p.gateFlags) return Object.keys(p.gateFlags);
+  return p.echoWhy? [p.echoWhy] : (p.echo? ["correlation"] : []);
+}
+
+/* ---- BARRIER-PATH ODDS ------------------------------------------------------
+   Net R:R is arithmetic on four prices. It says a 1.5:1 shape needs 40%
+   winners; it cannot say whether THIS coin ever walks 1.5R up before it walks
+   1R down. So reduce the armed projection to the only three things that walk
+   depends on — stop distance, target distance, bar life — and run that same
+   shape from every bar of the stretch of history the projection lives in.
+   How often does T1 land first, how often the stop, how often neither?
+
+   MEASURED on his own candles and never shown without its n. It is not a win
+   rate: it ignores the entry band, the fill, and the read that chose the
+   direction. It is how reachable the SHAPE is in this market, nothing else.
+   Two limits are printed beside the number rather than buried here: the
+   windows overlap, so n counts bars tested and not independent trials; and
+   when one bar touches both barriers the order is unknowable, so the stop is
+   assumed first — the same convention trackProjection grades by.            */
+const PRJ_BAR_STRETCH=600;      /* bars of history walked, capped for the phone */
+const PRJ_BAR_MIN_N=60;         /* below this, say "too few" — never a percentage */
+function barrierGeom(p){
+  if(!p) return null;
+  const mid=(p.entryLo+p.entryHi)/2, long=p.dir==="long";
+  if(!isFinite(mid) || mid<=0) return null;
+  const stopD=Math.abs(mid-p.stop)/mid, t1D=Math.abs(p.t1-mid)/mid, t2D=Math.abs(p.t2-mid)/mid;
+  if(!(stopD>0) || !(t1D>0)) return null;
+  return { long:long, stopD:stopD, t1D:t1D, t2D:t2D, life: PRJ_LIVE_MULT*projHB(p.tf) };
+}
+function barrierOdds(C, geom, i0, i1){
+  if(!C || !geom || !(geom.stopD>0) || !(geom.t1D>0) || !(geom.life>0)) return null;
+  const life=Math.max(1, Math.round(geom.life)), long=!!geom.long;
+  const lo=Math.max(0, i0|0), hi=Math.min(C.length-1-life, i1|0);
+  let n=0, t1First=0, stopFirst=0, t2First=0;
+  for(let i=lo;i<=hi;i++){
+    const E=C[i] && C[i].close;
+    if(!isFinite(E) || E<=0) continue;
+    const sp = long? E*(1-geom.stopD) : E*(1+geom.stopD);
+    const tp = long? E*(1+geom.t1D)   : E*(1-geom.t1D);
+    const up = long? E*(1+geom.t2D)   : E*(1-geom.t2D);
+    n++;
+    let first=0, ranOn=false;
+    for(let k=1;k<=life;k++){
+      const c=C[i+k]; if(!c) break;
+      const hitS = long? c.low<=sp  : c.high>=sp;
+      const hitT = long? c.high>=tp : c.low<=tp;
+      const hitU = long? c.high>=up : c.low<=up;
+      if(hitS){ if(!first) first=2; break; }   /* one bar doing both = stop first */
+      if(hitT && !first) first=1;
+      if(hitU && first===1){ ranOn=true; break; }
+    }
+    if(first===1) t1First++; else if(first===2) stopFirst++;
+    if(ranOn) t2First++;
+  }
+  return { n:n, t1First:t1First, stopFirst:stopFirst, t2First:t2First,
+           neither:n-t1First-stopFirst, life:life };
+}
+/* Arming must feel instant, so the walk is SLICED across timer ticks and the
+   number appears when it lands. A button that hangs while the tool thinks is
+   how a research aid becomes a thing you stop opening.                      */
+function barrierOddsAsync(C, geom, i0, i1, cb){
+  const acc={ n:0, t1First:0, stopFirst:0, t2First:0, neither:0,
+              life:Math.max(1, Math.round(geom.life)) };
+  let i=i0|0; const END=i1|0, CH=120;
+  const step=()=>{
+    try{
+      const part=barrierOdds(C, geom, i, Math.min(i+CH-1, END));
+      if(part){ acc.n+=part.n; acc.t1First+=part.t1First; acc.stopFirst+=part.stopFirst;
+                acc.t2First+=part.t2First; acc.neither+=part.neither; }
+    }catch(e){}
+    i+=CH;
+    if(i<=END) setTimeout(step,0);
+    else { try{ cb(acc); }catch(e){} }
+  };
+  setTimeout(step,0);
+}
+
+/* ---- READ PERSISTENCE -------------------------------------------------------
+   projectionStability jackknifes the votes inside ONE instant: it answers "is
+   a single factor carrying this call". The failure the gate comment above
+   names is a different one — eight factors reading the same recent candles are
+   one opinion in eight costumes — and that one opinion can be a single bar
+   old. A jackknife cannot see age; only time can. So ask the blunt question
+   too: how many of the last N bars did the read point THIS way?
+
+   The read is re-run on TRUNCATED history. state.candles is borrowed for one
+   synchronous call and handed straight back, the same borrow the pattern lab
+   and the backtest make. Patterns and the timeframe above are NOT re-detected
+   per bar (that costs more than everything else here combined), so this moves
+   the price-and-indicator half of the read — said on the card, not hidden. */
+const PRJ_PERSIST_BARS=8;
+function readPersistence(bars, budgetMs){
+  const C=state.candles;
+  if(!C || C.length<120) return null;
+  const N=Math.max(2, Math.min(bars|0, 16));
+  const now=()=>(typeof performance!=="undefined" && performance.now)? performance.now() : Date.now();
+  const t0=now(), budget=budgetMs>0? budgetMs : 400;
+  const seq=[];
+  const saveC=state.candles;
+  const saveCache=[state._vpCache,state._nbCache,state._indCache,state._pnCache];
+  try{
+    for(let k=0;k<N;k++){
+      if(C.length-k<100) break;
+      state.candles = k? C.slice(0, C.length-k) : C;
+      state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
+      let R=null; try{ R=fullRead(state.combine); }catch(e){}
+      seq.push(R? R.bias : null);
+      /* a budget, not a promise: report the bars actually checked, never pad */
+      if(now()-t0 > budget) break;
+    }
+  } finally {
+    state.candles=saveC;
+    state._vpCache=saveCache[0]; state._nbCache=saveCache[1];
+    state._indCache=saveCache[2]; state._pnCache=saveCache[3];
+  }
+  const dir=seq[0];
+  if(dir!=="bullish" && dir!=="bearish") return null;
+  let held=0, run=0, unbroken=true;
+  for(let i=0;i<seq.length;i++){
+    if(seq[i]===dir){ held++; if(unbroken) run++; } else unbroken=false;
+  }
+  return { dir:dir, n:seq.length, held:held, run:run, asked:N };
+}
+
+/* One measurement per LIVE projection, kept in memory only: both halves are
+   derived from candles, so persisting them would store a stale copy of a walk
+   that takes a blink to redo. Resolved rows are skipped — the market already
+   answered those.                                                           */
+const PRJ_MEAS={};
+function projMeasure(p){
+  if(!p || !p.id) return null;
+  if(PRJ_MEAS[p.id]) return PRJ_MEAS[p.id];
+  if(p.outcome) return null;
+  const C=projSeries(p);                  /* carries the wrong-coin guard */
+  const geom=barrierGeom(p);
+  if(!C || C.length<120 || !geom) return null;
+  const life=Math.max(1, Math.round(geom.life));
+  const i1=C.length-1-life, i0=Math.max(0, i1-PRJ_BAR_STRETCH);
+  if(i1<=i0) return null;
+  const rec={ running:true };
+  PRJ_MEAS[p.id]=rec;
+  setTimeout(()=>{
+    /* Persistence re-runs fullRead, which reaches the chart's timeframe through
+       taCfg() and htfRead() — there is no way to point it at another series. So
+       it may only speak for a projection on the timeframe currently displayed.
+       Measuring the 1h read and printing it on a 4h card told him his thesis had
+       flipped when nothing had moved. */
+    const ownTf = (p.tf===state.tf && p.symbol===state.symbol &&
+                   (!state.candlesSym || state.candlesSym===state.symbol));
+    rec.offChart = !ownTf;
+    try{ rec.persist = ownTf? readPersistence(PRJ_PERSIST_BARS, 400) : null; }
+    catch(e){ rec.persist=null; }
+    /* the read keeps moving. If it has changed since this row was frozen, say
+       that instead of quoting persistence for a read that no longer exists. */
+    if(ownTf && rec.persist && p.reasons && p.reasons.bias && rec.persist.dir!==p.reasons.bias) rec.stale=true;
+    projMeasurePaint(p);
+    barrierOddsAsync(C, geom, i0, i1, (res)=>{
+      rec.bar=res; rec.running=false; projMeasurePaint(p);
+    });
+  },0);
+  return rec;
+}
+/* ONE paint path for every surface that shows the measurement, so the card and
+   the arm message can never quote different numbers. It only rewrites its own
+   nodes — calling renderProjections here would wipe the arm message that is
+   sitting in #prjMsg waiting to be read.                                    */
+function projMeasurePaint(p){
+  try{
+    const nodes=document.querySelectorAll('[data-meas="'+p.id+'"]');
+    for(let i=0;i<nodes.length;i++) nodes[i].innerHTML=projMeasureHtml(p);
+  }catch(e){}
+}
+function projMeasureHtml(p){
+  const M=p? PRJ_MEAS[p.id] : null;
+  if(!M) return '';
+  const coin=esc(String(p.symbol||"").replace("USDT",""));
+  let h='';
+  const P=M.persist;
+  if(M.running && !P) return '<span style="opacity:.7">measuring this read and this shape on '+coin+'’s own bars…</span>';
+  if(M.stale)
+    h+='<b>The read has moved on</b> since this was frozen — it was '+esc(p.reasons&&p.reasons.bias||"?")+
+       ', the last bar reads '+esc(P.dir)+'. No persistence quoted for a read that no longer exists.';
+  else if(P)
+    h+='<b>Read '+esc(P.dir)+' on '+P.held+' of the last '+P.n+' bars</b>'+
+       (P.run>=P.n? ' — unbroken' : ' · unbroken run '+P.run)+
+       (P.run<=1? ' — this direction is ONE bar old: it IS a fresh flip.'
+        : (P.held>=P.n-1? ' — this is not a fresh flip.' : '.'));
+  else if(M.offChart)
+    h+='Read persistence is only measured for the timeframe on screen — open this projection\'s '+
+       'own '+esc(p.tf||"")+' chart to see whether its read has held.';
+  else h+='Read persistence not measured — not enough loaded history to re-run the read bar by bar.';
+  const B=M.bar;
+  if(M.running) h+=' <span style="opacity:.7">· walking the barriers…</span>';
+  else if(B && B.n>=PRJ_BAR_MIN_N){
+    const pc=x=>Math.round(x*100/B.n)+'%';
+    /* ONE break-even, the stored one the card row already prints. Recomputing it
+       from the rounded rrNet made the same card say "needs 48%" on one line and
+       "needs 47% … above that" on the next, resolving its own contradiction in
+       favour of claiming an edge. */
+    const be=(p.reasons && p.reasons.be>0)? p.reasons.be
+           : (p.reasons && p.reasons.rrNet>0)? 1/(1+p.reasons.rrNet) : null;
+    h+='<div style="margin-top:3px">This exact shape — stop '+
+      (100*barrierGeomD(p,'stopD')).toFixed(2)+'% away, T1 '+(100*barrierGeomD(p,'t1D')).toFixed(2)+
+      '% away, '+B.life+' bars to work — walked from every bar of the loaded history: '+
+      '<b>T1 first '+pc(B.t1First)+'</b> · stop first '+pc(B.stopFirst)+
+      ' · neither '+pc(B.neither)+' · ran on to T2 '+pc(B.t2First)+
+      '. <b>n='+B.n+'</b> bars of '+coin+' '+esc(p.tf||"")+'.'+
+      (be!=null? ' The R:R needs '+Math.round(be*100)+'% to break even; measured T1-first is '+
+        pc(B.t1First)+(B.t1First/B.n>=be? ', above that.' : ', below that.') : '')+
+      ' <span style="opacity:.72">Overlapping windows, so n is bars tested, not independent trials; a bar that touches both barriers is scored as the stop.</span></div>';
+  }
+  else if(B)
+    h+='<div style="margin-top:3px">Only '+B.n+' comparable stretches in the loaded history — too few to quote a rate, so none is quoted.</div>';
+  return h;
+}
+/* the distances the walk actually used, for the sentence that names them */
+function barrierGeomD(p, k){ const g=barrierGeom(p); return g? g[k] : 0; }
+
 function generateProjection(opts){
   opts=opts||{};
   /* A zone, level, signal or structure row hands in the side it means. That side
@@ -8439,13 +9578,18 @@ function generateProjection(opts){
   try{ R=fullRead(state.combine); }catch(e){}
   if(!R) return { err:"Not enough candles for a read yet." };
   let isEcho=false, echoWhy=null;
+  /* WHICH gate was forced, not just that one was. The first stays the
+     provenance for the old echoWhy field; the flags carry the rest so the
+     tally can count what deserves counting. */
+  const gateFlags={};
+  const forceGate=(k)=>{ isEcho=true; if(!echoWhy) echoWhy=k; gateFlags[k]=true; };
   /* counterRead = this projection is NOT the read's idea. It then may not borrow
      the read's stop or targets — those belong to the other direction — so the
      geometry falls back to pure volatility. */
   let counterRead=false, long;
   if(R.bias==="bullish" || R.bias==="bearish") long = R.bias==="bullish";
   else if(opts.override && wantSide){
-    long = wantSide==="long"; counterRead=true; isEcho=true; echoWhy="noread";
+    long = wantSide==="long"; counterRead=true; forceGate("noread");
     logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px:R.px,
                      dir:wantSide, kind:"noread", note:"OVERRIDDEN · engines split "+R.up+" up vs "+R.down+" down" });
   } else {
@@ -8470,7 +9614,7 @@ function generateProjection(opts){
                        dir:R.bias, kind:"stability", agree:+ST.agree.toFixed(3), n:ST.n, agreed:ST.agreed,
                        bull:ST.bull, bear:ST.bear, spread:ST.spread,
                        note:opts.override? "OVERRIDDEN · unstable read" : undefined });
-      if(opts.override){ isEcho=true; echoWhy=echoWhy||"stability"; }
+      if(opts.override){ forceGate("stability"); }
       else return { err:why+" Logged in the refusal list so you can check later whether that was the right call.", kind:"stability" };
     }
   }
@@ -8502,7 +9646,7 @@ function generateProjection(opts){
         /* he takes the level's side over the engines'. Allowed — but the trade
            is now HIS, not the read's, so it is an echo and the read no longer
            supplies the stop or the targets. */
-        long = wantSide==="long"; counterRead=true; isEcho=true; echoWhy=echoWhy||"side";
+        long = wantSide==="long"; counterRead=true; forceGate("side");
         logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
                          dir:wantSide, kind:"side", note:"OVERRIDDEN · read said "+R.bias });
       } else {
@@ -8550,7 +9694,7 @@ function generateProjection(opts){
                        note:(opts.override?"OVERRIDDEN · ":"")+"auto-detected "+autoTried+" candidate(s); none in reach on the right side" });
       if(opts.override){
         anchor={ p:px, d:0, label:"price (no level in reach)" };
-        isEcho=true; echoWhy=echoWhy||"anchor";
+        forceGate("anchor");
       } else {
         return { err:"No anchor"+(autoTried>0? " even after auto-detecting levels — "+autoTried+" candidate(s) found, but none sit"
                                               : " — no level sits")+" within reach on the "+
@@ -8578,7 +9722,7 @@ function generateProjection(opts){
          would make the gate list useless for judging whether the gates work */
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
                        dir:R.bias, kind:G.kind, note:"OVERRIDDEN · "+G.err.slice(0,130) });
-      isEcho=true; echoWhy=echoWhy||G.kind;   /* the FIRST forced gate is the provenance */
+      forceGate(G.kind);            /* the FIRST forced gate is still the provenance */
     } else if(G){
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
                        dir:R.bias, kind:G.kind, note:G.err.slice(0,140) });
@@ -8607,13 +9751,22 @@ function generateProjection(opts){
   if(!long && t2>=t1) t2=t1-risk;
   const c=(typeof costPct==="function"?costPct():0.0012)*mid;
   const rrNet=Math.max(0,(Math.abs(t1-mid)-c))/(risk+c);
+  /* rrNet prices a fill at the MIDDLE of the entry band. A fill at the far
+     edge — the top of a buy zone, the bottom of a sell zone — is a wider
+     risk and a shorter reward, and that is exactly the fill you get when
+     price runs through the band instead of turning inside it. Both numbers
+     are shown. Neither moves the stop or the targets: those are what the
+     graded history was built on, and changing them would invalidate it. */
+  const wFill = long? entryHi : entryLo;
+  const wRisk = long? (wFill-stop) : (stop-wFill);
+  const rrWorst = wRisk>0? Math.max(0,(Math.abs(t1-wFill)-c))/(wRisk+c) : 0;
   {
     const G = projGates({ long, px, rrNet });
     if(G){
       logProjRefusal({ at:Date.now(), symbol:state.symbol, tf:state.tf, px,
                        dir:R.bias, kind:G.kind,
                        note:(opts.override?"OVERRIDDEN · ":"")+G.err.slice(0,130) });
-      if(opts.override){ isEcho=true; echoWhy=echoWhy||G.kind; }
+      if(opts.override){ forceGate(G.kind); }
       else return { err:G.err+" Logged in the refusal list.", kind:G.kind };
     }
   }
@@ -8628,6 +9781,7 @@ function generateProjection(opts){
     stop:+stop.toFixed(8), t1:+t1.toFixed(8), t2:+t2.toFixed(8),
     createdTime:now.time, createdPx:px,
     echo:isEcho||undefined, echoWhy:echoWhy||undefined, counterRead:counterRead||undefined,
+    gateFlags: Object.keys(gateFlags).length? gateFlags : undefined,
     status:"waiting", armTime:null, filledTime:null, filledPx:null,
     hiSince:null, loSince:null, t1Time:null,
     resolvedTime:null, resolvedPx:null, barsWaited:0, barsHeld:0,
@@ -8639,6 +9793,7 @@ function generateProjection(opts){
       stability: ST? { n:ST.n, agreed:ST.agreed, agree:+ST.agree.toFixed(3),
                        critical: (ST.critical||[]).slice(0,3) } : null,
       be: rrNet>0? +(1/(1+rrNet)).toFixed(2) : 1,
+      rrWorst:+rrWorst.toFixed(2), beWorst: rrWorst>0? +(1/(1+rrWorst)).toFixed(2) : 1,
       warning: rrNet<0.8? "thin shape — needs "+Math.round(100/(1+rrNet))+"% winners to break even" : null,
       summary: (long?"Long":"Short")+" from the "+(anchor?anchor.label:"current price")+" band. "+
                (long?R.up:R.down)+" of "+(R.up+R.down)+" weighted votes point "+(long?"up":"down")+
@@ -9040,13 +10195,15 @@ function projR(p){
   return rOf(p.resolvedPx);                          /* flat expiry: both halves closed where the clock ran out */
 }
 function fmtR(r){ const v=Math.abs(r)<0.005? 0 : r; return (v>=0?"+":"")+v.toFixed(2)+"R"; }
-/* Echoes are excluded here for the same reason they are excluded from the
-   tally: an echo re-takes a bet that is already open, so its R is the same
-   market move counted twice. */
+/* Only the SAME-BET overrides are excluded here, for the same reason they are
+   excluded from the tally: a correlation or cooldown echo re-takes a bet that
+   is already open, so its R is the same market move counted twice. A stability
+   or R:R override is a separate trade with a separate result and its R is real
+   money, so it counts — see projDependent. */
 function projExpectancy(rows){
   const taken=[]; let noFill=0, unscored=0;
   for(const p of (rows||[])){
-    if(!p || !p.outcome || p.echo) continue;
+    if(!p || !p.outcome || projDependent(p)) continue;
     const r=projR(p);
     /* Only an expiry with no fill says something about price. Everything else
        that yields no R (a degenerate entry==stop, a missing resolvedPx) is a
@@ -9331,14 +10488,21 @@ function fillLiveSheet(p){
    the refusal is still written to the audit list, and the row carries the
    reason it was forced, so the independent tally stays clean. The gates went
    from gatekeepers to labels, which is the honest version of "let me through". */
+/* "as an ECHO" was said for every override. It is only true for the two that
+   are the same bet twice; the rest are counted, so they get named instead. */
+function projArmedNote(p){
+  if(!p || !p.echo) return "";
+  return projDependent(p)? " as an ECHO"
+       : " over the "+projGateList(p).join(" and ")+" gate (tagged, still counted)";
+}
 const GATE_COST = {
   correlation: "tracked as an ECHO of the bet you already have open, not as a second independent outcome",
   cooldown:    "tracked as an ECHO — the last two of these lost, so it does not count as a fresh read",
-  stability:   "the read was still moving when this was frozen — tracked as an ECHO, not as a clean signal",
-  side:        "the level and the engines disagree on direction — tracked as an ECHO",
-  rr:          "the reward does not cover the risk plus costs — tracked as an ECHO, and it is still a bad price",
-  anchor:      "the band is drawn around price instead of a level — tracked as an ECHO",
-  noread:      "the engines have no side here, so this is YOUR call, not the read's — the stop and targets come from volatility alone, and it is tracked as an ECHO",
+  stability:   "the read was still moving when this was frozen — tagged as a stability override, and it still counts in the tally",
+  side:        "the level and the engines disagree on direction — tagged as a side override, and it still counts in the tally",
+  rr:          "the reward does not cover the risk plus costs — tagged as an R:R override, it still counts, and it is still a bad price",
+  anchor:      "the band is drawn around price instead of a level — tagged as an anchor override, and it still counts in the tally",
+  noread:      "the engines have no side here, so this is YOUR call, not the read's — the stop and targets come from volatility alone, and it is tagged as a noread override that still counts",
 };
 function armFromAnchor(spec){
   const msgAt=(html)=>{
@@ -9353,12 +10517,13 @@ function armFromAnchor(spec){
   const done=(r)=>{
     state.projections.push(r.proj);
     saveProjections(); try{ renderProjections(); }catch(e){} try{ render(); }catch(e){}
-    cmdSay("Projection armed from "+spec.source+(r.proj.echo?" as an ECHO":"")+": "+r.proj.dir+" "+
+    cmdSay("Projection armed from "+spec.source+projArmedNote(r.proj)+": "+r.proj.dir+" "+
            state.symbol.replace("USDT","")+" — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+
            fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi));
     msgAt('<div class="flag good"><b>Projected from '+esc(spec.source)+'</b> — '+
       (r.proj.dir==="long"?"buy":"sell")+' zone '+fmt(r.proj.entryLo)+'–'+fmt(r.proj.entryHi)+
       ' · stop '+fmt(r.proj.stop)+' · T1 '+fmt(r.proj.t1)+' · T2 '+fmt(r.proj.t2)+
+      '<div class="fine" style="margin-top:6px" data-meas="'+esc(r.proj.id)+'">'+projMeasureHtml(r.proj)+'</div>'+
       '<div style="margin-top:7px"><button class="tbtn go" id="armOrder">⚡ Place the order sequence</button>'+
       '<button class="tbtn ghost" id="armOpen">open PROJECT</button></div></div>');
     const go=$("armOrder"); if(go) go.onclick=()=>openLiveSheet(r.proj);
@@ -9574,25 +10739,41 @@ function projCard(p){
     '<div class="kv"><span>Stop</span><b class="r">'+fmt(p.stop)+'</b></div>'+
     '<div class="kv"><span>Target one</span><b class="g">'+fmt(p.t1)+'</b></div>'+
     '<div class="kv"><span>Target two</span><b class="g">'+fmt(p.t2)+'</b></div>'+
-    '<div class="kv"><span>Net R:R to T1</span><b>'+(p.reasons.rrNet||0).toFixed(2)+':1 · needs '+
-      Math.round((p.reasons.be||1)*100)+'% winners</b></div>'+excRow;
+    '<div class="kv"><span>Net R:R to T1 <small>(mid fill)</small></span><b>'+(p.reasons.rrNet||0).toFixed(2)+':1 · needs '+
+      Math.round((p.reasons.be||1)*100)+'% winners</b></div>'+
+    /* the same shape, priced at the fill you get when price runs through */
+    (p.reasons.rrWorst!=null? '<div class="kv"><span>…filled at the far edge</span><b>'+
+      (+p.reasons.rrWorst).toFixed(2)+':1 · needs '+Math.round((p.reasons.beWorst||1)*100)+
+      '% winners</b></div>' : '')+excRow;
   /* The ECHO note used to say "same bet as another open projection" for every
      kind of override — true only for the correlation gate, and misleading for
      the rest. Each override now states what was actually overridden. */
   const ECHO_TXT={
-    correlation:"the same bet as another open projection — not counted as an independent outcome.",
-    cooldown:"armed during a cooldown after two losses in this direction — not counted as an independent outcome.",
-    stability:"the read was still moving when this was frozen — not counted as an independent outcome.",
+    correlation:"the same bet as another open projection — its result is the first bet's result, so it is not counted twice.",
+    cooldown:"armed during a cooldown after two losses in this direction — the same bet re-taken, so it is not counted twice.",
+    stability:"the read was still moving when this was frozen.",
     side:"armed AGAINST the read: the level said "+(p.dir==="long"?"long":"short")+", the engines said the opposite. Stop and targets come from volatility, not from the read.",
     noread:"the engines had no side here — this is your call, not the read's. Stop and targets come from volatility alone.",
     anchor:"no level was in reach, so the band is drawn around price rather than around structure.",
     rr:"the reward does not cover the risk plus costs — this one is a bad price by the tool's own arithmetic.",
   };
-  const flags=(p.echo? '<div class="cardNote">🔁 <b>ECHO</b> — '+
-      esc(ECHO_TXT[p.echoWhy] || ('armed over the '+(p.echoWhy||"correlation")+' gate; not counted as an independent outcome.'))+
-      '</div>':'')+
+  /* one line per gate that was actually forced, and a plain statement of
+     whether this row counts — an override that hides its bookkeeping is how
+     the scoreboard emptied in the first place. */
+  const gk=projGateList(p), dep=projDependent(p);
+  const flags=(gk.length? '<div class="cardNote">'+(dep? '🔁 <b>ECHO</b>':'⚑ <b>OVERRIDDEN</b>')+' — '+
+      gk.map(k=>esc(ECHO_TXT[k] || ('armed over the '+k+' gate.'))).join(' ')+
+      ' <b>'+(dep? 'Excluded from the independent tally — this is the same bet twice.'
+                 : 'Still counted in the tally, tagged '+esc(gk.join('+'))+' — a forced gate is not a reason to stop measuring.')+
+      '</b></div>':'')+
     (p.thesis && !p.outcome? '<div class="flag warn">⚠ Market turned against this while it is '+esc(p.status)+
       ': current read is '+esc(p.thesis.bias)+' ('+esc(p.thesis.note||"")+'). The projection stays tracked — cancelling is your call.</div>':'');
+  /* MEASURED, not asserted — the barrier walk and the read's persistence fill
+     themselves in when they land (see projMeasure); arming never waits. Guarded
+     because a throw in here would take the whole card with it. */
+  let meas='';
+  if(!p.outcome){ try{ projMeasure(p);
+    meas='<div class="pFacts" data-meas="'+esc(p.id)+'">'+projMeasureHtml(p)+'</div>'; }catch(e){} }
   const why=flags+'<div class="pSec"><span>Why it was generated</span>'+esc(p.reasons.summary)+
     (p.reasons.warning? ' <b style="color:#F5D77A">⚠ '+esc(p.reasons.warning)+'</b>':'')+'</div>'+
     '<div class="pFacts">'+esc(p.reasons.anchor)+' · '+p.reasons.up+' up vs '+p.reasons.down+' down'+
@@ -9601,7 +10782,7 @@ function projCard(p){
       p.reasons.stability.n+' perturbations held ('+Math.round(p.reasons.stability.agree*100)+'%)'+
       ((p.reasons.stability.critical||[]).length
         ? ' · hinges on '+esc(p.reasons.stability.critical.join(', ')) : ' · no single factor carries it')+
-      ' — fragility, not odds</div>':'');
+      ' — fragility, not odds</div>':'')+meas;
   const out = p.outcome?
     '<div class="pSec"><span>'+(p.status==="success"?"Why it worked":p.status==="failed"?"Why it failed":"What happened")+
     '</span>'+esc(p.outcome.plain)+'</div>'+
@@ -9630,7 +10811,8 @@ function projCard(p){
     '<summary><b class="'+(long?'g':'r')+'">'+(long?'▲ LONG':'▼ SHORT')+' '+esc(p.symbol.replace("USDT",""))+
     ' <em style="font-style:normal;color:var(--dim)">'+p.tf+'</em></b>'+
     '<span class="tagS '+b[1]+'">'+b[0]+'</span>'+
-    (p.echo? '<span class="tagS warn" title="armed over a refusal — excluded from the independent tally">🔁 ECHO</span>':'')+
+    (dep? '<span class="tagS warn" title="the same bet twice — excluded from the independent tally">🔁 ECHO</span>'
+        : gk.length? '<span class="tagS warn" title="armed over a gate — counted in the tally, tagged with what was forced">⚑ '+esc(gk.join('+'))+'</span>':'')+
     (p.counterRead? '<span class="tagS bad" title="armed against the read">⚠ vs read</span>':'')+
     '</summary>'+
     '<div class="patBody">'+rows+ordChip+why+out+
@@ -9650,7 +10832,9 @@ function renderProjections(){
   const live=state.projections.filter(p=>["waiting","active","t1"].includes(p.status));
   const done=state.projections.filter(p=>p.outcome).sort((a,b)=>(b.resolvedTime||0)-(a.resolvedTime||0));
   $("projCount").textContent=String(live.length);
-  const indep=done.filter(p=>!p.echo), echoes=done.length-indep.length;
+  /* only the same-bet overrides drop out now — see projDependent */
+  const indep=done.filter(p=>!projDependent(p)), echoes=done.length-indep.length;
+  const tagged=indep.filter(p=>projGateList(p).length).length;
   const wins=indep.filter(p=>p.status==="success").length,
         part=indep.filter(p=>p.status==="partial").length,
         loss=indep.filter(p=>p.status==="failed").length;
@@ -9704,7 +10888,8 @@ function renderProjections(){
       '<summary><b>🗂 HISTORY — '+done.length+' graded</b> <span class="est">newest first</span></summary>'+
       '<div class="cardNote" style="margin:6px 0 8px"><b class="g">'+wins+' success</b> · <b>'+part+' partial</b> · '+
         '<b class="r">'+loss+' failed</b> · '+exp+' expired'+
-        (echoes? ' · '+echoes+' echo'+(echoes===1?'':'es')+' (same bet, counted once)':'')+' — '+
+        (echoes? ' · '+echoes+' echo'+(echoes===1?'':'es')+' (same bet, counted once)':'')+
+        (tagged? ' · '+tagged+' armed over a gate and still counted, tagged':'')+' — '+
         '<i>at this sample size these are anecdotes, not statistics.</i></div>'+
       '<div class="cardNote" style="margin:-4px 0 8px">'+projExpLine(indep)+'</div>'+
       (()=>{ const vis=done.filter(p=>!p.cleared); const hid=done.length-vis.length;
@@ -9748,7 +10933,15 @@ function renderProjections(){
       if(state.follow){ const need=(state.candles.length-1)+Math.min(30, PRJ_WAIT_MULT*projHB(state.tf)+4);
         if(state.view.right<need) state.view.right=need; }
       saveProjections(); renderProjections(); render();
-      cmdSay("Projection armed"+(r.proj.echo?" as an ECHO":"")+": "+r.proj.dir+" "+state.symbol.replace("USDT","")+
+      /* the message comes AFTER the re-render, which rebuilds #prjMsg empty.
+         The measurement fills itself in through data-meas when it lands. */
+      try{ const m=$("prjMsg");
+        if(m) m.innerHTML='<div class="flag good"><b>Armed</b> — '+(r.proj.dir==="long"?"buy":"sell")+
+          ' zone '+fmt(r.proj.entryLo)+'–'+fmt(r.proj.entryHi)+' · stop '+fmt(r.proj.stop)+
+          ' · T1 '+fmt(r.proj.t1)+' · T2 '+fmt(r.proj.t2)+
+          '<div class="fine" style="margin-top:6px" data-meas="'+esc(r.proj.id)+'">'+
+          projMeasureHtml(r.proj)+'</div></div>'; }catch(e){}
+      cmdSay("Projection armed"+projArmedNote(r.proj)+": "+r.proj.dir+" "+state.symbol.replace("USDT","")+
              " — "+(r.proj.dir==="long"?"buy":"sell")+" zone "+fmt(r.proj.entryLo)+"–"+fmt(r.proj.entryHi)); };
     const r=generateProjection();
     if(r.err){
