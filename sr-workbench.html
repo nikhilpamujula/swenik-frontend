@@ -1302,7 +1302,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19j-grade";
+window.WB_BUILD = "2026-08-19i-owner";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -2798,9 +2798,7 @@ function drawHLevel(lvl){
   ctx.font="12px ui-monospace,Menlo,monospace";
   axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price), auto:!!lvl.auto, px:lvl.price});
   if(lvl.label) labelPill(lvl.label, 6, y, lvl.color);
-  /* "BROKEN" alone reads bearish whichever way price left — a support broken
-     UPWARD is a bullish role-flip and now says so */
-  if(sty.badge) zoneBadge(sty.badge+(st.up===true?" ↑":st.up===false?" ↓":""), sty.bc, chartW()*0.42, yUp-10);
+  if(sty.badge) zoneBadge(sty.badge, sty.bc, chartW()*0.42, yUp-10);
   evNote(lvl, y);            /* hand this line to the evidence pass */
 }
 function drawDiag(lvl){
@@ -2835,7 +2833,7 @@ function drawDiag(lvl){
   for(const p of [a,b]){ ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,Math.PI*2); ctx.fill(); }
   if(ye>=0 && ye<=priceH()) axisTags.push({y:ye, color:lvl.color, txt:fmtAxis(priceAt(ye)), auto:!!lvl.auto, px:priceAt(ye)});
   if(lvl.label) labelPill(lvl.label, Math.max(6,a.x), a.y-14, lvl.color);
-  if(sty.badge) zoneBadge(sty.badge+(st.up===true?" ↑":st.up===false?" ↓":""), sty.bc, Math.max(6,a.x)+4, a.y-30);
+  if(sty.badge) zoneBadge(sty.badge, sty.bc, Math.max(6,a.x)+4, a.y-30);
   evNote(lvl, ye);           /* hand this line to the evidence pass */
 }
 /* ---------- the evidence layer ---------------------------------------------
@@ -5591,37 +5589,6 @@ function zoneFor(lvl){
 }
 
 /* ---------- line state: what the chart should be telling you at a glance ---------- */
-/* ── grading a break ─────────────────────────────────────────────────────────
-   Two defects lived here, both seen live on the 19 Aug ETH screen ("WEAK
-   BREAK" stamped on an +8.7% candle):
-     · the grade froze on the FIRST crossing candle's volume — a quiet first
-       close followed by a monster continuation stayed "weak" forever;
-     · a cross on the still-forming bar was judged on PARTIAL volume — a bar
-       20% elapsed can only ever look weak, whatever it becomes.
-   The grade is now the BEST volume ratio across the unbroken run of closes
-   beyond the line, and the forming bar's volume is pro-rated to a full-bar
-   estimate (capped at 3× so the first minutes cannot fabricate conviction). */
-function projVol(i){
-  const c=state.candles[i]; if(!c) return 0;
-  if(i!==state.candles.length-1) return c.vol;
-  const iv=INTERVAL_SEC[state.tf]||3600;
-  const el=Math.max(iv*0.1, Math.floor(Date.now()/1000)-c.time);   /* ≥10% elapsed */
-  return c.vol * Math.min(3, iv/Math.min(iv,el));
-}
-function breakGrade(crossIdx, pAt){
-  const n=state.candles.length;
-  const dirOut = state.candles[crossIdx].close >= pAt(crossIdx);
-  let v20=0,cnt=0;
-  for(let j=crossIdx-1;j>crossIdx-21&&j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
-  const avg=cnt? v20/cnt : 0;
-  let best=0;
-  for(let j=crossIdx;j<n;j++){
-    const beyond = (state.candles[j].close>=pAt(j))===dirOut;
-    if(!beyond) break;                       /* grade only the unbroken run */
-    best=Math.max(best, avg? projVol(j)/avg : 1);
-  }
-  return { vr:best, up:dirOut };
-}
 function lineState(lvl){
   if(lvl.kind==="v") return {code:"none"};
   const n=state.candles.length; if(n<5) return {code:"untested"};
@@ -5652,9 +5619,11 @@ function lineState(lvl){
       const s=state.candles[j].close>=pAt(j);
       if(s!==dirOut){ back=true; break; }
     }
-    if(back) return {code:"false-break", at:crossIdx, up:dirOut};
-    const g=breakGrade(crossIdx, pAt);
-    return {code: g.vr>=1.5? "broken":"weak-break", at:crossIdx, vr:g.vr, up:g.up};
+    if(back) return {code:"false-break", at:crossIdx};
+    let v20=0,cnt=0;
+    for(let j=crossIdx-1;j>crossIdx-21&&j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
+    const vr = cnt? state.candles[crossIdx].vol/(v20/cnt) : 1;
+    return {code: vr>=1.5? "broken":"weak-break", at:crossIdx, vr};
   }
   /* inside the measured zone right now? */
   if(last.close <= lp*(1+z.up) && last.close >= lp*(1-z.dn)) return {code:"testing"};
@@ -6984,24 +6953,13 @@ function trackAnalysis(){
     const closedBeyond = a.isSupport ? c.close < lp-tol : c.close > lp+tol;
     if(closedBeyond && crossedIdx<0){
       crossedIdx=i;
+      let v20=0,cnt=0;
+      for(let j=i-1;j>i-21 && j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
+      crossVol = cnt? c.vol/(v20/cnt) : 1;
+      confirmed = crossVol>=1.5;
     } else if(crossedIdx>=0 && !closedBeyond && i<=crossedIdx+3){
       backInside=true;
     }
-  }
-  /* same rule as the chart badge (breakGrade): best follow-through volume in
-     the unbroken run, forming bar pro-rated — the card and the badge must
-     never grade one break two different ways */
-  if(crossedIdx>=0){
-    let v20=0,cnt=0;
-    for(let j=crossedIdx-1;j>crossedIdx-21 && j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
-    const avg=cnt? v20/cnt : 0;
-    for(let j=crossedIdx;j<n;j++){
-      const lp=lineAt(j), tol=lp*tolPct();
-      const beyond = a.isSupport ? state.candles[j].close < lp-tol : state.candles[j].close > lp+tol;
-      if(!beyond) break;
-      crossVol=Math.max(crossVol, avg? projVol(j)/avg : 1);
-    }
-    confirmed = crossVol>=1.5;
   }
   const last=state.candles[n-1], lpNow=lineAt(n-1);
   const distNow=(last.close-lpNow)/lpNow;
