@@ -1248,7 +1248,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19b-panel";
+window.WB_BUILD = "2026-08-19d-savefix";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1614,6 +1614,10 @@ const pct = x => (x>=0?"+":"")+(x*100).toFixed(2)+"%";
 /* read-only debug accessors — state is script-scoped, and every "why is the
    chart drawing THAT" question needs eyes on it from the console            */
 window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view, htf:()=>state.htf,
+  saveLevels:()=>saveLevels(), borrowed:()=>STATE_BORROWED, scanWatchlist:(f)=>scanWatchlist(f||(()=>{})),
+  /* lets the suite reproduce the exact window the scan opens, without having to
+     race a real scan: borrow the globals, do something, hand them back */
+  borrow:async(fn)=>{ STATE_BORROWED++; try{ return await fn(); } finally { STATE_BORROWED--; stateReturned(); } },
   gen:(o)=>generateProjection(o), refusals:()=>state.prjRefused||[], levels:()=>state.levels,
   projections:()=>state.projections, symbol:()=>state.symbol, tf:()=>state.tf,
   papers:()=>state.papers,
@@ -3941,6 +3945,7 @@ async function runBacktestAll(onProgress){
       }catch(e){ C=null; }
       if(!C || C.length<300){ perCoin.push({sym, n:0, skipped:"not enough history"}); continue; }
       SYMBOL=sym; state.candles=C; state.candlesSym=sym; state.levels=[];
+      STATE_BORROWED++;
       state._vpCache=null; state._nbCache=null; state._indCache=null; state._pnCache=null;
       let r=[]; try{ r=runBacktest(); }catch(e){ perCoin.push({sym,n:0,skipped:e.message}); continue; }
       const longShare = r.length? r.filter(x=>x.isSupport).length/r.length : 0.5;
@@ -3957,6 +3962,7 @@ async function runBacktestAll(onProgress){
     }
   } finally {
     SYMBOL=saveSym; state.candles=saveC; state.candlesSym=saveSym; state.tf=saveTf; state.levels=saveLv;
+    STATE_BORROWED=0; stateReturned();         /* the sweep raises it per coin */
     state._vpCache=saveCache[0]; state._nbCache=saveCache[1];
     state._indCache=saveCache[2]; state._pnCache=saveCache[3];
   }
@@ -4490,6 +4496,9 @@ function readToSignal(R){
    Each pair keeps its own lines and verdict history. Switching pair parks the
    current one and restores the next, so nothing bleeds between charts.        */
 function parkSymbol(){
+  /* parking a borrowed list would poison the in-memory store, and the next
+     honest save would then write the poison to the server */
+  if(stateBorrowed()) return;
   state.store[state.symbol]={ levels:state.levels.slice(), verdicts:state.verdicts.slice() };
 }
 /* ── open-coin strip ─────────────────────────────────────────────────────────
@@ -4592,6 +4601,7 @@ async function scanWatchlist(onRow){
   state.scanning=true;
   const rows=[];
   const savedSym=state.symbol, savedC=state.candles, savedL=state.levels;
+  STATE_BORROWED++;
   const savedTf=state.tf;
   for(const sym of state.watch){
     let row={sym, ok:false};
@@ -4631,6 +4641,7 @@ async function scanWatchlist(onRow){
     if(onRow) onRow(rows);
   }
   state.candles=savedC; state.candlesSym=savedSym; state.levels=savedL; state.symbol=savedSym; SYMBOL=savedSym; state.tf=savedTf;
+  STATE_BORROWED=Math.max(0, STATE_BORROWED-1); stateReturned();
   state._vpCache=null; state._nbCache=null; state._indCache=null;
   state.scan=rows; state.scanning=false;
   state.scanAt=Date.now();
@@ -6833,6 +6844,21 @@ function startPolling(){
 
 /* ---------- lines ---------- */
 const storeKey=()=>"levels:"+SYMBOL;
+/* THE LOST-LINES BUG. Two long loops — the watchlist scan and the multi-coin
+   sweep — borrow the globals (SYMBOL, state.levels, state.candles) and hand them
+   back in a finally. Both await inside the loop, so anything that persists in
+   that window writes the BORROWED list under the borrowed key: an empty array,
+   or another coin's lines, saved over his own. That is how levels:SOLUSDT ended
+   up as "[]" on the server. Every writer stands down while this is up. */
+let STATE_BORROWED = 0, SAVE_PENDING = false;
+const stateBorrowed = () => STATE_BORROWED > 0;
+/* called wherever the globals are handed back */
+function stateReturned(){
+  if(STATE_BORROWED>0) return;
+  if(!SAVE_PENDING) return;
+  SAVE_PENDING=false;
+  try{ saveLevels(); }catch(e){}
+}
 const hasStorage = typeof window.storage!=="undefined";
 async function loadLevels(){
   /* never discard lines the user has already drawn while boot was still finishing */
@@ -6875,6 +6901,7 @@ async function loadLevels(){
 }
 async function saveLevels(){
   if(!hasStorage) return;
+  if(stateBorrowed()){ SAVE_PENDING=true; return; }   /* a scan owns the globals — save after */
   if(!HYD.levels.has(storeKey())) return;      /* never write a key we have not read */
   try{ await window.storage.set(storeKey(), JSON.stringify(state.levels)); }catch(e){}
 }
@@ -7658,7 +7685,9 @@ function patternCard(P, idx){
      record replaces the disclaimer — sample size and all. */
   const LB=patLabStatFor(P.name);
   const measured = (LB && LB.n)
-    ? '<details class="riskX" open><summary><span class="risk" style="color:#A6EBCE;background:rgba(45,212,160,.07);border-color:rgba(45,212,160,.30)">'+
+    ? '<details class="riskX" data-p="meas:'+esc(P.name)+'"'+
+      (state.patOpen["meas:"+P.name]===false?'':' open')+
+      '><summary><span class="risk" style="color:#A6EBCE;background:rgba(45,212,160,.07);border-color:rgba(45,212,160,.30)">'+
         '📐 measured here: '+(LB.decided? (LB.rate*100).toFixed(0)+'% of '+LB.decided+' structures' : LB.n+' structure'+(LB.n===1?'':'s')+', none resolved')+
         ' — tap</span></summary>'+
       '<div class="pCaveat" style="background:rgba(45,212,160,.05);border-color:rgba(45,212,160,.22);color:#A7B1C4">'+
@@ -7681,7 +7710,8 @@ function patternCard(P, idx){
       grid+
       pills+
       rr+
-      '<details class="whyX" data-p="'+esc(P.name)+'"><summary>❔ why this shape is here · how it fails</summary>'+
+      '<details class="whyX" data-p="why:'+esc(P.name)+'"'+(state.patOpen["why:"+P.name]?' open':'')+
+        '><summary>❔ why this shape is here · how it fails</summary>'+
         '<div class="pWhat" style="margin-top:8px">'+E.I.shape+'</div>'+
         sec("Why it is drawn here", E.I.why+' <i>'+esc(P.note||"")+'</i>')+
         sec("Where it leads", E.I.leads)+
@@ -7690,7 +7720,8 @@ function patternCard(P, idx){
       '</details>'+
       measured+
       (measured? '' :
-       '<details class="riskX"><summary><span class="risk">⚠️ unmeasured shape'+
+       '<details class="riskX" data-p="risk:'+esc(P.name)+'"'+(state.patOpen["risk:"+P.name]?' open':'')+
+        '><summary><span class="risk">⚠️ unmeasured shape'+
         (state._pnCache? ' · noise finds '+state._pnCache.val.toFixed(1)+'/scan':'')+' — tap</span></summary>'+
         '<div class="pCaveat">This app has <b>no measured hit rate for this shape yet</b> — unlike your levels, which are scored in RECORD. Treat the objective as a distance the shape implies, not a probability. '+
         (state._pnCache? 'For scale: the same detector finds <b>'+state._pnCache.val.toFixed(1)+'</b> patterns per scan in shuffled, meaningless data. ' : '')+
@@ -8258,8 +8289,12 @@ function patLabLadder(r){
   /* the room the stop needed — the other half of the decision the ladder is for */
   const top=lad[lad.length-1], q=top&&top.mae;
   if(q && q.n>=5)
+    /* q.n is the number with a RECORDED drawdown at that rung, which can be one
+       short of the rung's own hit count — printing a bare "of the 8" two lines
+       under "9 of 10" reads as the card contradicting itself. */
     h+='<div class="fine" style="margin-top:5px">Room it needed: of the <b>'+q.n+
-       '</b> that reached the full move, half had first gone <b>'+(q.p50*100).toFixed(1)+
+       '</b>'+(top.hit>q.n? ' of '+top.hit : '')+
+       ' that reached the full move, half had first gone <b>'+(q.p50*100).toFixed(1)+
        '%</b> against, nine in ten stayed inside <b>'+(q.p90*100).toFixed(1)+
        '%</b>, and the worst was <b>'+(q.max*100).toFixed(1)+'%</b>.</div>';
   else if(q && q.n)
@@ -8443,7 +8478,7 @@ function patLabBindGallery(root){
     if(io){ try{ io.observe(el); }catch(e){ patThumbDraw(el); } } else patThumbDraw(el);
     el.addEventListener("click", ()=>patThumbJump(el));
   });
-  root.querySelectorAll("details.patX").forEach(d=>{
+  root.querySelectorAll("details[data-p]").forEach(d=>{
     d.addEventListener("toggle", ()=>{
       if(d.open) d.querySelectorAll(".patGi").forEach(patThumbDraw);
     });
@@ -8548,7 +8583,11 @@ function patLabRow(r, L){
   const measured = r.n>0;
   const dirHint = /Ascending|Double Bottom|Inverse|Falling Wedge/.test(r.name)? "▲"
                 : /Descending|Double Top|Head & Shoulders|Rising Wedge/.test(r.name)? "▼" : "◆";
-  let h='<details class="patX" style="margin-top:7px"><summary><b>'+dirHint+' '+esc(r.name)+'</b>'+
+  /* A stable key, or the 5s poll shuts it under his hand two seconds after he
+     opens it — and every keyless row was writing to state.patOpen[undefined]. */
+  const rowKey="lab:"+r.name;
+  let h='<details class="patX" data-p="'+esc(rowKey)+'"'+(state.patOpen[rowKey]?' open':'')+
+        ' style="margin-top:7px"><summary><b>'+dirHint+' '+esc(r.name)+'</b>'+
         (measured
           ? '<span class="tagS '+(r.decided? (patLabRandRate(r)!=null&&r.ci&&r.ci[0]>r.rand.rate? "good":"info") : "warn")+'">'+
             (r.decided? (r.rate*100).toFixed(0)+'% of '+r.decided : r.n+' seen · none resolved')+'</span>'
@@ -9130,12 +9169,12 @@ function renderStructure(){
   bindPatLab(root);
   sectionTools(root, want=>{
     /* expand-all should also open the pattern explanations, not just the shells */
-    root.querySelectorAll("details.patX").forEach(d=>{ d.open=want; state.patOpen[d.dataset.p]=want; });
+    root.querySelectorAll("details[data-p]").forEach(d=>{ d.open=want; if(d.dataset.p) state.patOpen[d.dataset.p]=want; });
   });
   /* remember which explanations were left open, so a new bar does not collapse
      the one being read */
-  root.querySelectorAll("details.patX").forEach(d=>{
-    d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; });
+  root.querySelectorAll("details[data-p]").forEach(d=>{
+    d.addEventListener("toggle",()=>{ if(d.dataset.p) state.patOpen[d.dataset.p]=d.open; });
   });
 }
 /* Open one pattern's explanation from anywhere (chart label, read card, link). */
@@ -10715,7 +10754,7 @@ function renderLive(){
      'cancel an unfilled entry. It can never widen a stop, add size, or re-enter. Exits happen immediately and tell you after; '+
      'stop changes wait for your Apply above. Every action also goes to Telegram.</div>';
   el.innerHTML=h;
-  el.querySelectorAll("details.patX").forEach(d=>d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; }));
+  el.querySelectorAll("details[data-p]").forEach(d=>d.addEventListener("toggle",()=>{ if(d.dataset.p) state.patOpen[d.dataset.p]=d.open; }));
   const post=async(id,path,body,btn)=>{
     if(btn){ btn.disabled=true; btn.textContent="…"; }
     try{
@@ -10876,7 +10915,8 @@ function renderProjections(){
                 cooldown:"cooldown", rr:"thin R:R", side:"level vs read disagree", noread:"engines split"};
     const isOvr=r=>/^OVERRIDDEN/.test(String(r.note||""));
     const hard=ref.filter(r=>!isOvr(r)), ovr=ref.length-hard.length;
-    h+='<details class="patX"><summary><b>'+hard.length+' refused</b>'+
+    h+='<details class="patX" data-p="prjrefused"'+(state.patOpen["prjrefused"]?' open':'')+
+       '><summary><b>'+hard.length+' refused</b>'+
        (ovr? ' <span class="tagS warn">+'+ovr+' overridden</span>':'')+
        ' <span class="est">every no is written down — audit whether the gates were right</span></summary>'+
        '<div class="fine" style="padding:4px 0 6px 2px">Look up what price did after each refusal: if the blocked trades would have worked, a gate is too tight. That check is the only way a threshold earns trust.</div>';
@@ -10913,7 +10953,7 @@ function renderProjections(){
   if(!live.length && !done.length)
     h+='<div class="empty">Nothing projected yet. Run a ⚡ Read so the engines have a direction, then tap the button above.</div>';
   el.innerHTML=h;
-  el.querySelectorAll("details.patX").forEach(d=>d.addEventListener("toggle",()=>{ state.patOpen[d.dataset.p]=d.open; }));
+  el.querySelectorAll("details[data-p]").forEach(d=>d.addEventListener("toggle",()=>{ if(d.dataset.p) state.patOpen[d.dataset.p]=d.open; }));
   const cl=$("prjClear");
   if(cl) cl.onclick=()=>{
     if(cl.dataset.armed!=="1"){
