@@ -5249,7 +5249,15 @@ async function gFetchSnapshotQuiet() {
 async function gRefreshOpenBooks() {
   if (!gOvKey) return;
   if (currentPage !== 'giottus') { gCloseBooksOv(); return; }
-  if (gOvKey[0] === 's') await gFetchSnapshotQuiet(); // srv views: best-effort; keep last snapshot on failure
+  // srv views: this quiet fetch replaces gServerSnap with fresher numbers
+  // every 3s — the SAME snapshot the background cards read from. Before this
+  // fix only the overlay was repainted from it, so the card behind the
+  // overlay (avg fill, profit, "stable for") kept showing whatever the last
+  // full gRefresh() cycle (10s, or up to 5min for locally-verified routes)
+  // had rendered — live inside the books, stale everywhere else on the same
+  // page, off the same fetch.
+  let snapChanged = false;
+  if (gOvKey[0] === 's') snapChanged = await gFetchSnapshotQuiet(); // best-effort; keep last snapshot on failure
   const r = gOvResolve();
   if (!r) { gOvPaintAge(null); return; }
   const legs = r.src === 'srv' ? (r.t.legs || []) : r.c.legsSpec;
@@ -5262,6 +5270,11 @@ async function gRefreshOpenBooks() {
     }
   }
   if (!gOvKey || currentPage !== 'giottus') return;
+  // Repaint the background grid from the same fresh snapshot BEFORE the
+  // overlay paint — renderGiottusPage() only touches the page container,
+  // #gOverlay lives on document.body, so this never disturbs the books
+  // or their scroll position.
+  if (snapChanged) { renderToolbar(); renderGiottusPage(); }
   gOvPaint(false);
 }
 
@@ -8763,7 +8776,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // token below changes the URL on every release (so the cache misses once and
     // then caches normally), and after load we compare the frame's own stamp and
     // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
-    var WB_VER = '2026-08-19j-grade';   // a NEWER workbench is fine; only an older one is an error
+    var WB_VER = '2026-08-19g-reach';   // a NEWER workbench is fine; only an older one is an error
 
     function wbMount() {
       if (document.getElementById('wbFull')) return;      // already up → never rebuild
