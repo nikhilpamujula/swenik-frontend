@@ -145,10 +145,6 @@
 
   #chartWrap{flex:1;position:relative;min-height:0}
   canvas{position:absolute;inset:0;width:100%;height:100%}
-  /* the overlay carries ONLY the crosshair, so a finger-follow repaint is a
-     few dashed lines instead of the whole chart. It must never eat input. */
-  #ov{pointer-events:none}
-  #cv{touch-action:none}
   #drawHint{
     position:absolute;top:10px;left:50%;transform:translateX(-50%);
     background:rgba(45,212,191,.14);border:1px solid rgba(45,212,191,.5);
@@ -1192,7 +1188,6 @@
 
 <div id="chartWrap">
   <canvas id="cv"></canvas>
-  <canvas id="ov"></canvas>
   <div id="ohlc" class="mono"></div>
   <div id="drawHint"></div>
   <div id="anaChip">✦ analysis</div>
@@ -1302,7 +1297,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-19j-grade";
+window.WB_BUILD = "2026-08-24a-alertsort";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -1657,7 +1652,6 @@ const state = {
 
 const $ = id => document.getElementById(id);
 const cv = $("cv"), ctx = cv.getContext("2d");
-const ov = $("ov"), octx = ov.getContext("2d");
 const wrap = $("chartWrap");
 let W=0, H=0, DPR=1;
 
@@ -1683,18 +1677,11 @@ window.WB_DEBUG = { candles:()=>state.candles, view:()=>state.view, htf:()=>stat
   lvRefresh:()=>{ if(state.lv) state.lv.at=0; return renderLive(); },
   renderLevels:()=>renderLevelList(),
   axisChips:()=>state._axisChips||[], axisW:()=>AXIS_W, defaultCount:()=>defaultCount(),
-  /* the glide layer — the suite drives gestures and reads the frame ledger */
-  renders:()=>state._renders||0, renderMs:()=>state._renderMs||0,
-  render:()=>render(),                     /* synchronous, for canvas-text capture */
-  gesturing:()=>GESTURING(), zoomBusy:()=>zRun, inertiaOn:()=>INERTIA,
-  zoomToward:(f,ax)=>zoomToward(f,ax), zoomAt:(c,ax)=>zoomAt(c,ax),
-  setCount:(c)=>setCount(c), idxAtF:(x)=>idxAtF(x), chartW:()=>chartW(),
-  startInertia:(v)=>startInertia(v), drawCross:()=>drawCross(),
   /* distance-from-price and the pattern outlook — script-scoped, same door */
   dPct:(v)=>dPct(v), dTxt:(f)=>dTxt(f), lastClose:()=>lastClose(),
   patOut:(P)=>patOutlook(P), patOutLine:(P,sh)=>patOutLine(P,sh),
   patLab:(v)=>{ if(v!==undefined){ state._patLab=v; try{ renderPane(); render(); }catch(e){} } return state._patLab; },
-  patterns:(v)=>{ if(v!==undefined) state.patterns=v; return state.patterns; }, patHits:()=>state._patHit||[],
+  patterns:()=>state.patterns, patHits:()=>state._patHit||[],
   cross:(o)=>{ state.cross=o; render(); return state.cross; },
   pref:(k,v)=>{ if(v!==undefined){ state.prefs[k]=v; try{ savePrefs(); syncSwitches(); renderPane(); render(); }catch(e){} } return state.prefs[k]; },
   /* the bell — state is script-scoped, so the suite needs a door in */
@@ -1709,8 +1696,6 @@ function resize(){
   W = wrap.clientWidth; H = wrap.clientHeight;
   cv.width = W*DPR; cv.height = H*DPR;
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  ov.width = W*DPR; ov.height = H*DPR;
-  octx.setTransform(DPR,0,0,DPR,0,0);
   measureAxisW();
   render();
 }
@@ -1782,10 +1767,7 @@ function panesBottom(){ const L=paneLayout(); return L.subs.length? L.subs[L.sub
 
 function visibleRange(){
   const r = Math.round(state.view.right);
-  /* count is fractional now (that is what makes zoom glide instead of step) —
-     the left edge must floor to a real array index or every per-bar loop
-     downstream starts at candles[3.7] and reads undefined. */
-  const l = Math.floor(r - state.view.count + 1);
+  const l = r - state.view.count + 1;
   return [Math.max(0,l), Math.min(state.candles.length-1, r)];
 }
 function autoBounds(){
@@ -1913,24 +1895,15 @@ function dPill(txt, y, color){
   if(!txt) return false;
   ctx.font="10.5px ui-monospace,Menlo,monospace";
   const w=ctx.measureText(txt).width+8, h=13;
-  const ly=Math.round(y)-h+3;
-  if(ly<0 || ly+h>priceH()){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
-  /* The Fibonacci tags park in the exact right-edge strip this pill wants, and
-     they draw first — on any fib-enabled chart every distance pill silently
-     lost the collision and the 19g feature looked like it did not exist. One
-     step further left is all it takes. */
-  for(const x of [chartW()-w-3, chartW()-2*w-11]){
-    if(x<0) continue;
-    if(!labelFits(x,ly,w,h)) continue;
-    labelBoxes.push({x,y:ly,w,h});
-    ctx.fillStyle="rgba(9,11,15,.88)"; ctx.fillRect(x,ly,w,h);
-    ctx.strokeStyle=hexA(color,0.30); ctx.lineWidth=1; ctx.strokeRect(x+.5,ly+.5,w-1,h-1);
-    ctx.fillStyle=hexA(color,0.92); ctx.fillText(txt, x+4, Math.round(y)-2);
-    ctx.font="12px ui-monospace,Menlo,monospace";
-    return true;
-  }
+  const x=chartW()-w-3, ly=Math.round(y)-h+3;
+  if(x<0 || ly<0 || ly+h>priceH()){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
+  if(!labelFits(x,ly,w,h)){ ctx.font="12px ui-monospace,Menlo,monospace"; return false; }
+  labelBoxes.push({x,y:ly,w,h});
+  ctx.fillStyle="rgba(9,11,15,.88)"; ctx.fillRect(x,ly,w,h);
+  ctx.strokeStyle=hexA(color,0.30); ctx.lineWidth=1; ctx.strokeRect(x+.5,ly+.5,w-1,h-1);
+  ctx.fillStyle=hexA(color,0.92); ctx.fillText(txt, x+4, Math.round(y)-2);
   ctx.font="12px ui-monospace,Menlo,monospace";
-  return false;
+  return true;
 }
 function xOf(i){ const bw = chartW()/state.view.count; return (i-(state.view.right-state.view.count+1))*bw + bw/2; }
 function yOf(p){ return (PB[1]-p)/(PB[1]-PB[0]) * priceH(); }
@@ -1954,7 +1927,6 @@ function diagPriceAt(lvl, i){
 /* ---------- render ---------- */
 function render(){
   if(!W||!H) return;
-  const _rt0=performance.now();
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle="#090B0F"; ctx.fillRect(0,0,W,H);
   if(!state.candles.length) return;
@@ -2341,12 +2313,7 @@ function render(){
   /* HOOK-RAILS: context that is already computed but was never drawn — higher
      timeframe levels, unswept liquidity clusters. Under the user's own lines,
      because his lines win any argument about where price is going. */
-  /* On a phone that takes >12ms a frame, the two decorative layers sit out
-     while a finger is down — exactly what the big charting apps do while
-     scrolling. They return on the settle render, and fast devices never
-     notice because the gate reads the PREVIOUS frame's cost. */
-  let FAST=false; try{ FAST = GESTURING() && (state._renderMs||0)>12; }catch(e){}
-  try{ if(!FAST && typeof drawContextRails==="function") drawContextRails(); }catch(e){}
+  try{ if(typeof drawContextRails==="function") drawContextRails(); }catch(e){}
 
   for(const lvl of state.levels){
     if(lvl.kind==="h") drawHLevel(lvl);
@@ -2357,7 +2324,7 @@ function render(){
   /* HOOK-EVIDENCE: what actually happened AT these lines and at past
      projections. One layer, one collision budget — two independent glyph
      systems fighting over the same pixels is how a chart becomes soup. */
-  try{ if(!FAST && typeof drawEvidenceMarks==="function") drawEvidenceMarks(); }catch(e){}
+  try{ if(typeof drawEvidenceMarks==="function") drawEvidenceMarks(); }catch(e){}
 
   if(state.pending){
     const x=xOf(idxOfTime(state.pending.t)), y=yOf(state.pending.p);
@@ -2405,21 +2372,11 @@ function render(){
         ctx.lineWidth=1;
       }
       if(P.lineH && P.lineL){
-        /* converging boundaries extended past their own apex cross and keep
-           going — two meaningless dashed beams shooting off the chart (top
-           right of the 19 Aug screenshot). A triangle ends where its edges
-           meet. */
-        let xe=chartW();
-        const dm=P.lineH.m-P.lineL.m;
-        if(Math.abs(dm)>1e-12){
-          const iApex=(P.lineL.b-P.lineH.b)/dm;
-          if(iApex>P.from) xe=Math.min(xe, xOf(iApex));
-        }
         ctx.strokeStyle=hexA(col,0.45); ctx.setLineDash([4,4]);
         for(const L of [P.lineH,P.lineL]){
           ctx.beginPath();
           ctx.moveTo(xOf(P.from), yOf(L.at(P.from)));
-          ctx.lineTo(xe, yOf(L.at(idxAtF(xe))));
+          ctx.lineTo(chartW(), yOf(L.at(idxAtF(chartW()))));
           ctx.stroke();
         }
         ctx.setLineDash([]);
@@ -2434,50 +2391,32 @@ function render(){
              a threshold but not what it was or how far off it sat */
           const gD=state.prefs.dpct!==false? dTxt(dPct(P.trigger)) : null;
           ctx.font="10.5px ui-monospace,Menlo,monospace";
-          /* the ownership prefix made these longer — clamped, because tryLabel
-             hard-rejects an overflowing x and the label for the pattern nearest
-             NOW (anchored at the right edge) is exactly the one that vanishes */
-          const gTxt=patShort(P.name)+" trigger "+fmtAxis(P.trigger)+(gD? "  "+gD : "");
-          const gW=ctx.measureText(gTxt).width+9;
-          const gX=Math.max(4,Math.min(xOf(P.from)+4, chartW()-gW-4));
-          for(const gy of [yt-3, yt+13, yt-17])
-            if(tryLabel(gTxt, gX, gy, hexA(col,0.9), "rgba(9,11,15,.8)")) break;
+          tryLabel("trigger "+fmtAxis(P.trigger)+(gD? "  "+gD : ""),
+                   Math.max(4,xOf(P.from))+4, yt-3, hexA(col,0.9), "rgba(9,11,15,.8)");
           ctx.font="12px ui-monospace,Menlo,monospace";
         }
       }
       if(P.target!=null){
         const yg=yOf(P.target);
         if(yg>-10&&yg<priceH()){
-          const met=patTargetMet(P, lastClose());
-          ctx.strokeStyle=hexA(col, met?0.28:0.5); ctx.setLineDash([2,5]);
+          ctx.strokeStyle=hexA(col,0.5); ctx.setLineDash([2,5]);
           ctx.beginPath(); ctx.moveTo(chartW()*0.55,yg+.5); ctx.lineTo(chartW(),yg+.5); ctx.stroke();
           ctx.setLineDash([]);
           ctx.font="11px ui-monospace,Menlo,monospace";
           const tD=state.prefs.dpct!==false? dTxt(dPct(P.target)) : null;
-          /* owner first; distance only while the objective is still ahead — a
-             ±% on a passed target is an invitation to trade it backwards */
-          const tTxt=DIR_GLYPH(P.dir)+" "+patShort(P.name)+" target "+fmtAxis(P.target)+
-                     (met? " · met ✓" : (tD? "  "+tD : ""));
-          const tW=ctx.measureText(tTxt).width+9;
-          const tX=Math.max(4,Math.min(chartW()*0.55+4, chartW()-tW-4));
-          for(const ty of [yg-3, yg+13, yg-17])
-            if(tryLabel(tTxt, tX, ty, met? hexA(col,0.6) : hexA(col,0.95), "rgba(9,11,15,.8)")) break;
+          tryLabel("target "+fmtAxis(P.target)+(tD? "  "+tD : ""), chartW()*0.55+4, yg-3,
+                   hexA(col,0.95), "rgba(9,11,15,.8)");
         }
       }
       if(P.key && P.key.length){
         const tag=(P.status==="confirmed"?"✓ ":P.status==="broken-weak"?"⚠ ":"")+P.name+" ⓘ";
         ctx.font="11.5px ui-monospace,Menlo,monospace";
-        const tagW=ctx.measureText(tag).width+10;
-        const lx=Math.max(4,Math.min(xOf(P.from), chartW()-tagW-4));
-        /* the NAME retries too — one earlier pattern's target label on the same
-           pixel row used to erase the next pattern's entire identity */
-        let ly=yOf(P.key[0].p)-14, placed=false;
-        for(const ty of [ly, ly-15, ly+15]){
-          if(tryLabel(tag, lx, ty, col, "rgba(9,11,15,.85)")){ ly=ty; placed=true; break; }
-        }
+        const lx=Math.max(4,xOf(P.from)), ly=yOf(P.key[0].p)-14;
+        tryLabel(tag, lx, ly, col, "rgba(9,11,15,.85)");
         /* Register the label so a tap can open its explanation. A name on the
            chart with nowhere to go is the thing being fixed here. */
-        state._patHit.push({ name:P.name, x:lx-4, y:ly-13, w:tagW, h:19 });
+        let hitH=19;
+        state._patHit.push({ name:P.name, x:lx-4, y:ly-13, w:ctx.measureText(tag).width+10, h:hitH });
         /* SECOND ROW: what the shape implies and whether it has ever paid on
            this chart. Naming a shape without saying where it points is half an
            answer; saying where it points without the sample behind it is worse
@@ -2491,15 +2430,8 @@ function render(){
              a pattern near the right edge is exactly the one you are looking at */
           const oW=ctx.measureText(oTag).width+10;
           const oX=Math.max(4, Math.min(lx, chartW()-oW-4));
-          /* market-structure labels (HH/LH/HL) draw BEFORE patterns and reserve
-             their boxes first — one contested pixel row and the outlook used to
-             vanish without a trace. Three slots before surrender. */
-          for(const oy of [ly+13, ly+26, ly-15]){
-            if(tryLabel(oTag, oX, oy, inkO, "rgba(9,11,15,.8)")){
-              state._patHit.push({ name:P.name, x:oX-4, y:oy-13, w:oW, h:17 });
-              break;
-            }
-          }
+          if(tryLabel(oTag, oX, ly+13, inkO, "rgba(9,11,15,.8)"))
+            state._patHit.push({ name:P.name, x:oX-4, y:ly, w:oW, h:17 });
         }
         ctx.font="12px ui-monospace,Menlo,monospace";
       }
@@ -2679,48 +2611,34 @@ function render(){
     ctx.fillText(fmtAxis(lc.close), chartW()+CHIP_GUT+3, lch.y+1);
   }
 
-  drawCross();                       /* keep the overlay in step with new geometry */
-  state._renders=(state._renders||0)+1;
-  state._renderMs=performance.now()-_rt0;
-}
-
-/* ── the crosshair, on its own canvas ───────────────────────────────────────
-   It used to be the last block of render(): every finger move repainted the
-   ENTIRE chart — candles, rails, patterns, orders — to move two dashed lines.
-   That full repaint is the lag you feel. Now a move touches only this layer;
-   render() calls it once at the end so pan/zoom keep the lines in step. */
-function drawCross(){
-  octx.clearRect(0,0,W,H);
-  octx.font="12px ui-monospace,Menlo,monospace";
-  octx.textBaseline=ctx.textBaseline;
   if(state.cross){
     const {i,y}=state.cross;
     if(i>=0 && i<state.candles.length){
       const x=xOf(i);
       const big=state.cross.big;
-      octx.setLineDash(big?[6,4]:[3,3]);
-      octx.lineWidth=big?1.4:1;
-      octx.strokeStyle=big?C_N1:"#6A6E75";
-      octx.beginPath(); octx.moveTo(x,0); octx.lineTo(x,panesBottom()); octx.stroke();
-      octx.beginPath(); octx.moveTo(0,y+.5); octx.lineTo(chartW(),y+.5); octx.stroke();
-      octx.setLineDash([]); octx.lineWidth=1;
+      ctx.setLineDash(big?[6,4]:[3,3]);
+      ctx.lineWidth=big?1.4:1;
+      ctx.strokeStyle=big?C_N1:"#6A6E75";
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,panesBottom()); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(chartW(),y+.5); ctx.stroke();
+      ctx.setLineDash([]); ctx.lineWidth=1;
       const cPx=priceAt(y), cD=state.prefs.dpct!==false? dTxt(dPct(cPx)) : null;
-      octx.fillStyle=big?C_N1:"#232A38"; octx.fillRect(chartW(), y-(cD?13:9), AXIS_W, cD?26:18);
-      octx.fillStyle=big?"#10131A":"#E8EAED"; octx.fillText(fmtAxis(cPx), chartW()+5, cD? y-5 : y);
+      ctx.fillStyle=big?C_N1:"#232A38"; ctx.fillRect(chartW(), y-(cD?13:9), AXIS_W, cD?26:18);
+      ctx.fillStyle=big?"#10131A":"#E8EAED"; ctx.fillText(fmtAxis(cPx), chartW()+5, cD? y-5 : y);
       if(cD){
-        octx.font="10.5px ui-monospace,Menlo,monospace";
-        octx.fillStyle=big?"rgba(16,19,26,.78)":"rgba(232,234,237,.72)";
-        octx.fillText(cD, chartW()+5, y+8);
-        octx.font="12px ui-monospace,Menlo,monospace";
+        ctx.font="10.5px ui-monospace,Menlo,monospace";
+        ctx.fillStyle=big?"rgba(16,19,26,.78)":"rgba(232,234,237,.72)";
+        ctx.fillText(cD, chartW()+5, y+8);
+        ctx.font="12px ui-monospace,Menlo,monospace";
       }
       if(big){
         const tl=timeLabel(state.candles[i].time,true);
-        octx.font="11.5px ui-monospace,Menlo,monospace";
-        const w=octx.measureText(tl).width+12;
+        ctx.font="11.5px ui-monospace,Menlo,monospace";
+        const w=ctx.measureText(tl).width+12;
         const bx=Math.min(Math.max(0,x-w/2), chartW()-w);
-        octx.fillStyle=C_N1; octx.fillRect(bx, panesBottom()+2, w, 16);
-        octx.fillStyle="#10131A"; octx.fillText(tl, bx+6, panesBottom()+10);
-        octx.beginPath(); octx.arc(x,y,4,0,Math.PI*2); octx.fillStyle=C_N1; octx.fill();
+        ctx.fillStyle=C_N1; ctx.fillRect(bx, panesBottom()+2, w, 16);
+        ctx.fillStyle="#10131A"; ctx.fillText(tl, bx+6, panesBottom()+10);
+        ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fillStyle=C_N1; ctx.fill();
       }
       const c=state.candles[i];
       $("ohlc").style.display="block";
@@ -2757,10 +2675,6 @@ function zoneBadge(txt,color,x,y){
   ctx.font="bold 10px ui-monospace,Menlo,monospace";
   const w=ctx.measureText(txt).width+11;
   const bx=Math.min(x, chartW()-w-4);
-  /* the badge never told the collision budget it existed, so the evidence
-     chips — which DO ask — were placed straight over it (the half-buried
-     TESTING on the 19 Aug screenshot) */
-  labelBoxes.push({x:bx, y:y-8, w:w, h:15});
   ctx.fillStyle="rgba(11,14,20,.82)";
   ctx.fillRect(bx,y-8,w,15);
   ctx.strokeStyle=hexA(color,0.55); ctx.lineWidth=1; ctx.strokeRect(bx+.5,y-7.5,w-1,14);
@@ -2798,9 +2712,7 @@ function drawHLevel(lvl){
   ctx.font="12px ui-monospace,Menlo,monospace";
   axisTags.push({y, color:lvl.color, txt:fmtAxis(lvl.price), auto:!!lvl.auto, px:lvl.price});
   if(lvl.label) labelPill(lvl.label, 6, y, lvl.color);
-  /* "BROKEN" alone reads bearish whichever way price left — a support broken
-     UPWARD is a bullish role-flip and now says so */
-  if(sty.badge) zoneBadge(sty.badge+(st.up===true?" ↑":st.up===false?" ↓":""), sty.bc, chartW()*0.42, yUp-10);
+  if(sty.badge) zoneBadge(sty.badge, sty.bc, chartW()*0.42, yUp-10);
   evNote(lvl, y);            /* hand this line to the evidence pass */
 }
 function drawDiag(lvl){
@@ -2835,7 +2747,7 @@ function drawDiag(lvl){
   for(const p of [a,b]){ ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,Math.PI*2); ctx.fill(); }
   if(ye>=0 && ye<=priceH()) axisTags.push({y:ye, color:lvl.color, txt:fmtAxis(priceAt(ye)), auto:!!lvl.auto, px:priceAt(ye)});
   if(lvl.label) labelPill(lvl.label, Math.max(6,a.x), a.y-14, lvl.color);
-  if(sty.badge) zoneBadge(sty.badge+(st.up===true?" ↑":st.up===false?" ↓":""), sty.bc, Math.max(6,a.x)+4, a.y-30);
+  if(sty.badge) zoneBadge(sty.badge, sty.bc, Math.max(6,a.x)+4, a.y-30);
   evNote(lvl, ye);           /* hand this line to the evidence pass */
 }
 /* ---------- the evidence layer ---------------------------------------------
@@ -5591,37 +5503,6 @@ function zoneFor(lvl){
 }
 
 /* ---------- line state: what the chart should be telling you at a glance ---------- */
-/* ── grading a break ─────────────────────────────────────────────────────────
-   Two defects lived here, both seen live on the 19 Aug ETH screen ("WEAK
-   BREAK" stamped on an +8.7% candle):
-     · the grade froze on the FIRST crossing candle's volume — a quiet first
-       close followed by a monster continuation stayed "weak" forever;
-     · a cross on the still-forming bar was judged on PARTIAL volume — a bar
-       20% elapsed can only ever look weak, whatever it becomes.
-   The grade is now the BEST volume ratio across the unbroken run of closes
-   beyond the line, and the forming bar's volume is pro-rated to a full-bar
-   estimate (capped at 3× so the first minutes cannot fabricate conviction). */
-function projVol(i){
-  const c=state.candles[i]; if(!c) return 0;
-  if(i!==state.candles.length-1) return c.vol;
-  const iv=INTERVAL_SEC[state.tf]||3600;
-  const el=Math.max(iv*0.1, Math.floor(Date.now()/1000)-c.time);   /* ≥10% elapsed */
-  return c.vol * Math.min(3, iv/Math.min(iv,el));
-}
-function breakGrade(crossIdx, pAt){
-  const n=state.candles.length;
-  const dirOut = state.candles[crossIdx].close >= pAt(crossIdx);
-  let v20=0,cnt=0;
-  for(let j=crossIdx-1;j>crossIdx-21&&j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
-  const avg=cnt? v20/cnt : 0;
-  let best=0;
-  for(let j=crossIdx;j<n;j++){
-    const beyond = (state.candles[j].close>=pAt(j))===dirOut;
-    if(!beyond) break;                       /* grade only the unbroken run */
-    best=Math.max(best, avg? projVol(j)/avg : 1);
-  }
-  return { vr:best, up:dirOut };
-}
 function lineState(lvl){
   if(lvl.kind==="v") return {code:"none"};
   const n=state.candles.length; if(n<5) return {code:"untested"};
@@ -5652,9 +5533,11 @@ function lineState(lvl){
       const s=state.candles[j].close>=pAt(j);
       if(s!==dirOut){ back=true; break; }
     }
-    if(back) return {code:"false-break", at:crossIdx, up:dirOut};
-    const g=breakGrade(crossIdx, pAt);
-    return {code: g.vr>=1.5? "broken":"weak-break", at:crossIdx, vr:g.vr, up:g.up};
+    if(back) return {code:"false-break", at:crossIdx};
+    let v20=0,cnt=0;
+    for(let j=crossIdx-1;j>crossIdx-21&&j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
+    const vr = cnt? state.candles[crossIdx].vol/(v20/cnt) : 1;
+    return {code: vr>=1.5? "broken":"weak-break", at:crossIdx, vr};
   }
   /* inside the measured zone right now? */
   if(last.close <= lp*(1+z.up) && last.close >= lp*(1-z.dn)) return {code:"testing"};
@@ -5747,48 +5630,9 @@ function setRight(v){
   state.follow = state.view.right >= n-2;
 }
 function setCount(c){
-  /* No rounding. Snapping to whole bars quantised every zoom to ~3% jumps —
-     at 30 bars a pinch moved in visible clicks. right is already fractional;
-     count now matches it. */
-  state.view.count = Math.min(500, Math.max(15, c));
+  state.view.count = Math.min(500, Math.max(15, Math.round(c)));
   setRight(state.view.right);
 }
-/* zoom that holds the bar under the cursor/fingers still — the difference
-   between "the chart zooms" and "the chart zooms AT ME". */
-function zoomAt(c, ax){
-  const a = idxAtF(ax);
-  state.view.count = Math.min(500, Math.max(15, c));
-  setRight(a + state.view.count*(1 - ax/chartW()) - 0.5);
-}
-/* ── eased wheel/button zoom ──────────────────────────────────────────────
-   Each wheel tick moves a TARGET; a rAF loop closes 32% of the gap per frame
-   (settles in ~150ms). Ten ticks in one frame become one smooth glide, and
-   the anchor maths runs on every frame so the cursor bar never drifts. */
-let zTarget=null, zAx=0, zRun=false;
-function zoomToward(f, ax){
-  zAx = ax;
-  zTarget = Math.min(500, Math.max(15, (zTarget==null? state.view.count : zTarget)*f));
-  if(!zRun){ zRun=true; requestAnimationFrame(zoomStep); }
-}
-function zoomStep(){
-  if(zTarget==null){ zRun=false; return; }
-  const d = zTarget - state.view.count;
-  if(Math.abs(d) < 0.12){
-    zoomAt(zTarget, zAx); zTarget=null; zRun=false;
-    render(); return;                       /* settle frame draws the full chart */
-  }
-  zoomAt(state.view.count + d*0.32, zAx);
-  render();
-  requestAnimationFrame(zoomStep);
-}
-/* one render per displayed frame, however many input events arrived */
-let _rafR=0, _dirtyR=false;
-function scheduleRender(){
-  _dirtyR=true;
-  if(_rafR) return;
-  _rafR=requestAnimationFrame(()=>{ _rafR=0; if(_dirtyR){ _dirtyR=false; render(); } });
-}
-function GESTURING(){ try{ return !!(touch || mouse || INERTIA || zRun); }catch(e){ return false; } }
 function lockY(){
   if(!state.view.yLock){
     const b=priceBounds();
@@ -5819,29 +5663,18 @@ function resetView(){
   render();
 }
 
-let INERTIA=false;
 function startInertia(vx){
   stopInertia();
   if(Math.abs(vx)<0.15) return;
-  /* rAF, not setInterval(16): the old timer beat against the display refresh
-     and the glide stuttered exactly when it was supposed to feel expensive.
-     Decay is TIME-based, so a 120Hz phone and a 60Hz laptop coast the same
-     distance instead of the fast screen stopping in half the time. */
-  INERTIA=true;
-  let last=performance.now();
-  const step=(now)=>{
-    if(!INERTIA) return;
-    const dt=Math.min(50, now-last); last=now;
-    vx*=Math.pow(0.945, dt/16.7);
-    if(Math.abs(vx)<0.04){ INERTIA=false; render(); return; }
+  inertia=setInterval(()=>{
+    vx*=0.92;
+    if(Math.abs(vx)<0.05){ stopInertia(); return; }
     const bw=chartW()/state.view.count;
-    setRight(state.view.right - vx*(dt/16.7)/bw);
+    setRight(state.view.right - vx/bw);
     render();
-    requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
+  },16);
 }
-function stopInertia(){ INERTIA=false; }
+function stopInertia(){ if(inertia){ clearInterval(inertia); inertia=null; } }
 
 function longPressMenu(x,y){
   const price=priceAt(y);
@@ -5892,14 +5725,9 @@ cv.addEventListener("touchstart", e=>{
   } else if(e.touches.length===2){
     clearTimeout(pressTimer);
     const a=pt(e,0), b=pt(e,1);
-    const midX=(a.x+b.x)/2;
     touch={mode:"pinch",
       dx0:Math.max(12,Math.abs(a.x-b.x)), dy0:Math.max(12,Math.abs(a.y-b.y)),
       count0:state.view.count, right0:state.view.right,
-      /* the bar between the fingers, captured ONCE — every move re-anchors to
-         it, so the price you are pinching stays under your fingers instead of
-         the chart sliding toward its right edge */
-      aMid: idxAtF(midX),
       midY:(a.y+b.y)/2,
       yLo0:null, yHi0:null};
     lockY();
@@ -5913,14 +5741,12 @@ cv.addEventListener("touchmove", e=>{
   if(touch.mode==="edit" && e.touches.length===1){
     const p=pt(e,0);
     if(Math.abs(p.x-touch.sx)>4||Math.abs(p.y-touch.sy)>4){ touch.moved=true; clearTimeout(pressTimer); }
-    applyEdit(touch.edit,p.x,p.y); scheduleRender(); e.preventDefault(); return;
+    applyEdit(touch.edit,p.x,p.y); render(); e.preventDefault(); return;
   }
   if(touch.mode==="cross" && e.touches.length===1){
     const p=pt(e,0);
     state.cross={i:idxAt(Math.min(chartW(),Math.max(0,p.x))), y:Math.min(priceH(),Math.max(0,p.y)), big:true};
-    drawCross();                 /* the whole point: two dashed lines move, two
-                                    dashed lines repaint — nothing else */
-    e.preventDefault(); return;
+    render(); e.preventDefault(); return;
   }
   if(e.touches.length===1 && (touch.mode==="pan"||touch.mode==="scaleY"||touch.mode==="scaleX")){
     const p=pt(e,0);
@@ -5932,36 +5758,29 @@ cv.addEventListener("touchmove", e=>{
       setRight(state.view.right - dx/bw);
       /* vertical pan only on a clearly vertical drag, and damped */
       if(Math.abs(dy)>Math.abs(dx)*2.2) panY(dy*0.4);
-      /* blended, not raw: one noisy 120Hz sample used to decide the whole
-         glide velocity at finger-up */
-      touch.vx=0.75*((p.x-touch.lx)/dt*16)+0.25*(touch.vx||0);
+      touch.vx=(p.x-touch.lx)/dt*16;
     } else if(touch.mode==="scaleY"){
       zoomY(1 - dy/520, priceH()/2);
     } else {
       setCount(state.view.count * (1 + dx/520));
     }
     touch.x=p.x; touch.y=p.y; touch.lx=p.x; touch.lastT=now;
-    scheduleRender(); e.preventDefault(); return;
+    render(); e.preventDefault(); return;
   }
   if(touch.mode==="pinch" && e.touches.length===2){
     const a=pt(e,0), b=pt(e,1);
     const dx=Math.max(12,Math.abs(a.x-b.x)), dy=Math.max(12,Math.abs(a.y-b.y));
-    const midX=(a.x+b.x)/2;
-    /* 1:1 — the fingers ARE the easing. The old 0.42 damping meant a 2× spread
-       zoomed 1.4×, which reads as "the chart is resisting me". Anchoring to the
-       CURRENT midpoint also folds two-finger panning into the same gesture,
-       the way the reference app does it. */
-    state.view.count=Math.min(500,Math.max(15, touch.count0 * (touch.dx0/dx)));
-    setRight(touch.aMid + state.view.count*(1 - midX/chartW()) - 0.5);
+    const damp=r=>1+(r-1)*0.42;
+    setCount(touch.count0 * damp(touch.dx0/dx));
     const v=state.view, span0=touch.yHi0-touch.yLo0;
-    const f=touch.dy0/dy;
+    const f=damp(touch.dy0/dy);
     /* only rescale price if the pinch is meaningfully vertical */
-    if(Math.abs(touch.dy0-dy) < 20){ scheduleRender(); e.preventDefault(); return; }
+    if(Math.abs(touch.dy0-dy) < 20){ render(); e.preventDefault(); return; }
     const anchor=touch.yHi0-(touch.midY/priceH())*span0;
     const ns=Math.max(span0*0.02, Math.min(span0*50, span0*f));
     const rel=(anchor-touch.yLo0)/span0;
     v.yLo=anchor-ns*rel; v.yHi=v.yLo+ns;
-    scheduleRender(); e.preventDefault(); return;
+    render(); e.preventDefault(); return;
   }
   e.preventDefault();
 },{passive:false});
@@ -5974,9 +5793,9 @@ cv.addEventListener("touchend", e=>{
       else if(Date.now()-touch.t0<400) handleTap(touch.sx,touch.sy);
     } else if(touch.mode==="pan" && !touch.moved && Date.now()-touch.t0<400){
       const now=Date.now();
-      if(now-lastTap<300){ /* double tap: glide in, anchored where you tapped */
-        zoomToward(0.72, touch.sx);
-        lastTap=0;
+      if(now-lastTap<300){ /* double tap: gentle zoom in */
+        setCount(state.view.count*0.75);
+        lastTap=0; render();
       } else { lastTap=now; handleTap(touch.sx,touch.sy); }
     } else if(touch.mode==="cross"){
       const c=state.cross;
@@ -6007,7 +5826,7 @@ window.addEventListener("mousemove", e=>{
   const sx=e.clientX-r.left, sy=e.clientY-r.top;
   if(mouse.mode==="edit"){
     if(Math.abs(sx-mouse.sx)>3||Math.abs(sy-mouse.sy)>3) mouse.moved=true;
-    applyEdit(mouse.edit,sx,sy); scheduleRender(); return;
+    applyEdit(mouse.edit,sx,sy); render(); return;
   }
   const dx=sx-mouse.x, dy=sy-mouse.y;
   if(Math.abs(dx)>3||Math.abs(dy)>3) mouse.moved=true;
@@ -6017,7 +5836,7 @@ window.addEventListener("mousemove", e=>{
     if(Math.abs(dy)>Math.abs(dx)*1.8) panY(dy*0.55);
   } else if(mouse.mode==="scaleY") zoomY(1-dy/520, priceH()/2);
   else setCount(state.view.count*(1+dx/520));
-  mouse.x=sx; mouse.y=sy; scheduleRender();
+  mouse.x=sx; mouse.y=sy; render();
 });
 window.addEventListener("mouseup", ()=>{
   if(mouse && mouse.mode==="edit" && mouse.moved) finishEdit(mouse.edit);
@@ -6033,9 +5852,9 @@ cv.addEventListener("wheel", e=>{
   const r=cv.getBoundingClientRect();
   const sy=e.clientY-r.top, sx=e.clientX-r.left;
   const f = e.deltaY>0?1.06:0.95;
-  if(sx>chartW() || e.shiftKey){ zoomY(f, sy); scheduleRender(); }
-  else zoomToward(f, sx);        /* eased, and the bar under the cursor stays put */
-  e.preventDefault();
+  if(sx>chartW() || e.shiftKey) zoomY(f, sy);
+  else setCount(state.view.count*f);
+  render(); e.preventDefault();
 },{passive:false});
 
 /* context menu actions */
@@ -6984,24 +6803,13 @@ function trackAnalysis(){
     const closedBeyond = a.isSupport ? c.close < lp-tol : c.close > lp+tol;
     if(closedBeyond && crossedIdx<0){
       crossedIdx=i;
+      let v20=0,cnt=0;
+      for(let j=i-1;j>i-21 && j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
+      crossVol = cnt? c.vol/(v20/cnt) : 1;
+      confirmed = crossVol>=1.5;
     } else if(crossedIdx>=0 && !closedBeyond && i<=crossedIdx+3){
       backInside=true;
     }
-  }
-  /* same rule as the chart badge (breakGrade): best follow-through volume in
-     the unbroken run, forming bar pro-rated — the card and the badge must
-     never grade one break two different ways */
-  if(crossedIdx>=0){
-    let v20=0,cnt=0;
-    for(let j=crossedIdx-1;j>crossedIdx-21 && j>=0;j--){ v20+=state.candles[j].vol; cnt++; }
-    const avg=cnt? v20/cnt : 0;
-    for(let j=crossedIdx;j<n;j++){
-      const lp=lineAt(j), tol=lp*tolPct();
-      const beyond = a.isSupport ? state.candles[j].close < lp-tol : state.candles[j].close > lp+tol;
-      if(!beyond) break;
-      crossVol=Math.max(crossVol, avg? projVol(j)/avg : 1);
-    }
-    confirmed = crossVol>=1.5;
   }
   const last=state.candles[n-1], lpNow=lineAt(n-1);
   const distNow=(last.close-lpNow)/lpNow;
@@ -7981,21 +7789,6 @@ function gaugeBar(v, lo, hi, loLab, hiLab){
     '<div class="gauL"><span>'+esc(loLab)+'</span><span>'+esc(hiLab)+'</span></div></div>';
 }
 const DIR_GLYPH = d => d==="bullish"?"▲": d==="bearish"?"▼":"◆";
-/* A trigger/target line with no owner reads as THE CHART'S opinion. On a real
-   screen (19 Aug, ETH 1h) a long-finished bullish pattern's target printed
-   "target 1,880 −2.87%" between two OTHER bullish patterns' names — which any
-   reader would take as a live SHORT target. Every threshold line now carries
-   its owner's name, and a target price has already passed says "met ✓"
-   instead of advertising a stale distance. */
-const PAT_SHORT={ "Ascending Triangle":"Asc.Tri", "Descending Triangle":"Desc.Tri",
-  "Symmetrical Triangle":"Sym.Tri", "Rising Wedge":"R.Wedge", "Falling Wedge":"F.Wedge",
-  "Rectangle / Range":"Range", "Head & Shoulders":"H&S", "Inverse Head & Shoulders":"Inv.H&S",
-  "Double Top":"Dbl.Top", "Double Bottom":"Dbl.Bot" };
-const patShort = n => PAT_SHORT[n] || String(n||"").slice(0,8);
-function patTargetMet(P, px){
-  if(P.target==null || !isFinite(px)) return false;
-  return P.dir==="bullish" ? px>=P.target : P.dir==="bearish" ? px<=P.target : false;
-}
 
 /* ── WHAT THE SHAPE IMPLIES, AND WHETHER IT HAS EVER PAID HERE ───────────────
    "Pattern drawn fine, but what is expected after that." Two different claims,
@@ -11735,7 +11528,7 @@ function alHead(s){
 function alState(){
   if(!state.alog) state.alog={ rows:[], local:[], at:0, busy:false, err:null,
                                st:null, cfg:null, prec:null, seen:0, seenTs:0,
-                               open:{}, sig:null, f:{view:"grouped", show:"all", kind:"all"} };
+                               open:{}, sig:null, f:{view:"grouped", show:"sent", kind:"all"} };
   return state.alog;
 }
 
@@ -12082,9 +11875,39 @@ function renderAlerts(){
                     'whether or not the sound is on.')+'</div>';
   } else if(f.view==="grouped"){
     const gs=alGroups(shown);
+    /* A subject that fired zero sent alerts is not something to weigh the same
+       as one that actually rang the bell — grouped-by-recency put "COTI ·
+       approaching buy, 0 sent, silenced again 3m ago" above things a person
+       was actually notified about, because a re-silenced ping still bumps
+       g.last. Sent-bearing subjects lead, newest-sent first; everything with
+       zero sent gets folded into one line so 25 quiet-hours subjects cost a
+       single row instead of 25. */
+    const withSent = gs.filter(g=>g.sent>0).sort((a,b)=>b.lastSent-a.lastSent);
+    const silentOnly = gs.filter(g=>g.sent===0).sort((a,b)=>b.last-a.last);
     h+='<div class="cardT" style="padding:2px">'+gs.length+' SUBJECT'+(gs.length===1?"":"S")+
-       ' · '+shown.length+' ENTR'+(shown.length===1?"Y":"IES")+'</div>';
-    for(const g of gs) h+=alGroupCard(g, A.open);
+       ' · '+shown.length+' ENTR'+(shown.length===1?"Y":"IES")+
+       (silentOnly.length? ' · '+withSent.length+' with something sent':'')+'</div>';
+    for(const g of withSent) h+=alGroupCard(g, A.open);
+    if(silentOnly.length){
+      const on=!!A.open["__silentonly"];
+      const totalSil=silentOnly.reduce((a,g)=>a+g.sil,0);
+      const reasonCount={};
+      for(const g of silentOnly) for(const [rs,n] of Object.entries(g.reasons)) reasonCount[rs]=(reasonCount[rs]||0)+n;
+      const topReasons=Object.entries(reasonCount).sort((a,b)=>b[1]-a[1]).slice(0,2)
+        .map(([rs,n])=>esc(rs)+" "+n).join(", ");
+      h+='<div class="alG sil"><div class="alH" data-al-grp="__silentonly">'+
+        '<span class="ic">\u{1F515}</span>'+
+        '<span class="ttl"><b>'+silentOnly.length+' subject'+(silentOnly.length===1?"":"s")+' \u2014 nothing sent</b>'+
+        '<small>'+totalSil.toLocaleString()+' decisions, all silenced'+(topReasons? ' \u2014 '+topReasons:'')+'</small></span>'+
+        '<span class="rt"><b>'+alAgo(silentOnly[0].last)+'</b></span>'+
+        '<span class="cv">'+(on? "\u25be":"\u25b8")+'</span></div>';
+      if(on){
+        h+='<div class="alB">';
+        for(const g of silentOnly) h+=alGroupCard(g, A.open);
+        h+='</div>';
+      }
+      h+='</div>';
+    }
   } else {
     h+='<div class="cardT" style="padding:2px">'+shown.length+' ENTR'+(shown.length===1?"Y":"IES")+' · NEWEST FIRST</div>';
     for(const r of shown.slice(0,120)){
@@ -12931,8 +12754,8 @@ $("rStep2").onclick=()=>replayStep(1);
 $("rExit").onclick=replayExit;
 $("ptCancel").onclick=()=>{ $("ptModal").style.display="none"; state.pending=null; };
 $("ptGo").onclick=confirmPreTrade;
-$("zIn").onclick=()=>{ zoomToward(0.7, chartW()/2); if(state.view.yLock) zoomY(0.7,priceH()/2); };
-$("zOut").onclick=()=>{ zoomToward(1/0.7, chartW()/2); if(state.view.yLock) zoomY(1/0.7,priceH()/2); };
+$("zIn").onclick=()=>{ setCount(state.view.count*0.7); if(state.view.yLock) zoomY(0.7,priceH()/2); render(); };
+$("zOut").onclick=()=>{ setCount(state.view.count/0.7); if(state.view.yLock) zoomY(1/0.7,priceH()/2); render(); };
 $("cmdBar").addEventListener("keydown",e=>{
   if(e.key==="Enter"){ runCommand(e.target.value); e.target.value=""; e.target.blur(); }
 });
