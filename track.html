@@ -136,6 +136,11 @@
     background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10);
     padding: 5px 10px; border-radius: 999px; white-space: nowrap; font-variant-numeric: tabular-nums;
   }
+  /* "Live · just now" -> "Live · Ns old" swap width every tick, and it visibly
+     resized the pill (and everything after it) each refresh. Fixed to the
+     widest common phrase so the pill's box stays put; text stays centered as
+     the digit count changes underneath it. */
+  #nextRefresh { min-width: 15ch; text-align: center; }
   #refreshBtn {
     background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28);
     border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
@@ -515,7 +520,7 @@
   .g-ov-head { position:sticky; top:0; display:flex; align-items:center; gap:10px; padding:12px 14px; background:var(--primary); z-index:2; box-shadow:0 2px 8px rgba(15,28,51,.25); }
   .g-ov-back { border:0; background:rgba(255,255,255,.14); color:#fff; font-size:19px; line-height:1; padding:9px 15px; border-radius:9px; cursor:pointer; }
   .g-ov-title { flex:1; display:flex; flex-wrap:wrap; gap:4px; align-items:center; min-width:0; }
-  .g-ov-age { font-size:11px; font-weight:700; padding:5px 9px; border-radius:999px; white-space:nowrap; }
+  .g-ov-age { font-size:11px; font-weight:700; padding:5px 9px; border-radius:999px; white-space:nowrap; display:inline-block; min-width:112px; text-align:center; font-variant-numeric:tabular-nums; }
   .g-ov-age.ok { background:#123c26; color:#5ee49a; }
   .g-ov-age.warn { background:#3c3212; color:#e4c95e; }
   .g-ov-age.bad { background:#3c1212; color:#e87676; }
