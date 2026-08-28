@@ -1079,10 +1079,28 @@ let hasLoadedOnce = true;
 // SEED_DATA is a direct-only snapshot (every baked row is type:"direct"), and
 // the warm snapshot can be too if it was saved before the backend started
 // returning loop/intraloop rows. Both feed allOpportunities, which is what the
-// Loop and Intra Loop tabs read — so on a cold load those tabs would show
-// DIRECT rows under their own heading until the first live fetch replaced the
-// array. Marking the array's provenance lets the venue tabs tell "no
-// opportunities" apart from "this snapshot never contained my type".
+// Loop and Intra Loop tabs read — so on a cold load those tabs have nothing of
+// their own type to draw. Marking the array's provenance lets them say
+// "Loading…" instead of showing an empty state that reads as "checked, found
+// nothing" when nothing has actually been checked yet.
+//
+// SCOPE — read this before assuming more of the flag than it does:
+// This is a cold-load EMPTY-STATE fix and nothing else. It was added in the
+// 2026-08-24a session while chasing "Intra Loop shows Direct arbitrage
+// details", on the theory that the seed window was responsible. That theory is
+// wrong, for two independent reasons:
+//   1. Both Intra Loop render paths filter by type before painting
+//      (`allOpportunities.filter(o => o.type === 'intraloop')`, and the venue
+//      tab's `else if (o.type === 'intraloop')`). A direct-only array yields
+//      an EMPTY list through either path. It cannot produce direct rows under
+//      an Intra Loop heading — the type filter has always stood in the way.
+//   2. The reported symptom is direct content in the MODAL, not direct rows in
+//      the list. The modal does not read allOpportunities' provenance at all.
+// The actual cause was a stale-async-write race between the modal refreshers;
+// see the modalSeq comment near the openCard declarations. This flag is kept
+// purely because the "Loading…" state is better than the empty one — do not
+// treat it as load-bearing for the Intra Loop bug, and do not revert the
+// modalSeq work on the theory that this flag covers it.
 function oppTypesPresent(list) {
   const s = new Set();
   for (const o of (list || [])) if (o && o.type) s.add(o.type);
@@ -1124,6 +1142,33 @@ const liveCache = {};       // per-coin memory of the last good books, so a
                             // full 13-level book — never the sparse fallback
                             // once real depth has been seen this session
 let modalTimer = null;
+
+// Generation token for the card modal. Every open AND every close bumps it.
+//
+// Why this exists: the three modal refreshers are async. Each one guards on
+// `openCard.type` at entry, but that check happens BEFORE the await — by the
+// time the fetch resolves the user may have closed that modal and opened a
+// different one, and the old call then paints its stale result into the new
+// modal's DOM. That is the "Intra Loop showing Direct arbitrage details" bug:
+// open a Direct card, close it, switch to Intra Loop and open a triangle
+// inside the ~3s fetch window, and the in-flight direct response repopulates
+// directLiveEntry, sees `openCard` is merely truthy, and rewrites modalTitle
+// and modalBody with Direct content.
+//
+// clearInterval() cannot help here — it stops future ticks but cannot cancel
+// an async continuation that is already past its await.
+//
+// A type recheck alone would also be too weak: it would not catch open BTC
+// direct -> close -> open ETH direct, where the type matches but the coin has
+// changed. So the token is per-open, not per-type.
+// The futures modal reuses the same #modalOverlay / #modalTitle / #modalBody
+// nodes with its own state and its own timer, so it shares this counter — a
+// single generation space across every modal that can write to that DOM.
+let modalSeq = 0;
+// True while `seq` still describes the card modal currently on screen.
+function modalCurrent(seq) { return openCard !== null && seq === modalSeq; }
+// Same, for the futures modal (which tracks futModalCoin, not openCard).
+function futModalCurrent(seq) { return futModalCoin !== null && seq === modalSeq; }
 
 // ================================================================
 // FORMATTING
@@ -2827,8 +2872,15 @@ function renderFuturesPage() {
 }
 
 // ---- Futures Track Live modal (5s refresh) ----
-let futModalCoin = null, futModalTimer = null;
+let futModalCoin = null, futModalTimer = null, futModalSeq = 0;
 function openFuturesModal(coin) {
+  // This modal paints into the same nodes as the card modal, so it has to
+  // retire whatever the card modal left running — otherwise a card refresher
+  // that is mid-await writes its result over the futures body.
+  if (modalTimer) { clearInterval(modalTimer); modalTimer = null; }
+  if (futModalTimer) { clearInterval(futModalTimer); futModalTimer = null; }
+  openCard = null;
+  futModalSeq = ++modalSeq;
   futModalCoin = coin;
   document.getElementById('modalOverlay').classList.remove('hidden');
   document.getElementById('modalTitle').textContent = `${coin.toUpperCase()} — Futures Basis`;
@@ -2839,11 +2891,15 @@ function openFuturesModal(coin) {
 }
 async function refreshFuturesModal() {
   if (!futModalCoin) return;
+  const seq = futModalSeq; // pin the modal this call belongs to
   try {
     const res = await fetch(`${API_BASE}/api/futures/${futModalCoin}/live`);
     if (!res.ok) throw new Error(`API returned ${res.status}`);
     const data = await res.json();
-    if (!futModalCoin) return;
+    // A bare futModalCoin check was not enough: closing this modal and opening
+    // a different coin's (or any card modal) would still pass it, and the
+    // stale response would paint over the new body.
+    if (!futModalCurrent(seq)) return;
     const o = data.view;
     const carry = o.carry8hPct != null ? o.carry8hPct : 0;
     const wf = o.funding && o.funding.wazirx, bf = o.funding && o.funding.binance;
@@ -2857,8 +2913,9 @@ async function refreshFuturesModal() {
       ${loopOrderBookTable(o.liveBooks.legs, { showBars: false })}
     `;
   } catch (e) {
+    if (!futModalCurrent(seq)) return;
     const body = document.getElementById('modalBody');
-    if (body && futModalCoin) body.innerHTML = `<div class="banner-error">Couldn't load (${e.message}). Retrying…</div>`;
+    if (body) body.innerHTML = `<div class="banner-error">Couldn't load (${e.message}). Retrying…</div>`;
   }
 }
 
@@ -3390,9 +3447,15 @@ function renderDirectModal(entry) {
 
 async function refreshDirectModalLive() {
   if (!openCard || openCard.type !== 'direct') return;
+  const seq = openCard.seq; // pin the modal this call belongs to
   renderDirectModal(directLiveEntry || findOpportunity(openCard)); // show what we have immediately
   try {
     const data = await fetchLiveCoin(openCard.coin);
+    // The user may have closed this modal, or opened a different card, while
+    // the fetch was in flight. Writing now would paint Direct content into
+    // whatever is on screen — and repopulate directLiveEntry that closeModal
+    // already nulled. Drop the response.
+    if (!modalCurrent(seq)) return;
     const list = data.opportunities || [];
     // Prefer the exact combo (exchange + market); then same buy exchange;
     // then anything — never flash the sparse fallback over a technicality.
@@ -3403,13 +3466,14 @@ async function refreshDirectModalLive() {
       directLiveEntry = match; liveBookError = null; liveFailStreak = 0;
       liveCache[`${cachePfx()}direct:${openCard.coin}:${openCard.buyExchange}:${openCard.buyMarket}`] = match;
     }
-    if (openCard) renderDirectModal(directLiveEntry || findOpportunity(openCard));
+    renderDirectModal(directLiveEntry || findOpportunity(openCard));
   } catch (err) {
+    if (!modalCurrent(seq)) return; // stale failure — not this modal's problem
     liveFailStreak++;
     liveBookError = err.message;
     // Keep showing the last good live books; only fall back to the sparse
     // touched-levels view if we never got a live response at all.
-    if (openCard) renderDirectModal(directLiveEntry || findOpportunity(openCard));
+    renderDirectModal(directLiveEntry || findOpportunity(openCard));
   }
 }
 
@@ -3781,17 +3845,23 @@ async function fetchLoopLive(coin1, coin2, entryVenue, exitVenue) {
 
 async function refreshLoopModalLive() {
   if (!openCard || openCard.type !== 'loop') return;
+  const seq = openCard.seq; // pin the modal this call belongs to
   if (!document.getElementById('loopObSlot')) renderLoopModal(); // first paint builds the shell
   try {
     const data = await fetchLoopLive(openCard.coin1, openCard.coin2, openCard.entryVenue, openCard.exitVenue);
+    if (!modalCurrent(seq)) return; // superseded while the fetch was in flight
     loopLiveEntry = data.opportunity;
     loopLiveError = null;
     liveCache[`${cachePfx()}loop:${openCard.coin1}:${openCard.coin2}:${openCard.entryVenue}:${openCard.exitVenue}`] = data.opportunity;
   } catch (err) {
+    if (!modalCurrent(seq)) return;
     loopLiveError = err.message;
     // keep the last good entry so the book doesn't vanish on a transient failure
   }
-  if (!openCard || openCard.type !== 'loop') return;
+  // This one already rechecked the type post-await, which is why the symptom
+  // was never seen on Loop. The seq check additionally covers a same-type
+  // switch (close one loop card, open another) that a type check misses.
+  if (!modalCurrent(seq)) return;
   const entry = loopLiveEntry || findOpportunity(openCard);
   if (entry && document.getElementById('loopObSlot')) updateLoopModalLive(entry);
   else renderLoopModal();
@@ -3858,17 +3928,20 @@ function renderIntraLoopModal() {
 
 async function refreshIntraLoopModalLive() {
   if (!openCard || openCard.type !== 'intraloop') return;
+  const seq = openCard.seq; // pin the modal this call belongs to
   renderIntraLoopModal(); // show what we have immediately
   try {
     const data = await fetchIntraLoopLive(openCard.coin);
+    if (!modalCurrent(seq)) return; // superseded while the fetch was in flight
     intraLoopLiveEntry = data.view;
     intraLoopLiveError = null;
     liveCache[`${cachePfx()}intraloop:${openCard.coin}`] = data.view;
   } catch (err) {
+    if (!modalCurrent(seq)) return;
     intraLoopLiveError = err.message;
     intraLoopLiveEntry = null;
   }
-  if (openCard) renderIntraLoopModal();
+  renderIntraLoopModal();
 }
 
 // ================================================================
@@ -4357,8 +4430,15 @@ function renderOrderbookPage() {
 // ================================================================
 function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVenue, exitVenue) {
   const _vc = venueCfg();
+  // Opening while a modal is already up would otherwise orphan the running
+  // interval: modalTimer would be overwritten and the old one would keep
+  // firing forever, with nothing left holding a handle to clear it.
+  if (modalTimer) { clearInterval(modalTimer); modalTimer = null; }
+  if (futModalTimer) { clearInterval(futModalTimer); futModalTimer = null; }
+  futModalCoin = null;
+  const seq = ++modalSeq;
   openCard = { type, coin, coin1, coin2, buyExchange, buyMarket: buyMarket || '', entryVenue: entryVenue || '', exitVenue: exitVenue || '',
-    venueId: _vc ? _vc.id : null, venueApi: _vc ? _vc.api : null };
+    venueId: _vc ? _vc.id : null, venueApi: _vc ? _vc.api : null, seq };
   document.getElementById('modalOverlay').classList.remove('hidden');
   if (type === 'direct') {
     directLiveEntry = liveCache[`${cachePfx()}direct:${coin}:${buyExchange}:${buyMarket || ''}`] || null;
@@ -4381,6 +4461,7 @@ function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVe
   }
 }
 function closeModal() {
+  modalSeq++; // invalidate any refresher already past its await
   openCard = null;
   loopLiveEntry = null; loopLiveError = null;
   directLiveEntry = null; liveBookError = null;
@@ -8835,7 +8916,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // token below changes the URL on every release (so the cache misses once and
     // then caches normally), and after load we compare the frame's own stamp and
     // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
-    var WB_VER = '2026-08-24a-alertsort';   // a NEWER workbench is fine; only an older one is an error
+    var WB_VER = '2026-08-28b-evidence';   // a NEWER workbench is fine; only an older one is an error
 
     function wbMount() {
       if (document.getElementById('wbFull')) return;      // already up → never rebuild

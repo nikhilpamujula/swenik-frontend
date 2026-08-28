@@ -989,6 +989,16 @@
     border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer}
   .pane .alJ button.y.on{color:var(--up);border-color:rgba(45,212,160,.5);background:rgba(45,212,160,.1)}
   .pane .alJ button.n.on{color:var(--down);border-color:rgba(242,73,92,.5);background:rgba(242,73,92,.1)}
+  .pane .alJ button.u{opacity:.55;padding:4px 6px}
+  .pane .alJw{margin-top:7px}
+  /* The in-line verdict on a compact row. It must not push the message text
+     around or grow the row height, or a 700-row backlog becomes unscannable —
+     so: no top margin, shrink-proof, and pinned to the end of the flex line.
+     44px of combined tap target on a phone is the floor; these sit at ~30px
+     wide each with the row's own padding around them, which is why the tap
+     handler is on the button rather than an icon glyph inside it. */
+  .pane .alE.cmp .alJ.cmpJ{margin-top:0;margin-left:auto;flex:0 0 auto;gap:3px}
+  .pane .alJ.cmpJ button{padding:3px 7px;font-size:10px;line-height:1.15}
   .pane .alSil{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.4px;padding:2px 6px;
     border-radius:5px;border:1px dashed rgba(138,148,166,.45);color:var(--dim);white-space:nowrap}
   .pane .alCfg{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid #1A2030;flex-wrap:wrap}
@@ -1297,7 +1307,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-24a-alertsort";
+window.WB_BUILD = "2026-08-28b-evidence";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -11649,19 +11659,72 @@ async function alRefresh(limit){
   }catch(e){ A.err=(e&&e.message)||"backend unreachable"; A.sig=null; }
   finally{ A.busy=false; alBadge(); }
 }
+/* v is true | false | null. null CLEARS the verdict: one-tap judging makes
+   mis-taps certain, and a verdict you cannot take back quietly poisons the
+   precision ratio it exists to measure. */
 async function alJudge(id, v){
   const A=alState();
   const row=(A.rows||[]).find(r=>r && String(r.id)===String(id));
+  const was = row? row.acted_on : undefined;
   if(row){ row.acted_on=v; A.sig=null; renderAlerts(); }    /* optimistic — the pane must not feel dead */
   try{
     await wbApi("/api/wb/watch/log/"+encodeURIComponent(id),
-      { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({acted_on:!!v}) });
+      { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({acted_on:v===null? null : !!v}) });
     if(A.prec) A.prec=null;                                  /* the ratio it showed is now stale */
     alRefresh(200).then(()=>{ if(state.tab==="alerts") renderAlerts(); }).catch(()=>{});
   }catch(e){
-    if(row){ row.acted_on=null; A.sig=null; renderAlerts(); }
+    /* restore what was actually there, not null — reverting a correction to
+       "unjudged" would look like the clear succeeded when nothing was saved. */
+    if(row){ row.acted_on=(was===undefined? null : was); A.sig=null; renderAlerts(); }
     cmdSay("Could not save that judgement — "+((e&&e.message)||"backend unreachable"));
   }
+}
+
+/* Judge every sent alert in one group at once.
+   Prefers the bulk route (one request). That route is new, so a workbench
+   deployed ahead of its backend would 404 — in which case this falls back to
+   individual PUTs rather than telling you the judgement failed. Frontend and
+   backend ship separately here; a feature that breaks on the gap between them
+   is a feature that breaks. */
+async function alJudgeMany(ids, v){
+  const A=alState();
+  if(!ids || !ids.length) return;
+  const prev=new Map();
+  for(const id of ids){
+    const row=(A.rows||[]).find(r=>r && String(r.id)===String(id));
+    if(row){ prev.set(String(id), row.acted_on); row.acted_on=v; }
+  }
+  A.sig=null; renderAlerts();                                /* optimistic, all at once */
+  const payload=JSON.stringify({ids:ids.map(Number), acted_on:v===null? null : !!v});
+  let okAll=true;
+  try{
+    await wbApi("/api/wb/watch/log/bulk",
+      { method:"PUT", headers:{"Content-Type":"application/json"}, body:payload });
+  }catch(e){
+    const msg=(e&&e.message)||"";
+    if(/404|not found/i.test(msg)){
+      for(const id of ids){
+        try{
+          await wbApi("/api/wb/watch/log/"+encodeURIComponent(id),
+            { method:"PUT", headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({acted_on:v===null? null : !!v}) });
+        }catch(e2){ okAll=false; }
+      }
+    } else okAll=false;
+  }
+  if(!okAll){
+    for(const id of ids){
+      const row=(A.rows||[]).find(r=>r && String(r.id)===String(id));
+      if(row && prev.has(String(id))) row.acted_on=prev.get(String(id));
+    }
+    A.sig=null; renderAlerts();
+    cmdSay("Could not save those judgements — the backend rejected the batch.");
+    return;
+  }
+  if(A.prec) A.prec=null;
+  cmdSay(ids.length+" alert"+(ids.length===1?"":"s")+" marked "+
+    (v===null? "unjudged" : v? "acted on" : "ignored")+".");
+  alRefresh(200).then(()=>{ if(state.tab==="alerts") renderAlerts(); }).catch(()=>{});
 }
 async function alSetCfg(patch){
   const A=alState();
@@ -11701,18 +11764,34 @@ function alEntry(r){
       (r.sent? '' : '<span class="alSil">\u{1F515} silenced: '+esc(r.reason||"no reason recorded")+'</span>')+
     '</div>'+
     '<div class="msg">'+alText(r.message)+'</div>'+
-    (jud? '<div class="alJ">'+
-       '<button class="y'+(r.acted===true?" on":"")+'" data-al-judge="'+esc(String(r.id))+'" data-al-v="1">✓ acted</button>'+
-       '<button class="n'+(r.acted===false?" on":"")+'" data-al-judge="'+esc(String(r.id))+'" data-al-v="0">✕ ignored</button>'+
-       '</div>' : '')+
+    (jud? '<div class="alJw">'+alJudgeBtns(r, false)+'</div>' : '')+
     '</div>';
+}
+/* The compact line used to be judgement-free: to mark one alert you had to tap
+   the group open, tap the row open, then tap the verdict. Three taps each,
+   against a 700-row backlog, on a phone — which is the entire reason precision
+   sat unmeasurable while a banner nagged about it. The verdict is now ON the
+   line. One tap, no expansion, and the row stays put. */
+function alJudgeBtns(r, small){
+  if(r.local || !r.sent) return '';
+  const sz = small? ' cmpJ' : '';
+  return '<span class="alJ'+sz+'">'+
+    '<button class="y'+(r.acted===true?" on":"")+'" data-al-judge="'+esc(String(r.id))+'" data-al-v="1" '+
+      'title="acted on this">✓'+(small?'':' acted')+'</button>'+
+    '<button class="n'+(r.acted===false?" on":"")+'" data-al-judge="'+esc(String(r.id))+'" data-al-v="0" '+
+      'title="ignored this">✕'+(small?'':' ignored')+'</button>'+
+    (r.acted===null? '' :
+      '<button class="u" data-al-judge="'+esc(String(r.id))+'" data-al-v="x" '+
+      'title="clear this judgement">↺</button>')+
+    '</span>';
 }
 function alEntryLine(r, gkey){
   return '<div class="alE cmp" data-al-ent="'+esc(gkey+"#"+r.key)+'">'+
     '<div class="eh"><b>'+alClock(r.ts)+'</b><span>'+alAgo(r.ts)+'</span>'+
       (r.local? '<span title="recorded by this device">\u{1F4F1}</span>':'')+
       (r.sent? '' : '<span class="alSil">\u{1F515} '+esc(r.reason||"silenced")+'</span>')+
-      '<span class="ln">'+alHead(r.message)+'</span></div></div>';
+      '<span class="ln">'+alHead(r.message)+'</span>'+
+      alJudgeBtns(r, true)+'</div></div>';
 }
 function alGroupCard(g, openKeys){
   const K=alK(g.kind);
@@ -11721,9 +11800,15 @@ function alGroupCard(g, openKeys){
   const reasons=Object.entries(g.reasons).sort((a,b)=>b[1]-a[1]);
   /* a shut group must say WHERE it came from. Without this the pane looked
      identical for a Telegram alert and a beep this browser invented. */
+  /* How many of this subject's sent alerts still need a verdict. Shown on the
+     SHUT header so the backlog is visible without opening anything — you can
+     see which subjects are still owed a decision and work down the list. */
+  const njr = g.rows.filter(r => !r.local && r.sent), nun = njr.filter(r => r.acted===null).length;
   const sub = (g.loc===g.rows.length? "\u{1F4F1} on-device"
               : (g.sent? g.sent+" sent" : "0 sent") + (g.loc? " ("+g.loc+" on-device)" : ""))
-            + (g.sil? " · "+g.sil+" silenced"+(reasons.length? " ("+esc(reasons[0][0])+")":"") : "");
+            + (g.sil? " · "+g.sil+" silenced"+(reasons.length? " ("+esc(reasons[0][0])+")":"") : "")
+            + (njr.length&&!nun? " · ✓ judged" : "")
+            + (nun? " · <b style=\"opacity:.85\">"+nun+" unjudged</b>" : "");
   let h='<div class="alG'+(g.sent?"":" sil")+(fresh&&on===false?" fresh":"")+'">'+
     '<div class="alH" data-al-grp="'+esc(g.key)+'">'+
       '<span class="ic">'+K.i+'</span>'+
@@ -11743,8 +11828,22 @@ function alGroupCard(g, openKeys){
       h += (i===0 || openKeys[g.key+"#"+rs[i].key]) ? alEntry(rs[i]) : alEntryLine(rs[i], g.key);
     if(g.rows.length>12) h+='<div class="cardNote" style="font-size:10.5px">'+(g.rows.length-12)+
       ' older entr'+(g.rows.length-12===1?"y":"ies")+' for this subject are in the window but not shown.</div>';
-    h+='<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">'+
-      '<button class="alJ" style="font-size:9.5px;font-weight:800;padding:5px 9px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer" data-al-sym="'+esc(g.symbol)+'">\u{1F4C8} open '+esc((g.symbol||"").replace("USDT",""))+' chart</button>'+
+    /* A group is ONE subject firing over and over. Judging it is one decision,
+       not N — "this level was noise all week" is a single thought. Judging the
+       group is what makes a 700-row backlog finishable in minutes instead of
+       never, which is the only reason precision has stayed unmeasurable. */
+    const jr = g.rows.filter(r => !r.local && r.sent);
+    const unjudged = jr.filter(r => r.acted === null).length;
+    const bstyle = 'font-size:9.5px;font-weight:800;padding:5px 9px;border-radius:7px;border:1px solid var(--line);background:transparent;cursor:pointer';
+    h+='<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap;align-items:center">';
+    if(jr.length>1){
+      h+='<span style="font-size:9.5px;opacity:.6;font-weight:700">ALL '+jr.length+':</span>'+
+        '<button style="'+bstyle+';color:var(--good,#3fb950)" data-al-gjudge="'+esc(g.key)+'" data-al-v="1">✓ acted</button>'+
+        '<button style="'+bstyle+';color:var(--bad,#f85149)" data-al-gjudge="'+esc(g.key)+'" data-al-v="0">✕ all noise</button>'+
+        (unjudged<jr.length? '<button style="'+bstyle+';color:var(--dim)" data-al-gjudge="'+esc(g.key)+'" data-al-v="x">↺ clear</button>' : '')+
+        '<span style="width:6px"></span>';
+    }
+    h+='<button style="'+bstyle+';color:var(--dim)" data-al-sym="'+esc(g.symbol)+'">\u{1F4C8} open '+esc((g.symbol||"").replace("USDT",""))+' chart</button>'+
       '</div>';
     h+='</div>';
   }
@@ -11770,9 +11869,16 @@ function renderAlerts(){
      every tick would slam every open fold shut and throw the scroll position
      away every five seconds — the exact "it closes in 2 or 3 seconds" bug from
      the pattern folds. Repaint only when something actually changed. */
+  /* Judged state is now the fastest-changing thing in this pane, and it is
+     visible in three places (row buttons, group header count, bulk bar). If it
+     is not in the signature, a repaint triggered by anything else can render a
+     stale verdict. The callers do null the signature themselves, so this is a
+     belt-and-braces term, not the primary mechanism. */
+  const judgeSig=rows.reduce((a,r)=>a+(r.acted===true?"1":r.acted===false?"0":"-"),"");
   const sig=[rows.length, rows[0]&&rows[0].key, f.view, f.show, f.kind,
              Object.keys(A.open).filter(k=>A.open[k]).sort().join(","),
              A.err, A.st&&A.st.lastTick, A.prec&&A.prec.sent, A.prec&&A.prec.acted,
+             judgeSig,
              A.cfg&&JSON.stringify(A.cfg)].join("|");
   if(A.sig===sig && el.innerHTML) { alMarkSeen(); return; }
   A.sig=sig;
@@ -11940,8 +12046,19 @@ function alWire(el){
     const k=b.dataset.alGrp; A.open[k]=!A.open[k]; A.sig=null; renderAlerts(); });
   el.querySelectorAll("[data-al-ent]").forEach(b=>b.onclick=e=>{
     e.stopPropagation(); const k=b.dataset.alEnt; A.open[k]=!A.open[k]; A.sig=null; renderAlerts(); });
+  /* "x" clears the verdict; the judge buttons now sit INSIDE the compact rows
+     and inside the group body, both of which have their own click handlers to
+     open/close — stopPropagation is what stops a verdict from also collapsing
+     the thing you are judging. */
+  const alV=b=>b.dataset.alV==="x"? null : b.dataset.alV==="1";
   el.querySelectorAll("[data-al-judge]").forEach(b=>b.onclick=e=>{
-    e.stopPropagation(); alJudge(b.dataset.alJudge, b.dataset.alV==="1"); });
+    e.stopPropagation(); alJudge(b.dataset.alJudge, alV(b)); });
+  el.querySelectorAll("[data-al-gjudge]").forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const g=alGroups(alFilter(alRows())).find(x=>x.key===b.dataset.alGjudge);
+    if(!g) return;
+    const ids=g.rows.filter(r=>!r.local && r.sent).map(r=>r.id);
+    alJudgeMany(ids, alV(b)); });
   el.querySelectorAll("[data-al-sym]").forEach(b=>b.onclick=e=>{
     e.stopPropagation();
     const s=b.dataset.alSym; if(s) try{ switchSymbol(s); }catch(err){} });
