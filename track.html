@@ -1076,6 +1076,20 @@ let hasLoadedOnce = true;
 // browser's own storage, so the NEXT open paints the last real data
 // instantly — real coins, honest timestamp — while the live fetch runs
 // behind it. The seed remains only for a truly first-ever visit.
+// SEED_DATA is a direct-only snapshot (every baked row is type:"direct"), and
+// the warm snapshot can be too if it was saved before the backend started
+// returning loop/intraloop rows. Both feed allOpportunities, which is what the
+// Loop and Intra Loop tabs read — so on a cold load those tabs would show
+// DIRECT rows under their own heading until the first live fetch replaced the
+// array. Marking the array's provenance lets the venue tabs tell "no
+// opportunities" apart from "this snapshot never contained my type".
+function oppTypesPresent(list) {
+  const s = new Set();
+  for (const o of (list || [])) if (o && o.type) s.add(o.type);
+  return s;
+}
+let oppsAreSeed = true;   // true until a real fetch replaces allOpportunities
+
 const WARM_KEY = 'swenik-live-snap-v1';
 try {
   const w = JSON.parse(localStorage.getItem(WARM_KEY) || 'null');
@@ -1083,6 +1097,10 @@ try {
     allOpportunities = w.opportunities;
     lastFetchTs = w.ts;
     usingSeedData = false; // it is real data — just possibly a little old
+    // A warm snapshot that only ever saw direct rows is still seed-grade for
+    // the other two tabs, so keep the flag set for them.
+    oppsAreSeed = !oppTypesPresent(w.opportunities).has('loop')
+               && !oppTypesPresent(w.opportunities).has('intraloop');
   }
 } catch (e) { /* storage unavailable or corrupt — the seed still works */ }
 let __warmSavedAt = 0;
@@ -1601,7 +1619,7 @@ function updateVenueTabCounts() {
   const opps = _v.native ? allOpportunities : (venueState[_v.id] || {}).opps;
   const st = _v.native ? { ts: lastFetchTs } : (venueState[_v.id] || {});
   const f = vFiltered(opps);
-  const staleCount = !!(_v.native && usingSeedData);
+  const staleCount = !!(_v.native && (usingSeedData || oppsAreSeed));
   const labels = { direct: 'Direct', loop: 'Loop', intraloop: 'Intra Loop' };
   const keys = ['direct', 'loop', 'intraloop'];
   seg.querySelectorAll('button').forEach((b, i) => {
@@ -1631,7 +1649,7 @@ function renderToolbar() {
     // is stale and misleading (e.g. "Direct (23)" when live is 1), so show a
     // pending "…" until real data arrives instead of a number we can't stand
     // behind. External venues always fetch fresh, so they show the real count.
-    const staleCount = !!(_v.native && usingSeedData);
+    const staleCount = !!(_v.native && (usingSeedData || oppsAreSeed));
     const tab = (k, l) => `<button class="${vTab===k?'on':''}" onclick="vSetTab('${k}')">${l} (${staleCount ? '…' : (f[k]||[]).length})</button>`;
     // Play/Pause control — external venues (Zebpay/CoinDCX) only. Pause turns the
     // whole server-side engine off (no capture, no compute, no bandwidth); Play
@@ -2634,6 +2652,13 @@ function renderVenuePage() {
   if (v.native) {
     // WazirX: the main scanner feeds this tab.
     if (!hasLoadedOnce) { el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading opportunities…</div>`; return; }
+    // The seed/warm snapshot is direct-only. Painting the Loop or Intra Loop
+    // tab from it put DIRECT rows under those headings — the "intra loop shows
+    // direct arbitrage" report. Wait for the first real fetch instead.
+    if (oppsAreSeed && vTab !== 'direct') {
+      el.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading ${vTab === 'intraloop' ? 'intra loop' : 'loop'} opportunities…</div>`;
+      return;
+    }
     opps = allOpportunities;
   } else {
     const st = venueState[v.id];
@@ -3301,7 +3326,9 @@ function renderDirectModal(entry) {
       ? `${obLegend}<div class="ob-section-title">Order Book</div><div class="banner-error">Couldn't load the order book (${liveBookError}). Retrying automatically every 15s — or tap "refresh now" above.</div>`
       : `${obLegend}<div class="ob-section-title">Order Book</div><div class="modal-note">Updating live order book depth…</div>`);
 
-  document.getElementById('modalBody').innerHTML = `
+  const _dmb = document.getElementById('modalBody');
+  const _dSavedScroll = captureLadderScroll(_dmb);
+  _dmb.innerHTML = `
     <details class="leg-detail" open>
       <summary>
         <div class="leg-summary-left">
@@ -3358,6 +3385,7 @@ function renderDirectModal(entry) {
 
     ${obSection}
   `;
+  restoreLadderScroll(_dmb, _dSavedScroll);
 }
 
 async function refreshDirectModalLive() {
@@ -3373,7 +3401,7 @@ async function refreshDirectModalLive() {
       || list[0];
     if (match) {
       directLiveEntry = match; liveBookError = null; liveFailStreak = 0;
-      liveCache[`${cachePfx()}${openCard.coin}:${openCard.buyExchange}:${openCard.buyMarket}`] = match;
+      liveCache[`${cachePfx()}direct:${openCard.coin}:${openCard.buyExchange}:${openCard.buyMarket}`] = match;
     }
     if (openCard) renderDirectModal(directLiveEntry || findOpportunity(openCard));
   } catch (err) {
@@ -3690,6 +3718,25 @@ function renderLoopModal() {
   `;
 }
 
+// The 3s live refresh rebuilds the ladder's HTML wholesale, which throws away
+// the .loop-scroll div the user was scrolled inside — so a horizontal scroll to
+// read leg 2 or leg 3 snapped back to leg 1 every 3 seconds, making the right-
+// hand columns impossible to actually read. These capture the scroll offsets
+// before a rewrite and put them back after, keyed by position so it works with
+// however many ladders a modal contains. Values still update underneath; only
+// the viewport stays where the user put it.
+function captureLadderScroll(root) {
+  const out = [];
+  if (!root) return out;
+  root.querySelectorAll('.loop-scroll, .oth-scroll').forEach(el => out.push(el.scrollLeft));
+  return out;
+}
+function restoreLadderScroll(root, saved) {
+  if (!root || !saved || !saved.length) return;
+  const els = root.querySelectorAll('.loop-scroll, .oth-scroll');
+  els.forEach((el, i) => { if (saved[i] != null) el.scrollLeft = saved[i]; });
+}
+
 // Request 4: refresh ONLY the numbers, level split, leg tables and order book
 // in place, so the modal never fully redraws while open (no flicker, no scroll
 // jump, open <details> stay open). Falls back to a full render if the expected
@@ -3707,7 +3754,9 @@ function updateLoopModalLive(entry) {
   const bod = loopLegBodies(entry, l);
   bod.forEach((h, i) => { const el = document.getElementById(`loopLeg${i + 1}Body`); if (el) el.innerHTML = h; });
   const fb  = document.getElementById('loopFeeBody'); if (fb) fb.innerHTML = loopFeeBodyHtml(l, c1, c2, entry);
+  const savedScroll = captureLadderScroll(slot);
   slot.innerHTML = loopObSectionHtml(entry);
+  restoreLadderScroll(slot, savedScroll);
 }
 
 let loopLiveEntry = null;   // last successful response from the loop live endpoint
@@ -3791,7 +3840,9 @@ function renderIntraLoopModal() {
       <div class="profit-sub">${op.pathLabel || ''}${l ? ` · max ${fmtCoin(l.qty,2)} ${coin} at top-of-book` : ''}</div>
     </div>`;
   }).join('') : `<div class="modal-note">No computable triangle right now (thin ${cardVenueName()} book).</div>`;
-  document.getElementById('modalBody').innerHTML = `
+  const _mb = document.getElementById('modalBody');
+  const _savedScroll = captureLadderScroll(_mb);
+  _mb.innerHTML = `
     <div class="note-box">Same-exchange ${cardVenueName()} triangle — top-of-book, instant, no transfers. The three books below are the markets it routes through.</div>
     ${pathHtml}
     ${legs ? `${intraShowBars
@@ -3802,6 +3853,7 @@ function renderIntraLoopModal() {
          : `<div class="note-box" style="margin-top:14px;">Triangle is negative right now — showing the plain order book (no consumption bars).</div>`}
        <div class="ob-section-title">Order Book</div>${loopOrderBookTable(legs, { showBars: intraShowBars })}` : '<div class="modal-note">Loading order book depth…</div>'}
   `;
+  restoreLadderScroll(_mb, _savedScroll);
 }
 
 async function refreshIntraLoopModalLive() {
@@ -4309,7 +4361,7 @@ function openCardModal(type, coin, coin1, coin2, buyExchange, buyMarket, entryVe
     venueId: _vc ? _vc.id : null, venueApi: _vc ? _vc.api : null };
   document.getElementById('modalOverlay').classList.remove('hidden');
   if (type === 'direct') {
-    directLiveEntry = liveCache[`${cachePfx()}${coin}:${buyExchange}:${buyMarket || ''}`] || null;
+    directLiveEntry = liveCache[`${cachePfx()}direct:${coin}:${buyExchange}:${buyMarket || ''}`] || null;
     liveBookError = null; liveFailStreak = 0;
     renderDirectModal(directLiveEntry || findOpportunity(openCard));
     refreshDirectModalLive();
@@ -4401,10 +4453,12 @@ async function fullRefresh() {
     if (String(fetchedVol) === String(withVolume)) {
       allOpportunities = data.opportunities;
       lastFetchTs = data.ts;
+      oppsAreSeed = false; // real server data — every tab may trust it now
       saveWarmSnapshot(); // the next fresh open paints THIS, not the seed
     } else if (volSnapCache[String(withVolume)]) {
       allOpportunities = volSnapCache[String(withVolume)].opportunities;
       lastFetchTs = volSnapCache[String(withVolume)].ts;
+      oppsAreSeed = false;
     }
   } catch (err) {
     ok = false;
