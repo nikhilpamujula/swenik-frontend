@@ -1307,7 +1307,7 @@
    is days old and there is no way to tell by looking. The wrapper reads this
    value and forces a hard reload when it does not match what it expects.
    BUMP THIS ON EVERY CHANGE TO THIS FILE.                                     */
-window.WB_BUILD = "2026-08-28b-evidence";
+window.WB_BUILD = "2026-08-28c-subcent";
 try{ document.title = "S/R Workbench · " + window.WB_BUILD; }catch(e){}
 </script>
 <script>
@@ -11965,9 +11965,30 @@ function renderAlerts(){
       h+='<div class="alCfg"><span>Hourly ceiling</span>'+
         [6,12,24,60].map(n=>'<button data-al-cap="'+n+'" class="'+(+cfg.maxPerHour===n?"on":"")+'">'+n+'</button>').join("")+
         '</div>';
+      /* The evidence gate withholds level alerts, so it needs an off switch on
+         the device you actually read alerts on — not a curl command.
+         Rendered ONLY when the server actually sends cfg.evidence, which makes
+         its absence a straight answer to "did the backend deploy?". An always-
+         on row would read "gate: on" against a backend that has no gate. */
+      const ev = cfg.evidence;
+      if(ev){
+        h+='<div class="alCfg"><span>\u{1F4D0} <b>Evidence gate</b> <small style="opacity:.6">levels only</small></span>'+
+          '<button data-al-ev="enabled" data-al-v="1" class="'+(ev.enabled!==false?"on":"")+'">on</button>'+
+          '<button data-al-ev="enabled" data-al-v="0" class="'+(ev.enabled===false?"on":"")+'">off</button>'+
+          '</div>';
+        if(ev.enabled!==false)
+          h+='<div class="alCfg"><span style="font-size:10.5px;color:var(--dim);padding-left:18px">rejections needed</span>'+
+            [1,2,3].map(n=>'<button data-al-ev="minTouches" data-al-v="'+n+'" class="'+(+ev.minTouches===n?"on":"")+'">'+n+'</button>').join("")+
+            '</div>';
+      }
       h+='<div class="cardNote"><b>off</b> stops that type entirely. <b>digest</b> records it but sends nothing until the '+
         (cfg.digestHours||6)+'-hour roll-up. <b>cooldown</b> is per subject — the same coin, same event stays quiet for that long. '+
-        'Stop-outs pierce quiet hours regardless; that is deliberate.</div>';
+        'Stop-outs pierce quiet hours regardless; that is deliberate.'+
+        (ev? ' <b>Evidence gate</b> holds back a level alert until price has actually rejected off that line the set '+
+             'number of times — a line the market has never reacted to is a guess, not a level. Nothing is lost: '+
+             'held-back alerts appear under \u{1F515} silenced with the reason.'
+           : ' <span style="opacity:.75">(No evidence gate on this backend — it is still serving the older watcher.)</span>')+
+        '</div>';
     }
     h+='</div>';
   }
@@ -12066,6 +12087,10 @@ function alWire(el){
     const p={modes:{}}; p.modes[b.dataset.alMode]=b.dataset.alV; alSetCfg(p); });
   el.querySelectorAll("[data-al-cd]").forEach(b=>b.onclick=()=>{
     const p={cooldownMin:{}}; p.cooldownMin[b.dataset.alCd]=+b.dataset.alV; alSetCfg(p); });
+  el.querySelectorAll("[data-al-ev]").forEach(b=>b.onclick=()=>{
+    const k=b.dataset.alEv, raw=b.dataset.alV, p={evidence:{}};
+    p.evidence[k] = k==="enabled" ? raw==="1" : +raw;
+    alSetCfg(p); });
   el.querySelectorAll("[data-al-cap]").forEach(b=>b.onclick=()=>alSetCfg({maxPerHour:+b.dataset.alCap}));
   const t=el.querySelector("#alTick"); if(t) t.onclick=()=>alTickNow(t);
   const r=el.querySelector("#alRules"); if(r) r.onclick=()=>{ A.open["__rules"]=!A.open["__rules"]; A.sig=null; renderAlerts(); };
