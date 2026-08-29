@@ -3184,6 +3184,7 @@ function renderCards() {
     let list = allOpportunities.filter(o => o.type === 'intraloop');
     if (!list.length) {
       list0.innerHTML = `<div class="empty-state"><span class="emoji">🔄</span>No intra-loop data yet. If the backend hasn't been redeployed with the intra-loop engine, deploy the updated compute.js first — otherwise there may just be no computable triangles right now.</div>`;
+      painted();   // a settled answer for this view: there are no triangles
       return;
     }
     if (f.exchange) list = list.filter(o => (o.exchange || 'wazirx') === f.exchange);
@@ -3194,25 +3195,31 @@ function renderCards() {
     list = sortList(list);
     if (!list.length) {
       list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No intra-loop opportunities match the current filters.</div>`;
+      painted();
       return;
     }
     paintCappedCards(list0, list, intraLoopCard);
+    painted();
     return;
   }
   if (!hasLoadedOnce) {
+    // Provisional: deliberately NOT stamped, so the next poll comes back and
+    // paints the real thing.
     list0.innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>Loading opportunities…</div>`;
     return;
   }
   if (allOpportunities.length === 0) {
     list0.innerHTML = `<div class="empty-state"><span class="emoji">⚠️</span>No data from the scanner yet. It may still be starting up — try Refresh in a moment.</div>`;
-    return;
+    return;   // provisional too — the scanner is still warming up
   }
   const list = filteredOpportunities();
   if (list.length === 0) {
     list0.innerHTML = `<div class="empty-state"><span class="emoji">🔍</span>No arbitrage was found for the selected filters. Try changing them.</div>`;
+    painted();
     return;
   }
   paintCappedCards(list0, list, o => o.type === 'direct' ? directCard(o) : loopCard(o));
+  painted();
 }
 
 // ================================================================
@@ -8929,7 +8936,7 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     // token below changes the URL on every release (so the cache misses once and
     // then caches normally), and after load we compare the frame's own stamp and
     // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
-    var WB_VER = '2026-08-29a-paintsig';   // a NEWER workbench is fine; only an older one is an error
+    var WB_VER = '2026-08-29b-paintsig2';   // a NEWER workbench is fine; only an older one is an error
 
     function wbMount() {
       if (document.getElementById('wbFull')) return;      // already up → never rebuild
