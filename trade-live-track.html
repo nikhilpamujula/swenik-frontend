@@ -136,11 +136,6 @@
     background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10);
     padding: 5px 10px; border-radius: 999px; white-space: nowrap; font-variant-numeric: tabular-nums;
   }
-  /* "Live · just now" -> "Live · Ns old" swap width every tick, and it visibly
-     resized the pill (and everything after it) each refresh. Fixed to the
-     widest common phrase so the pill's box stays put; text stays centered as
-     the digit count changes underneath it. */
-  #nextRefresh { min-width: 15ch; text-align: center; }
   #refreshBtn {
     background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28);
     border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
@@ -520,7 +515,7 @@
   .g-ov-head { position:sticky; top:0; display:flex; align-items:center; gap:10px; padding:12px 14px; background:var(--primary); z-index:2; box-shadow:0 2px 8px rgba(15,28,51,.25); }
   .g-ov-back { border:0; background:rgba(255,255,255,.14); color:#fff; font-size:19px; line-height:1; padding:9px 15px; border-radius:9px; cursor:pointer; }
   .g-ov-title { flex:1; display:flex; flex-wrap:wrap; gap:4px; align-items:center; min-width:0; }
-  .g-ov-age { font-size:11px; font-weight:700; padding:5px 9px; border-radius:999px; white-space:nowrap; display:inline-block; min-width:112px; text-align:center; font-variant-numeric:tabular-nums; }
+  .g-ov-age { font-size:11px; font-weight:700; padding:5px 9px; border-radius:999px; white-space:nowrap; }
   .g-ov-age.ok { background:#123c26; color:#5ee49a; }
   .g-ov-age.warn { background:#3c3212; color:#e4c95e; }
   .g-ov-age.bad { background:#3c1212; color:#e87676; }
@@ -1076,31 +1071,6 @@ let hasLoadedOnce = true;
 // browser's own storage, so the NEXT open paints the last real data
 // instantly — real coins, honest timestamp — while the live fetch runs
 // behind it. The seed remains only for a truly first-ever visit.
-// SEED_DATA is a direct-only snapshot (every baked row is type:"direct"), and
-// the warm snapshot can be too if it was saved before the backend started
-// returning loop/intraloop rows. Both feed allOpportunities, which is what the
-// Loop and Intra Loop tabs read — so on a cold load those tabs have nothing of
-// their own type to draw. Marking the array's provenance lets them say
-// "Loading…" instead of showing an empty state that reads as "checked, found
-// nothing" when nothing has actually been checked yet.
-//
-// SCOPE — read this before assuming more of the flag than it does:
-// This is a cold-load EMPTY-STATE fix and nothing else. It was added in the
-// 2026-08-24a session while chasing "Intra Loop shows Direct arbitrage
-// details", on the theory that the seed window was responsible. That theory is
-// wrong, for two independent reasons:
-//   1. Both Intra Loop render paths filter by type before painting
-//      (`allOpportunities.filter(o => o.type === 'intraloop')`, and the venue
-//      tab's `else if (o.type === 'intraloop')`). A direct-only array yields
-//      an EMPTY list through either path. It cannot produce direct rows under
-//      an Intra Loop heading — the type filter has always stood in the way.
-//   2. The reported symptom is direct content in the MODAL, not direct rows in
-//      the list. The modal does not read allOpportunities' provenance at all.
-// The actual cause was a stale-async-write race between the modal refreshers;
-// see the modalSeq comment near the openCard declarations. This flag is kept
-// purely because the "Loading…" state is better than the empty one — do not
-// treat it as load-bearing for the Intra Loop bug, and do not revert the
-// modalSeq work on the theory that this flag covers it.
 function oppTypesPresent(list) {
   const s = new Set();
   for (const o of (list || [])) if (o && o.type) s.add(o.type);
@@ -1169,6 +1139,7 @@ let modalSeq = 0;
 function modalCurrent(seq) { return openCard !== null && seq === modalSeq; }
 // Same, for the futures modal (which tracks futModalCoin, not openCard).
 function futModalCurrent(seq) { return futModalCoin !== null && seq === modalSeq; }
+
 
 // ================================================================
 // FORMATTING
@@ -2689,6 +2660,17 @@ async function vRefresh() {
   }
 }
 
+function captureLadderScroll(root) {
+  const out = [];
+  if (!root) return out;
+  root.querySelectorAll('.loop-scroll, .oth-scroll').forEach(el => out.push(el.scrollLeft));
+  return out;
+}
+function restoreLadderScroll(root, saved) {
+  if (!root || !saved || !saved.length) return;
+  const els = root.querySelectorAll('.loop-scroll, .oth-scroll');
+  els.forEach((el, i) => { if (saved[i] != null) el.scrollLeft = saved[i]; });
+}
 function renderVenuePage() {
   const v = venueCfg(); if (!v) return;
   // Stamped at the BOTTOM, on the paths that actually paint — never here. The
@@ -2854,6 +2836,7 @@ function futuresCard(o) {
     </div>
   </div>`;
 }
+
 function renderFuturesPage() {
   const el = document.getElementById('cardList');
   if (!futSnap) { el.innerHTML = `<div class="empty-state">${futErr ? `Couldn't reach the futures engine (${futErr}).` : '⏳ Connecting…'}</div>`; return; }
@@ -3793,25 +3776,6 @@ function renderLoopModal() {
 
     <div id="loopObSlot">${loopObSectionHtml(entry)}</div>
   `;
-}
-
-// The 3s live refresh rebuilds the ladder's HTML wholesale, which throws away
-// the .loop-scroll div the user was scrolled inside — so a horizontal scroll to
-// read leg 2 or leg 3 snapped back to leg 1 every 3 seconds, making the right-
-// hand columns impossible to actually read. These capture the scroll offsets
-// before a rewrite and put them back after, keyed by position so it works with
-// however many ladders a modal contains. Values still update underneath; only
-// the viewport stays where the user put it.
-function captureLadderScroll(root) {
-  const out = [];
-  if (!root) return out;
-  root.querySelectorAll('.loop-scroll, .oth-scroll').forEach(el => out.push(el.scrollLeft));
-  return out;
-}
-function restoreLadderScroll(root, saved) {
-  if (!root || !saved || !saved.length) return;
-  const els = root.querySelectorAll('.loop-scroll, .oth-scroll');
-  els.forEach((el, i) => { if (saved[i] != null) el.scrollLeft = saved[i]; });
 }
 
 // Request 4: refresh ONLY the numbers, level split, leg tables and order book
@@ -8828,10 +8792,6 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     function bfFetch() {
       if (bfInFlight || !bfActive()) return;
       bfInFlight = true;
-      // DELIBERATELY SPOT: these are the scanner's Spot-vs-Perp basis tabs —
-      // the spot price here is the spot LEG of the premium arithmetic, not a
-      // chart. Priced on the perp it would compare the perp to itself. The
-      // futures-only rule covers the workbench + research, never this math.
       var spotP = fetch('https://api.binance.com/api/v3/ticker/price').then(function (r) {
         if (!r.ok) throw new Error('spot ' + r.status); return r.json();
       }).catch(function () {
@@ -8872,7 +8832,6 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
              + label + (n != null ? ' (' + n + ')' : '') + '</button>';
       };
       return '<div class="g-seg" style="grid-column:1/-1; margin-bottom:10px; justify-self:start;">'
-        + b('workbench', '📈 S/R Workbench', null)
         + b('engine', 'WazirX ⇄ Binance perps', null)
         + b('common', 'Spot vs Perp — WazirX coins', counts && counts.common)
         + b('others', 'Spot vs Perp — others', counts && counts.others)
@@ -8917,211 +8876,8 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
         + (flat  ? '<div style="margin-top:6px; font-size:11px; font-weight:700; color:var(--gray-500, #64748b);">◎ near round-off (≤ ' + BF_ROUNDOFF_PCT + '%)</div>' : '')
         + '</div>';
     }
-    // S/R Workbench sub-tab — the standalone TA app is a FULL-SCREEN desktop
-    // tool; squeezing it into the card grid beside the sidebar gave a narrow
-    // column, nested double-scroll and clipped tabs. So it mounts as a fixed
-    // full-viewport layer that escapes the sidebar and page chrome entirely,
-    // with its own slim bar to come back. Mount is idempotent: the page's 4s
-    // refresh tick must never reload the iframe (it would wipe a chart in use).
-    // The build of sr-workbench.html this wrapper expects. The iframe src used to
-    // be a constant URL, so a phone browser served whatever it had cached and a
-    // fresh deploy looked identical to no deploy at all. Two defences: the ?v=
-    // token below changes the URL on every release (so the cache misses once and
-    // then caches normally), and after load we compare the frame's own stamp and
-    // force a hard reload if they disagree. BUMP THIS WITH window.WB_BUILD.
-    var WB_VER = '2026-08-29a-paintsig';   // a NEWER workbench is fine; only an older one is an error
-
-    function wbMount() {
-      if (document.getElementById('wbFull')) return;      // already up → never rebuild
-      var d = document.createElement('div');
-      d.id = 'wbFull';
-      // MOBILE VIEWPORT: inset:0 resolves against the LARGE viewport, so the
-      // bottom of the layer hides behind the phone browser's URL/title bar and
-      // the workbench's bottom sheet gets clipped. 100dvh tracks the *visible*
-      // viewport as that chrome shows/hides. 100vh first as the fallback for
-      // engines without dvh; dvh wins wherever it is understood.
-      d.style.cssText = 'position:fixed; top:0; left:0; right:0; height:100vh; height:100dvh;'
-        + ' z-index:9998; background:#0b1220; display:flex; flex-direction:column; overflow:hidden;'
-        + ' padding-bottom:env(safe-area-inset-bottom,0px);';
-      // On a phone this is one workbench, exactly as before. On a desktop monitor
-      // there is room for two or four independent ones — each its own iframe, its
-      // own pair, its own chart. Not a split view of one workbench: four real
-      // workbenches, so nothing about the single-pane code has to change.
-      var wide = window.innerWidth >= 1000;
-      d.innerHTML =
-        '<div style="flex:none; display:flex; align-items:center; gap:10px; padding:6px 10px; background:#0f1c33; color:#fff; font-size:12.5px; font-weight:700;">'
-        +  '<button onclick="wbExit()" style="background:#22375f; color:#fff; border:0; border-radius:8px; padding:6px 12px; font-weight:700; cursor:pointer;">← Futures</button>'
-        +  '<span style="opacity:.85;">📈 S/R Workbench</span>'
-        +  (wide? '<span id="wbLayout" style="display:flex; gap:4px; margin-left:14px;"></span>' : '')
-        +  '<span id="wbBuild" style="margin-left:auto; opacity:.5; font-weight:500; font-size:10.5px; font-family:ui-monospace,Menlo,monospace;">' + WB_VER + '</span>'
-        + '</div>'
-        + '<div id="wbPanes" style="flex:1; min-height:0; display:grid; gap:2px; background:#050810;"></div>';
-      document.body.appendChild(d);
-      wbLayoutInit(wide);
-      document.body.style.overflow = 'hidden';            // kill the outer scrollbar → no double-scroll
-      wbVerify();
-    }
-
-    // Same-origin iframe, so we can read its build stamp directly. If it does not
-    // match, the browser served a cached copy: bust it once with a timestamp. If
-    // it STILL disagrees the deployed file itself is old — say so in the bar
-    // rather than leaving you to infer it from missing features.
-    /* exposed alongside wbUnmount: same surface, and it gives the layout tests a
-       real entry point instead of driving six unrelated bits of app state */
-    window.wbMount = wbMount;
-    window.wbUnmount = function () {
-      var d = document.getElementById('wbFull');
-      if (d) d.parentNode.removeChild(d);
-      document.body.style.overflow = '';
-    };
-    window.wbExit = function () { window.wbUnmount(); bfSetTab('engine'); };
-
-    // Build ids are yyyy-mm-dd<letter>-slug, so a plain string compare orders
-    // them — but ONLY if both actually look like one. Anything unrecognised is
-    // treated as unknown rather than newer: guessing "newer" would mean never
-    // busting a stale cache, which is the failure this whole check exists for.
-    var BUILD_RE = /^\d{4}-\d{2}-\d{2}[a-z]?(-|$)/;
-    function buildNewer(a, b) {
-      return BUILD_RE.test(String(a)) && BUILD_RE.test(String(b)) && String(a) > String(b);
-    }
-
-    /* ---------- multi-pane -------------------------------------------------
-       Pane count and pane pairs survive a reload, because a two-monitor layout
-       you have to rebuild every morning is one you stop using. Pane 0 keeps the
-       id wbTabFrame so the build check keeps working unchanged.             */
-    var WB_PANE_KEY = 'wb:panes';
-    function wbPaneState() {
-      try {
-        var raw = JSON.parse(localStorage.getItem(WB_PANE_KEY) || 'null');
-        if (raw && typeof raw === 'object' && Array.isArray(raw.syms))
-          return { n: Math.min(4, Math.max(1, +raw.n || 1)), syms: raw.syms.slice(0, 4) };
-      } catch (e) {}
-      return { n: 1, syms: [] };
-    }
-    function wbPaneSave(st) { try { localStorage.setItem(WB_PANE_KEY, JSON.stringify(st)); } catch (e) {} }
-    /* tile=1 tells the workbench it is one of several on a monitor: it then
-       starts chart-first and stops writing shared UI preferences, so four panes
-       do not fight over "which tab was open". */
-    function wbPaneSrc(sym, i, tiled) {
-      return 'sr-workbench.html?v=' + encodeURIComponent(WB_VER)
-           + '&apibase=' + encodeURIComponent(API_BASE)
-           + (tiled ? '&tile=1&pane=' + i : '')
-           + (sym ? '&symbol=' + encodeURIComponent(sym) : '');
-    }
-    function wbNormSym(v) {
-      v = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (!v) return '';
-      return /USDT$/.test(v) ? v : v + 'USDT';
-    }
-    function wbLayoutInit(wide) {
-      var st = wbPaneState();
-      if (!wide) st.n = 1;
-      wbRenderPanes(st);
-      var bar = document.getElementById('wbLayout');
-      if (!bar) return;
-      [1, 2, 4].forEach(function (n) {
-        var b = document.createElement('button');
-        b.textContent = n === 1 ? '▯ 1' : n === 2 ? '▮▮ 2' : '▦ 4';
-        b.title = n + ' workbench' + (n === 1 ? '' : 'es') + ' side by side';
-        b.style.cssText = 'border:0;border-radius:7px;padding:5px 9px;font-weight:700;font-size:11px;cursor:pointer;'
-          + (st.n === n ? 'background:#2DD4BF;color:#062b28;' : 'background:#22375f;color:#cfe0ff;');
-        b.onclick = function () {
-          var cur = wbPaneState(); cur.n = n; wbPaneSave(cur);
-          wbRenderPanes(cur);
-          [].forEach.call(bar.children, function (x, k) {
-            var on = [1, 2, 4][k] === n;
-            x.style.background = on ? '#2DD4BF' : '#22375f';
-            x.style.color = on ? '#062b28' : '#cfe0ff';
-          });
-          wbVerify();
-        };
-        bar.appendChild(b);
-      });
-    }
-    function wbRenderPanes(st) {
-      var host = document.getElementById('wbPanes');
-      if (!host) return;
-      host.style.gridTemplateColumns = st.n === 1 ? '1fr' : '1fr 1fr';
-      host.style.gridTemplateRows    = st.n === 4 ? '1fr 1fr' : '1fr';
-      host.innerHTML = '';
-      for (var i = 0; i < st.n; i++) (function (i) {
-        var sym = st.syms[i] || '';
-        var cell = document.createElement('div');
-        cell.style.cssText = 'display:flex; flex-direction:column; min-width:0; min-height:0; background:#0b1220;';
-        var head = document.createElement('div');
-        head.style.cssText = 'flex:none; display:' + (st.n > 1 ? 'flex' : 'none') + '; align-items:center; gap:6px;'
-          + ' padding:4px 7px; background:#111a2c; border-bottom:1px solid #1b2740;';
-        head.innerHTML = '<span style="font-size:10px;font-weight:800;color:#7f8da8;letter-spacing:.6px;">PANE ' + (i + 1) + '</span>';
-        var inp = document.createElement('input');
-        inp.value = sym ? sym.replace(/USDT$/, '') : '';
-        inp.placeholder = 'pair, e.g. SOL';
-        inp.spellcheck = false;
-        inp.style.cssText = 'flex:none;width:96px;background:#0b1220;border:1px solid #22375f;color:#e6edf8;'
-          + 'border-radius:6px;padding:3px 7px;font-size:11.5px;font-weight:700;text-transform:uppercase;';
-        var go = function () {
-          var v = wbNormSym(inp.value);
-          var cur = wbPaneState(); cur.syms[i] = v; wbPaneSave(cur);
-          var fr = document.getElementById(i ? 'wbPane' + i : 'wbTabFrame');
-          if (fr) fr.src = wbPaneSrc(v, i, wbPaneState().n > 1);
-        };
-        inp.onkeydown = function (e) { if (e.key === 'Enter') go(); };
-        inp.onblur = go;
-        head.appendChild(inp);
-        cell.appendChild(head);
-        var f = document.createElement('iframe');
-        f.id = i ? 'wbPane' + i : 'wbTabFrame';
-        f.title = 'S/R Workbench pane ' + (i + 1);
-        f.src = wbPaneSrc(sym, i, st.n > 1);
-        f.style.cssText = 'flex:1; width:100%; border:0; display:block; min-height:0;';
-        cell.appendChild(f);
-        host.appendChild(cell);
-      })(i);
-    }
-    function wbVerify() {
-      var f = document.getElementById('wbTabFrame');
-      var tag = document.getElementById('wbBuild');
-      if (!f || !tag) return;
-      var calm = function (txt) { tag.textContent = txt; tag.style.opacity = '.5'; tag.style.color = ''; };
-      var tries = 0;
-      var check = function () {
-        var got;
-        try { got = f.contentWindow && f.contentWindow.WB_BUILD; } catch (e) { return; }
-        if (got === WB_VER) { calm(WB_VER); return; }
-        if (got === undefined) { if (++tries < 40) setTimeout(check, 250); return; }
-
-        // The workbench is AHEAD of this wrapper. That is the NORMAL state
-        // between deploying sr-workbench.html and getting round to this file,
-        // and the first version screamed about it in red and triggered a
-        // pointless cache-bust reload. The copy already loaded is the fresh one:
-        // say so quietly and do nothing.
-        if (buildNewer(got, WB_VER)) { calm(got + '  ·  wrapper ' + WB_VER); return; }
-
-        // Only the other direction is a real problem: the browser served a
-        // workbench OLDER than this wrapper expects, i.e. a cached copy.
-        if (!f.dataset.busted) {
-          f.dataset.busted = '1';
-          calm('refreshing…');
-          f.src = 'sr-workbench.html?v=' + encodeURIComponent(WB_VER) + '.' + Date.now()
-                + '&apibase=' + encodeURIComponent(API_BASE);
-          tries = 0; setTimeout(check, 900);
-          return;
-        }
-        tag.textContent = '⚠ cached workbench ' + got + ' — expected ' + WB_VER + ' or newer';
-        tag.style.opacity = '1'; tag.style.color = '#ffb3be';
-      };
-      f.addEventListener('load', function () { tries = 0; setTimeout(check, 120); });
-      setTimeout(check, 400);
-    }
-
-    function wbRenderTab() {
-      var el = document.getElementById('cardList');
-      // keep the tab bar painted underneath, so exiting lands on a correct page
-      if (el && String(el.innerHTML).indexOf('bfSetTab') < 0) el.innerHTML = bfBar(bfCounts());
-      wbMount();
-    }
     function bfRender() {
       if (currentPage !== 'futures' || bfTab === 'engine') return;
-      if (bfTab === 'workbench') { wbRenderTab(); return; }
       if (bfTab === 'research') { rsRender(); return; }
       if (bfTab === 'mycoins') { hcRender(); return; }
       var el = document.getElementById('cardList');
@@ -9152,8 +8908,6 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     window.bfSetTab = function (t) {
       bfTab = t;
       try { localStorage.setItem('swenik-bf-tab', t); } catch (e) {}
-      if (t !== 'workbench' && window.wbUnmount) window.wbUnmount();
-      if (t === 'workbench') { wbRenderTab(); return; }
       if (t === 'engine') { window.renderFuturesPage(); return; }
       if (t === 'research') { rsRender(); return; } // on-demand only — no polling
       if (t === 'mycoins') { hcRender(); hcSync(); hcTick(true); return; } // server list first, then live eval
@@ -9309,7 +9063,20 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       return { score: v, notes: notes };
     }
     function rsSeries(kl) { // kl: binance kline rows
-      var o = { t: [], c: [], h: [], l: [], vol: [] };
+      // ACCURACY FIX (9 Aug): drop the still-FORMING candle before scoring.
+      // Binance returns the in-progress bar as the last kline row; every rs*
+      // function reads i = length-1, so RSI/MACD/trend/volume were all being
+      // computed on a half-built candle whose values swing until it closes —
+      // the root cause of unstable, wrong-looking reads. kl[i][6] is the bar's
+      // close time (ms); if it's in the future the bar is still open, so we
+      // score only CLOSED bars. o.live keeps the true last price for display.
+      var liveClose = kl && kl.length ? +kl[kl.length - 1][4] : null;
+      var liveOpen = false;
+      if (kl && kl.length > 1) {
+        var lastCloseMs = +kl[kl.length - 1][6];
+        if (lastCloseMs && lastCloseMs > Date.now()) { kl = kl.slice(0, -1); liveOpen = true; }
+      }
+      var o = { t: [], c: [], h: [], l: [], vol: [], live: liveClose, liveOpen: liveOpen };
       for (var i = 0; i < kl.length; i++) {
         o.t.push(+kl[i][0]); o.c.push(+kl[i][4]); o.h.push(+kl[i][2]); o.l.push(+kl[i][3]); o.vol.push(+kl[i][5]);
       }
@@ -9349,33 +9116,10 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     function rsJson(url) {
       return fetch(url).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     }
-    function rsPerp(path) {
-      // USDT-M futures — the only market he trades. Every research and
-      // holdings series comes from here so verdicts describe a market he can
-      // touch. His scope rule: everything on futures EXCEPT the scanner and
-      // the Spot-vs-Perp basis tabs (whose spot fetch is the basis math's
-      // own leg). rsSpot is gone — no other spot reads exist in this file.
-      return rsJson('https://fapi.binance.com' + path);
-    }
-    function rsPerpKl(sym, mult, interval, limit) {
-      // Perp klines rescaled to COIN units. A 1000PEPE candle is 1000 PEPE —
-      // judged raw against a buy price in plain PEPE it reads as +99,900%
-      // (the same trap bfBuild documents). Divide OHLC by the multiplier so
-      // every downstream number speaks the units his buy price speaks.
-      return rsPerp('/fapi/v1/klines?symbol=' + sym + '&interval=' + interval + '&limit=' + (limit || 300))
-        .then(function (kl) {
-          if (!mult || mult === 1) return kl;
-          return kl.map(function (k) {
-            var r = k.slice();
-            r[1] = +k[1] / mult; r[2] = +k[2] / mult; r[3] = +k[3] / mult; r[4] = +k[4] / mult;
-            return r;
-          });
-        });
-    }
-    function rsPerpMult(coin, sym) {
-      // exact-match against the tries rsPerpSym makes — prefix-sniffing would
-      // misread coins whose NAME starts with a digit (1INCH is not 1×INCH)
-      return sym === coin + 'USDT' ? 1 : sym === '1000' + coin + 'USDT' ? 1000 : 1e6;
+    function rsSpot(path) {
+      return rsJson('https://api.binance.com' + path).catch(function () {
+        return rsJson('https://data-api.binance.vision' + path);
+      });
     }
     function rsPerpSym(coin) { // resolve perp symbol incl. 1000x variants
       var tries = [coin + 'USDT', '1000' + coin + 'USDT', '1M' + coin + 'USDT'];
@@ -9398,54 +9142,46 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       try { localStorage.setItem('swenik-rs-coin', coin); } catch (e) {}
       rsRender();
       var out = { coin: coin, at: Date.now(), tfs: {}, news: {} };
-      // FUTURES-FIRST: resolve which USDT-M perpetual this coin trades as
-      // (PEPE → 1000PEPEUSDT and friends), THEN pull every price series from
-      // that perp. He trades futures only — a dossier built on spot klines
-      // would describe a market he cannot touch. Coingecko and fear&greed
-      // stay: they are market-wide context, not price series.
-      rsPerpSym(coin).then(function (p) {
+      var jobs = [];
+      RS_TFS.forEach(function (T) {
+        jobs.push(rsSpot('/api/v3/klines?symbol=' + coin + 'USDT&interval=' + T.tf + '&limit=400')
+          .then(function (kl) { out.tfs[T.tf] = rsSeries(kl); })
+          .catch(function (e) { out.tfs[T.tf] = null; out.klErr = e.message; }));
+      });
+      jobs.push(rsSpot('/api/v3/ticker/24hr?symbol=' + coin + 'USDT')
+        .then(function (t) { out.day = t; }).catch(function () {}));
+      // BTC context: the tide every alt swims in. 4h for trend, 1h for correlation.
+      jobs.push(rsSpot('/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=300')
+        .then(function (kl) { out.btc4 = rsSeries(kl); }).catch(function () {}));
+      if (coin !== 'BTC') jobs.push(rsSpot('/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=300')
+        .then(function (kl) { out.btc1 = rsSeries(kl); }).catch(function () {}));
+      jobs.push(rsJson('https://api.coingecko.com/api/v3/global')
+        .then(function (g) { out.global = g && g.data; }).catch(function () {}));
+      jobs.push(rsPerpSym(coin).then(function (p) {
         out.perp = p;
-        var sym = p ? p.sym : coin + 'USDT';   // no perp resolved → try the plain name; the error below stays honest
-        out.sym = sym;
-        var jobs = [];
-        RS_TFS.forEach(function (T) {
-          jobs.push(rsPerp('/fapi/v1/klines?symbol=' + sym + '&interval=' + T.tf + '&limit=400')
-            .then(function (kl) { out.tfs[T.tf] = rsSeries(kl); })
-            .catch(function (e) { out.tfs[T.tf] = null; out.klErr = e.message; }));
-        });
-        jobs.push(rsPerp('/fapi/v1/ticker/24hr?symbol=' + sym)
-          .then(function (t) { out.day = t; }).catch(function () {}));
-        // BTC context: the tide every alt swims in. 4h for trend, 1h for correlation.
-        jobs.push(rsPerp('/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=300')
-          .then(function (kl) { out.btc4 = rsSeries(kl); }).catch(function () {}));
-        if (coin !== 'BTC') jobs.push(rsPerp('/fapi/v1/klines?symbol=BTCUSDT&interval=1h&limit=300')
-          .then(function (kl) { out.btc1 = rsSeries(kl); }).catch(function () {}));
-        jobs.push(rsJson('https://api.coingecko.com/api/v3/global')
-          .then(function (g) { out.global = g && g.data; }).catch(function () {}));
-        if (p) {
-          jobs.push(Promise.all([
-            rsJson('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + p.sym + '&period=15m&limit=96')
-              .then(function (x) { out.oi = x; }).catch(function () {}),
-            rsJson('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=' + p.sym + '&period=1h&limit=2')
-              .then(function (x) { out.ls = x; }).catch(function () {}),
-            rsJson('https://fapi.binance.com/futures/data/takerlongshortRatio?symbol=' + p.sym + '&period=1h&limit=2')
-              .then(function (x) { out.taker = x; }).catch(function () {})
-          ]));
-        }
-        jobs.push(rsJson('https://api.alternative.me/fng/?limit=2')
-          .then(function (x) { out.fng = x && x.data; }).catch(function () {}));
-        jobs.push(rsJson('https://api.coingecko.com/api/v3/search?query=' + coin)
-          .then(function (s) {
-            var hit = (s.coins || []).filter(function (c) { return String(c.symbol).toUpperCase() === coin; })[0] || (s.coins || [])[0];
-            if (!hit) return;
-            out.cgId = hit.id;
-            return rsJson('https://api.coingecko.com/api/v3/coins/' + hit.id + '?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false')
-              .then(function (c) { out.cg = c; });
-          }).catch(function () {}));
-        return Promise.all(jobs);
-      }).then(function () {
+        if (!p) return;
+        return Promise.all([
+          rsJson('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + p.sym + '&period=15m&limit=96')
+            .then(function (x) { out.oi = x; }).catch(function () {}),
+          rsJson('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=' + p.sym + '&period=1h&limit=2')
+            .then(function (x) { out.ls = x; }).catch(function () {}),
+          rsJson('https://fapi.binance.com/futures/data/takerlongshortRatio?symbol=' + p.sym + '&period=1h&limit=2')
+            .then(function (x) { out.taker = x; }).catch(function () {})
+        ]);
+      }).catch(function () {}));
+      jobs.push(rsJson('https://api.alternative.me/fng/?limit=2')
+        .then(function (x) { out.fng = x && x.data; }).catch(function () {}));
+      jobs.push(rsJson('https://api.coingecko.com/api/v3/search?query=' + coin)
+        .then(function (s) {
+          var hit = (s.coins || []).filter(function (c) { return String(c.symbol).toUpperCase() === coin; })[0] || (s.coins || [])[0];
+          if (!hit) return;
+          out.cgId = hit.id;
+          return rsJson('https://api.coingecko.com/api/v3/coins/' + hit.id + '?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false')
+            .then(function (c) { out.cg = c; });
+        }).catch(function () {}));
+      Promise.all(jobs).then(function () {
         var any = RS_TFS.some(function (T) { return out.tfs[T.tf]; });
-        if (!any) { rsErr = 'No Binance USDT-M perpetual found for ' + coin + (out.klErr ? ' (' + out.klErr + ')' : ''); }
+        if (!any) { rsErr = 'No Binance spot market found for ' + coin + '/USDT' + (out.klErr ? ' (' + out.klErr + ')' : ''); }
         else rsReport = out;
       }).catch(function (e) { rsErr = e.message; })
         .then(function () { rsBusy = false; rsRender(); });
@@ -10146,20 +9882,11 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       function nextCoin() {
         if (idx >= list.length) { hcBusy = false; hcRender(); try { updateVenueTabCounts(); } catch (e) {} return; }
         var h = list[idx++];
-        // FUTURES, per his scope rule ("except the scanner and the basis
-        // tabs"). The perp symbol is resolved per coin and its series is
-        // rescaled to coin units so h.buy compares like-for-like. Caveat he
-        // accepted with the rule: the P&L is now measured against the perp
-        // price, which sits a basis away from any spot venue he bought on.
-        rsPerpSym(h.coin).then(function (p) {
-          if (!p) throw new Error('no USDT-M perpetual for ' + h.coin);
-          var mult = rsPerpMult(h.coin, p.sym);
-          return Promise.all([
-            rsPerpKl(p.sym, mult, '15m'),
-            rsPerpKl(p.sym, mult, '1h'),
-            rsPerpKl(p.sym, mult, '4h')
-          ]);
-        }).then(function (r) {
+        Promise.all([
+          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=15m&limit=300'),
+          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=1h&limit=300'),
+          rsSpot('/api/v3/klines?symbol=' + h.coin + 'USDT&interval=4h&limit=300')
+        ]).then(function (r) {
           hcState[h.coin + '@' + h.buy] = hcJudge(h, rsSeries(r[0]), rsSeries(r[1]), rsSeries(r[2]));
         }).catch(function (e) {
           hcState[h.coin + '@' + h.buy] = { err: e.message, at: Date.now() };
