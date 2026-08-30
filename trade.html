@@ -848,6 +848,11 @@
 
   <!-- ACTIVITY -->
   <div class="tabpane" id="tab-activity">
+    <div class="filters" id="actModes">
+      <button class="fbtn active" data-m="all" onclick="setActMode('all')">All money</button>
+      <button class="fbtn" data-m="live" onclick="setActMode('live')">🔴 Live</button>
+      <button class="fbtn" data-m="paper" onclick="setActMode('paper')">Paper</button>
+    </div>
     <div class="filters" id="actFilters">
       <button class="fbtn active" data-f="all" onclick="setActFilter('all')">All</button>
       <button class="fbtn" data-f="done" onclick="setActFilter('done')">Done</button>
@@ -1097,6 +1102,10 @@ let ST = null;
 let orders = [];
 let editingRuleId = null;
 let actFilter = 'all';
+// Which money is on screen. Sticky across reloads, because "I only care about
+// LIVE" is a standing preference, not a per-visit one.
+let actMode = 'all';
+try { actMode = localStorage.getItem('swenik.actMode') || 'all'; } catch (e) { actMode = 'all'; }
 const openTimelines = new Set();
 
 // ---------------- tabs ----------------
@@ -1906,7 +1915,15 @@ function stClass(o) {
   if (o.ok === null || o.ok === undefined) return ['running', o.status || 'running', 's-running'];
   return ['done', o.status, 's-done'];
 }
-function passFilter(o) {
+// Mode and status are INDEPENDENT axes, deliberately. A single row of chips
+// would force "Live" and "Failed" to be alternatives, when the question that
+// actually gets asked at 9pm is "show me the LIVE ones that FAILED". Two rows,
+// ANDed, answer that in two taps.
+function passMode(o) {
+  if (actMode === 'all') return true;
+  return String(o.mode || '').toLowerCase() === actMode;
+}
+function passStatus(o) {
   if (actFilter === 'all') return true;
   if (actFilter === 'done') return o.status === 'done';
   if (actFilter === 'open') return o.status === 'hedged_open';
@@ -1915,9 +1932,16 @@ function passFilter(o) {
   if (actFilter === 'failed') return o.ok === false && o.status !== 'skipped' && o.status !== 'missed';
   return true;
 }
+function passFilter(o) { return passMode(o) && passStatus(o); }
 function setActFilter(f) {
   actFilter = f;
   document.querySelectorAll('#actFilters .fbtn').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  renderOrders();
+}
+function setActMode(m) {
+  actMode = m;
+  try { localStorage.setItem('swenik.actMode', m); } catch (e) {}
+  document.querySelectorAll('#actModes .fbtn').forEach(b => b.classList.toggle('active', b.dataset.m === m));
   renderOrders();
 }
 
@@ -2091,6 +2115,9 @@ if (SANDBOX) {
   $('sandboxBar').style.display = 'block';
   document.title = 'Swenik — Trader Sandbox';
 }
+// Paint the restored money filter onto the chips BEFORE the first render, or
+// the markup's hardcoded "All money" highlight contradicts the list underneath.
+document.querySelectorAll('#actModes .fbtn').forEach(b => b.classList.toggle('active', b.dataset.m === actMode));
 tickAll();
 setInterval(() => { if (!document.hidden) refreshStatus(); }, SANDBOX ? 2000 : 4000);
 setInterval(() => { if (!document.hidden) { refreshOrders(); refreshPositions(); } }, SANDBOX ? 2500 : 6000);
