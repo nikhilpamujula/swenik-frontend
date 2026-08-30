@@ -9316,7 +9316,28 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
       return { score: v, notes: notes };
     }
     function rsSeries(kl) { // kl: binance kline rows
-      var o = { t: [], c: [], h: [], l: [], vol: [] };
+      // ACCURACY FIX (9 Aug, recovered from trade-live-track.html 30 Aug):
+      // drop the still-FORMING candle before scoring. Binance returns the
+      // in-progress bar as the LAST kline row, and every rs* function reads
+      // i = length-1 — so RSI, MACD, trend and volume were all computed on a
+      // half-built candle whose values swing until it closes. That is the root
+      // cause of unstable, wrong-looking reads.
+      //
+      // This fix lived ONLY in the Track Live clone and never reached this
+      // file; it was found when the clone turned out to be a separate, older
+      // deployment. Everything else in that clone was already here.
+      //
+      // kl[i][6] is the bar's close time (ms); if it is in the future the bar
+      // is still open. rsPerpKl rescales OHLC via k.slice(), so index 6
+      // survives on the futures path too. o.live keeps the true last price for
+      // display, since dropping the bar must not drop the current price.
+      var liveClose = kl && kl.length ? +kl[kl.length - 1][4] : null;
+      var liveOpen = false;
+      if (kl && kl.length > 1) {
+        var lastCloseMs = +kl[kl.length - 1][6];
+        if (lastCloseMs && lastCloseMs > Date.now()) { kl = kl.slice(0, -1); liveOpen = true; }
+      }
+      var o = { t: [], c: [], h: [], l: [], vol: [], live: liveClose, liveOpen: liveOpen };
       for (var i = 0; i < kl.length; i++) {
         o.t.push(+kl[i][0]); o.c.push(+kl[i][4]); o.h.push(+kl[i][2]); o.l.push(+kl[i][3]); o.vol.push(+kl[i][5]);
       }
