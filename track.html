@@ -2484,7 +2484,14 @@ function intraLoopCard(o) {
   const pct = pctOf(o);
   const l = o.walked;
   const barClass = (l ? l.profitPct : pct) < 0 ? 'negative' : '';
-  const rows = (l ? l.legs : []).map(leg => `
+  // 31 Aug: this read `(l ? l.legs : [])` — it guarded against `walked` being
+  // ABSENT but not against `walked.legs` being absent, so a walked object with
+  // no legs array threw "Cannot read properties of undefined (reading 'map')".
+  // That exception escaped intraLoopCard into fullRefresh's try, which reported
+  // it as "Couldn't reach the scanner" and left the PREVIOUS tab's cards on
+  // screen — the Direct cards appearing under the Intra Loop heading. One
+  // missing array took down the whole tab and blamed the backend for it.
+  const rows = (l && Array.isArray(l.legs) ? l.legs : []).map(leg => `
     <div class="kk-row" style="padding:8px 16px; display:grid; grid-template-columns:76px minmax(0,1fr) 104px; column-gap:12px; align-items:center;">
       <div class="kk-tag ${leg.action === 'Buy' ? 'buy' : leg.action === 'Sell' ? 'sell' : 'convert'}">${leg.action}<span class="kk-coin">${leg.action === 'Convert' ? '' : leg.asset.toUpperCase()}</span></div>
       <div class="kk-mid">
@@ -4544,7 +4551,18 @@ async function fullRefresh() {
       // repaint slipped). If the screen was last painted for a different
       // page/tab/volume than the one we're on, repaint from the data we
       // already hold rather than leaving the wrong tab's cards up.
-      if (__lastPaintSig !== viewSig()) renderCards();
+      // RENDERING IS NOT REACHING THE SERVER. This call used to sit bare inside
+      // the outer try, so a TypeError in a card renderer landed in the same
+      // catch as a fetch failure and was reported as "Couldn't reach the
+      // scanner (Cannot read properties of undefined…)" — a code bug wearing a
+      // network bug's clothes, on a poll that had just succeeded. Its own catch,
+      // with its own wording, so the two can never be confused again.
+      try {
+        if (__lastPaintSig !== viewSig()) renderCards();
+      } catch (paintErr) {
+        console.error('[scanner] render failed:', paintErr);
+        setBanner(`Display error on this tab (${paintErr.message}) — the scanner is fine, the page could not draw these cards.`);
+      }
       updateRefreshStatus();
       return;
     }
