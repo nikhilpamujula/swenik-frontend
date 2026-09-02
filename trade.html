@@ -1011,6 +1011,7 @@
           <div class="f"><label>Mid-leg attempts</label><input id="rf_midatt" type="number" min="1" max="5" value="3"><div class="sub">after the entry fills: cancel → re-place at the NEXT best price level, up to this many times, then CRITICAL alert</div></div>
           <div class="f"><label>Mid-leg timeout (ms)</label><input id="rf_midto" type="number" min="300" step="100" value="1200"></div>
           <div class="f full"><label>Price aggression (bps)</label><input id="rf_aggr" type="number" min="0" max="50" value="0"><div class="sub">pads limit prices past the plan's level so the whole size crosses (10 bps = 0.1%). 0 = exactly the planned price</div></div>
+          <div class="f full"><label>Max book age when acting (ms)</label><input id="rf_maxsigage" type="number" min="0" step="500" placeholder="2000"><div class="sub">how old the order books may be at the moment the engine decides. <b>Blank = 2000ms</b>, which was hardcoded and invisible until now.<br>2 Sep: this is why Direct + hedge never fired. WazirX sends depth <i>snapshots</i>, and a given pair only ticks when it changes — measured on your own book: ALPINE 7241ms, SAND 4230ms, HOT 3841ms. Against a 2000ms limit, <b>every</b> candidate was rejected: 103 staleSignal skips, 30 USDT candidates, 0 fired.<br><b>The number is a real trade-off, not red tape.</b> Higher = you act on older quotes. A paper HNT triangle once planned +₹25,366 on a 6041ms book while that bid collapsed 0.281 → 0.196. On an illiquid coin a stale quote is exactly how a phantom arb becomes a stranded leg.<br>Suggested: leave it at 2000 for LIVE rules; try 8000–10000 on a PAPER rule to see the rest of the pipeline work.</div></div>
           <div class="f full"><label>Hedge a stranded leg (Binance futures)</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_hedgestrand" type="checkbox" style="width:18px;height:18px;accent-color:var(--primary);"> short whatever filled, if a mid-leg fails</label><div class="sub">OFF by default — this opens a REAL futures position on its own initiative. When a leg fails and the trade is left holding the <b>coin</b>, the engine shorts that quantity on the coin's USDT perp. Holding USDT or INR is never hedged (no meaningful price risk).<br><b>A hedge freezes the loss, it does not recover it.</b> The position becomes delta-neutral at whatever it was already worth; funding accrues, and both sides still need unwinding by hand.<br>Refused — and the breaker still trips at once — when the coin has no Binance perp (HNT is one), when that perp already has an open position (one-way mode: a sell would reduce it, not hedge), under 5× leverage, or with futures unfunded.<br><b>The breaker only relaxes if the hedge actually landed.</b> An unhedged strand still disarms the rule on the first failure. Try it on a Paper rule first — paper simulates the hedge and sends no futures order.</div></div>
         </div>
       </div>
@@ -1325,6 +1326,7 @@ function renderRules() {
         (cfg.sizePct && cfg.sizePct < 100 ? '<span class="fact">take <b>' + cfg.sizePct + '%</b> of arb</span>' : '') +
         (cfg.preferPct ? '<span class="fact">prefer <b>% over size</b></span>' : '') +
         (cfg.hedgeOnStrand === true ? '<span class="fact warn">🛡 hedges a <b>strand</b></span>' : '') +
+        (cfg.maxSignalAgeMs ? '<span class="fact">book ≤<b>' + cfg.maxSignalAgeMs + 'ms</b></span>' : '') +
         (r.strategy === 'intraloop' ? ''
           : cfg.skipWalletDisabled === false ? '<span class="fact warn">wallet-disabled coins <b>ALLOWED</b></span>'
           : '<span class="fact">skips <b>shut wallets</b></span>') +
@@ -1851,6 +1853,9 @@ function openRuleForm(id) {
   // === true, exactly as the engine reads it: a rule that predates this field,
   // or one carrying a stray truthy value, must stay OFF.
   $('rf_hedgestrand').checked = cfg.hedgeOnStrand === true;
+  // Blank means "use the engine default", which the placeholder shows. Writing
+  // 2000 in here would freeze today's default into the rule forever.
+  $('rf_maxsigage').value = (cfg.maxSignalAgeMs === 0 || cfg.maxSignalAgeMs) ? cfg.maxSignalAgeMs : '';
   $('rf_wzfee').value = cfg.wazirxFeePct != null ? cfg.wazirxFeePct : '';
   $('rf_binfee').value = cfg.binanceFeePct != null ? cfg.binanceFeePct : '';
   $('rf_transfee_inr').value = cfg.transferFeeInr != null ? cfg.transferFeeInr : '';
@@ -1916,6 +1921,9 @@ async function saveRule() {
       skipWalletDisabled: $('rf_skipwal').checked,
       reverseEnabled: $('rf_reverse').checked,
       hedgeOnStrand: $('rf_hedgestrand').checked,
+      // Only persist a real entry; blank stays absent so the engine default
+      // applies and can be changed centrally later.
+      ...($('rf_maxsigage').value.trim() === '' ? {} : { maxSignalAgeMs: Number($('rf_maxsigage').value) }),
       wazirxFeePct: $('rf_wzfee').value === '' ? null : Number($('rf_wzfee').value),
       binanceFeePct: $('rf_binfee').value === '' ? null : Number($('rf_binfee').value),
       transferFeeInr: $('rf_transfee_inr').value === '' ? null : Number($('rf_transfee_inr').value),
