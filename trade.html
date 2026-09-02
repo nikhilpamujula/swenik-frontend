@@ -470,6 +470,8 @@
   .o-profit { font-weight:800; font-size:13px; }
   .o-time { font-size:10.5px; color:var(--gray-500); flex:none; }
   .o-err { font-size:11px; color:var(--danger); padding:0 14px 10px 16px; }
+  /* a clean skip is not an incident — no red, no bold */
+  .o-err.o-note { color:var(--muted, #64748b); }
   .caret { flex:none; color:var(--gray-500); transition:transform .18s; font-size:11px; }
   .order.open .caret { transform:rotate(90deg); }
 
@@ -2076,7 +2078,16 @@ function renderOrders() {
         (o.result && o.result.latency && o.result.latency.totalMs != null ? '<span class="fact num" style="padding:2px 7px;">⏱ ' + o.result.latency.totalMs + 'ms</span>' : '') +
         '<span class="o-time">' + ago(o.created_at) + '</span>' +
       '</div>' +
-      (o.error ? '<div class="o-err selectable">stuck at <b>' + esc(o.stage || '?') + '</b> — ' + esc(o.error) + '</div>' : '') +
+      // "stuck at validate" on a row where NOTHING was placed reads as an
+      // incident. 2 Sep: dozens of clean pre-trade skips — the edge was gone by
+      // the time the executor re-walked the book — every one rendered in red as
+      // "stuck", which is the word this UI uses for a half-finished trade that
+      // is holding real coins. A skip is the opposite: it looked again and
+      // declined, before any money moved. Say which of the two it is.
+      (o.error ? '<div class="o-err' + (o.status === 'skipped' ? ' o-note' : '') + ' selectable">' +
+        (o.status === 'skipped' ? 'not taken — re-checked at <b>' + esc(o.stage || '?') + '</b>, '
+         : o.status === 'missed' ? 'missed at <b>' + esc(o.stage || '?') + '</b> — '
+         : 'stuck at <b>' + esc(o.stage || '?') + '</b> — ') + esc(o.error) + '</div>' : '') +
       '<div class="timeline" id="tl' + o.id + '"></div>' +
     '</div>';
   }).join('');
