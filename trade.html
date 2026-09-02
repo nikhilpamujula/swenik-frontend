@@ -596,6 +596,7 @@
   .cc-st { margin-left:auto; font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; padding:3px 8px; border-radius:999px; }
   .cc-st.armed { background:var(--success-soft); color:var(--success); }
   .cc-st.cooling { background:var(--warning-soft); color:var(--warning); }
+  .cc-why { font-size:12px; color:var(--muted); margin:4px 0 2px; line-height:1.45; }
   .cc-st.holding { background:var(--accent-soft); color:var(--accent-600); }
   .cc-st.paused { background:var(--danger-soft); color:var(--danger); }
   .cc-st.idle { background:var(--gray-100); color:var(--gray-500); }
@@ -1634,8 +1635,37 @@ function renderCoins() {
     const warn = Number(c.volWarnPct) > 0 ? Number(c.volWarnPct) : 3;
     const hasMove = c.movePct != null;
     const isHot = hasMove && Number(c.movePct) >= warn;
+    // WHY, not just WHAT. A coin parked by a gate and a coin that just traded
+    // both render as 'cooling', because the staleSignal gate sets a cooldown so
+    // a silent book is not re-asked every tick. The card therefore read
+    // "COOLING — it just traded (or missed)" for coins that had done neither,
+    // and that wrong explanation cost hours: the reason was in the engine the
+    // whole time and the screen would not say it.
+    const GATE_WORDS = {
+      staleSignal: 'waiting for a fresh book',
+      profitFloor: 'edge is real but too small in ₹',
+      barMiss: 'below this rule\'s %',
+      holding: 'signal maturing',
+      minOrderValue: 'order value below the minimum',
+      implausible: 'refused — too good to be true',
+      openPosCap: 'open-position cap reached',
+      portfolioCap: 'portfolio position ceiling reached',
+      dailyInrCap: 'daily ₹ cap reached',
+      lossStop: 'daily loss stop tripped',
+      tradesPerDayCap: 'trades/day cap reached',
+      duplicate: 'identical trade already placed',
+      coinLock: 'coin locked by another trade',
+      cooldown: 'cooling after a recent attempt',
+    };
+    const why = c.why && GATE_WORDS[c.why.gate]
+      ? '<div class="cc-why">' + esc(GATE_WORDS[c.why.gate])
+        + (c.why.detail ? ' — <b>' + esc(String(c.why.detail)) + '</b>' : '') + '</div>'
+      : '';
     const line =
       off ? 'switched off — <b>stays off until you turn it back on</b>' :
+      // A cooldown set BY A GATE is not "it just traded". Say which it was.
+      (c.state === 'cooling' && c.stateReason && c.stateReason !== 'cooldown')
+        ? esc(GATE_WORDS[c.stateReason] || c.stateReason) + ' · retry in <b>' + Math.ceil(c.coolLeftMs / 1000) + 's</b>' :
       c.state === 'cooling' ? 'ready in <b>' + Math.ceil(c.coolLeftMs / 1000) + 's</b>' :
       c.state === 'holding' ? 'held <b>' + Math.round(c.heldMs || 0) + 'ms</b> of ' + c.holdMs + 'ms' :
       c.state === 'idle' ? 'engine is disarmed' :
