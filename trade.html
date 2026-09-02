@@ -1199,6 +1199,12 @@ async function refreshStatus() {
   if (ST.latency && ST.latency.avgTotalMs != null) latBits.push('⏱ avg signal→done ' + ST.latency.avgTotalMs + 'ms');
   if (ST.wallets && ST.wallets.disabled) latBits.push('🚫 ' + ST.wallets.disabled + ' wallet-disabled coin' + (ST.wallets.disabled === 1 ? '' : 's') + ' blocked');
   if (ST.lastTick && ST.lastTick.error) latBits.push('⚠ ' + ST.lastTick.error);
+  // Which build is actually running. 2 Sep: six commits of fixes were live in
+  // git and absent from the server, because fastEngine.js had not been uploaded
+  // with server.js. Nothing in this UI could tell the difference between "the
+  // fix is wrong" and "the fix is not there". Now it can, without a terminal.
+  // An older build reports no build at all — say so rather than showing nothing.
+  latBits.push(ST.build ? 'build ' + ST.build : '⚠ build UNKNOWN — engine predates 2 Sep');
   $('engineTick').textContent = latBits.join(' · ');
   $('cntRules').textContent = (ST.rules || []).length;
   renderTiles();
