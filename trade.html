@@ -862,6 +862,17 @@
       <button class="fbtn" data-f="missed" onclick="setActFilter('missed')">Missed</button>
       <button class="fbtn" data-f="failed" onclick="setActFilter('failed')">Failed</button>
     </div>
+    <!-- Only shown on the Open hedges view, and only when there is something to
+         clear. direct_hedge and loop_pair END at 'hedged_open' by design, so
+         paper rows accumulate forever with nothing to close them — 500 of them
+         filled his cap and silently refused every new trade for days. -->
+    <div id="clearPosBar" style="display:none;margin:0 0 12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--warning-soft);">
+      <div id="clearPosText" style="font-size:13px;line-height:1.5;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="btn" id="clearPaperBtn" onclick="clearPositions('paper')">Clear paper positions</button>
+        <button class="btn" id="clearLiveBtn" onclick="clearPositions('live')" style="border-color:var(--danger);color:var(--danger);">Clear LIVE positions…</button>
+      </div>
+    </div>
     <div id="ordersBox"><div class="empty">Loading…</div></div>
   </div>
 
@@ -1069,6 +1080,48 @@ async function api(path, opts) {
   }
   throw lastErr;
 }
+// ---- CLEARING OPEN POSITIONS ------------------------------------------------
+// PAPER is bookkeeping — nothing exists anywhere, clearing is free.
+// LIVE is a real Binance futures position and a real WazirX holding. This does
+// NOT close either. It only makes the engine forget, which hides real exposure
+// and frees the cap to stack more on top. So live asks twice, in words, and
+// says plainly what it will and will not do.
+async function refreshClearPosBar() {
+  const bar = document.getElementById('clearPosBar');
+  if (!bar) return;
+  if (actFilter !== 'open') { bar.style.display = 'none'; return; }
+  let info = null;
+  try { info = await apiJson('/api/trader/positions/open'); } catch (e) { bar.style.display = 'none'; return; }
+  if (!info || !info.count) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  document.getElementById('clearPosText').innerHTML =
+    '<b>' + info.count + '</b> open position' + (info.count === 1 ? '' : 's') + ' counting against your caps — '
+    + '<b>' + info.paper + '</b> paper, <b>' + info.live + '</b> live.<br>'
+    + 'Paper rows are bookkeeping only; they pile up because hedge strategies END at "hedged open" '
+    + 'and nothing closes them. <b>Live rows are real</b> — clearing one removes it from this ledger '
+    + 'but does <b>not</b> close the Binance futures position or sell the WazirX holding.';
+  document.getElementById('clearPaperBtn').disabled = !info.paper;
+  document.getElementById('clearLiveBtn').style.display = info.live ? '' : 'none';
+}
+
+async function clearPositions(mode) {
+  const body = { mode };
+  if (mode === 'live') {
+    if (!confirm('These are REAL positions.\n\nClearing them does NOT close the Binance futures '
+      + 'position and does NOT sell the WazirX holding. It only removes them from this ledger — which '
+      + 'also frees the position cap to open MORE on top of them.\n\nClose them on the exchanges '
+      + 'first. Continue?')) return;
+    if (!confirm('Last check: have you already closed these on Binance and WazirX?')) return;
+    body.acknowledgeNotClosedOnExchange = true;
+  }
+  try {
+    const r = await apiJson('/api/trader/positions/clear', { method: 'POST', body: JSON.stringify(body) });
+    toast('Cleared ' + r.cleared + ' ' + mode + ' position' + (r.cleared === 1 ? '' : 's'));
+    await loadOrders();
+    await refreshClearPosBar();
+  } catch (e) { toast(e.message || 'Could not clear positions'); }
+}
+
 async function apiJson(path, opts) {
   const r = await api(path, opts);
   if (!r.ok) {
@@ -1981,6 +2034,8 @@ function setActFilter(f) {
   actFilter = f;
   document.querySelectorAll('#actFilters .fbtn').forEach(b => b.classList.toggle('active', b.dataset.f === f));
   renderOrders();
+  // The bar only exists on this view, and only when there is something to clear.
+  refreshClearPosBar().catch(() => {});
 }
 function setActMode(m) {
   actMode = m;
