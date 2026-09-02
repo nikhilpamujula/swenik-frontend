@@ -1010,6 +1010,7 @@
           <div class="f"><label>Mid-leg attempts</label><input id="rf_midatt" type="number" min="1" max="5" value="3"><div class="sub">after the entry fills: cancel → re-place at the NEXT best price level, up to this many times, then CRITICAL alert</div></div>
           <div class="f"><label>Mid-leg timeout (ms)</label><input id="rf_midto" type="number" min="300" step="100" value="1200"></div>
           <div class="f full"><label>Price aggression (bps)</label><input id="rf_aggr" type="number" min="0" max="50" value="0"><div class="sub">pads limit prices past the plan's level so the whole size crosses (10 bps = 0.1%). 0 = exactly the planned price</div></div>
+          <div class="f full"><label>Hedge a stranded leg (Binance futures)</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_hedgestrand" type="checkbox" style="width:18px;height:18px;accent-color:var(--primary);"> short whatever filled, if a mid-leg fails</label><div class="sub">OFF by default — this opens a REAL futures position on its own initiative. When a leg fails and the trade is left holding the <b>coin</b>, the engine shorts that quantity on the coin's USDT perp. Holding USDT or INR is never hedged (no meaningful price risk).<br><b>A hedge freezes the loss, it does not recover it.</b> The position becomes delta-neutral at whatever it was already worth; funding accrues, and both sides still need unwinding by hand.<br>Refused — and the breaker still trips at once — when the coin has no Binance perp (HNT is one), when that perp already has an open position (one-way mode: a sell would reduce it, not hedge), under 5× leverage, or with futures unfunded.<br><b>The breaker only relaxes if the hedge actually landed.</b> An unhedged strand still disarms the rule on the first failure. Try it on a Paper rule first — paper simulates the hedge and sends no futures order.</div></div>
         </div>
       </div>
 
@@ -1322,6 +1323,7 @@ function renderRules() {
         (cfg.maxTradesPerDay ? '<span class="fact">≤<b>' + cfg.maxTradesPerDay + '</b> trades/day</span>' : '') +
         (cfg.sizePct && cfg.sizePct < 100 ? '<span class="fact">take <b>' + cfg.sizePct + '%</b> of arb</span>' : '') +
         (cfg.preferPct ? '<span class="fact">prefer <b>% over size</b></span>' : '') +
+        (cfg.hedgeOnStrand === true ? '<span class="fact warn">🛡 hedges a <b>strand</b></span>' : '') +
         (r.strategy === 'intraloop' ? ''
           : cfg.skipWalletDisabled === false ? '<span class="fact warn">wallet-disabled coins <b>ALLOWED</b></span>'
           : '<span class="fact">skips <b>shut wallets</b></span>') +
@@ -1816,6 +1818,9 @@ function openRuleForm(id) {
   $('rf_preferpct').checked = !!cfg.preferPct;
   $('rf_skipwal').checked = cfg.skipWalletDisabled !== false; // default ON, incl. rules made before this existed
   $('rf_reverse').checked = cfg.reverseEnabled !== false;     // default ON (both directions), incl. older rules
+  // === true, exactly as the engine reads it: a rule that predates this field,
+  // or one carrying a stray truthy value, must stay OFF.
+  $('rf_hedgestrand').checked = cfg.hedgeOnStrand === true;
   $('rf_wzfee').value = cfg.wazirxFeePct != null ? cfg.wazirxFeePct : '';
   $('rf_binfee').value = cfg.binanceFeePct != null ? cfg.binanceFeePct : '';
   $('rf_transfee_inr').value = cfg.transferFeeInr != null ? cfg.transferFeeInr : '';
@@ -1880,6 +1885,7 @@ async function saveRule() {
       maxNetPct: Number($('rf_maxpct').value) || 8,
       skipWalletDisabled: $('rf_skipwal').checked,
       reverseEnabled: $('rf_reverse').checked,
+      hedgeOnStrand: $('rf_hedgestrand').checked,
       wazirxFeePct: $('rf_wzfee').value === '' ? null : Number($('rf_wzfee').value),
       binanceFeePct: $('rf_binfee').value === '' ? null : Number($('rf_binfee').value),
       transferFeeInr: $('rf_transfee_inr').value === '' ? null : Number($('rf_transfee_inr').value),
