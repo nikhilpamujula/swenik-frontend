@@ -404,6 +404,7 @@
   }
   .rule.tripped { border-color:rgba(226,61,84,.45); }
   /* A rule at a ceiling cannot trade at all — it must not look like a quiet one. */
+  .fact.blind { background:#ffe9ec; color:#b3261e; font-weight:700; }
   .rule.capped { border-color:#e8a13c; background:linear-gradient(0deg,#fffaf1,#fffaf1); box-shadow:0 0 0 1px rgba(232,161,60,.25), var(--shadow-sm); }
   .cap-banner { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:9px 0 2px;
                 padding:8px 10px; border-radius:8px; background:#fff1db; border:1px solid rgba(232,161,60,.5); }
@@ -1027,6 +1028,8 @@
             <select id="rf_to"></select><div class="sub">same value on both = always on; windows may wrap midnight</div>
           </div>
           <div class="f"><label>Max trades per day</label><input id="rf_maxday" type="number" min="0" value="0"><div class="sub">0 = unlimited</div></div>
+          <div class="f"><label>⚡ Blind legs (intra loop only)</label><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;"><input id="rf_blind" type="checkbox" style="width:18px;height:18px;accent-color:var(--danger);"> place each leg and MOVE ON — never wait for the fill</label><div class="sub"><b>Blind.</b> Normally leg 2 is sized to leg 1's real fill, which costs a status query — and WazirX allows 1.6 of those per second with a burst of ONE, so a 3-leg loop queues behind itself for about a second. Blind mode places leg 1 and goes straight to leg 2, sized to plan. If leg 1 filled, leg 2 works. If it did not, leg 2 is rejected for insufficient funds and nothing is lost. A PARTIAL fill is the real risk: leg 2 is rejected, then re-placed for whatever the exchange says you actually hold. Resting orders are cancelled after the window below. <b>Only one intra loop rule runs at a time — enabling this disables the normal one, and vice versa.</b></div></div>
+          <div class="f"><label>Blind cancel window (ms)</label><input id="rf_blindcancel" type="number" min="200" step="100" placeholder="800"><div class="sub">how long a blind leg is left resting before it is cancelled. Cancelling is free (a different rate bucket), so this window buys nothing except the chance of a late fill — and costs the risk of one: a leg 1 that fills at second 4, with legs 2 and 3 already rejected, leaves you holding the coin. Observed fills land in 141-151ms, so 800 is already generous.</div></div>
           <div class="f"><label>Cooldown per coin (sec)</label><input id="rf_cool" type="number" step="10" value="120"></div>
           <div class="f"><label>Duplicate window (sec)</label><input id="rf_dupwin" type="number" step="1" min="0" placeholder="paper 8 · live 300"><div class="sub">how long an identical WazirX size+price counts as the SAME order and won't re-fire. This is the spam-vs-speed dial: low = a standing arb re-fires fast (COTI-style spam risk), high = one fire then wait. Blank = default (paper 8s, live 5min). 0 = guard off.</div></div>
           <div class="f"><label>Duplicate price tolerance (%)</label><input id="rf_duptol" type="number" step="0.01" min="0" placeholder="0.1"><div class="sub">how far the WazirX price must move to count as a NEW order. Blank = 0.1%. Smaller = re-fires on tinier price moves.</div></div>
@@ -1486,6 +1489,7 @@ function renderRules() {
         (cfg.sizePct && cfg.sizePct < 100 ? '<span class="fact">take <b>' + cfg.sizePct + '%</b> of arb</span>' : '') +
         (cfg.preferPct ? '<span class="fact">prefer <b>% over size</b></span>' : '') +
         (cfg.hedgeOnStrand === true ? '<span class="fact warn">🛡 hedges a <b>strand</b></span>' : '') +
+        (cfg.blindLegs === true ? '<span class="fact blind">⚡ <b>BLIND legs</b> · cancel ' + (cfg.blindCancelMs || 800) + 'ms</span>' : '') +
         (cfg.maxSignalAgeMs ? '<span class="fact">book ≤<b>' + cfg.maxSignalAgeMs + 'ms</b></span>' : '') +
         (r.strategy === 'intraloop' ? ''
           : cfg.skipWalletDisabled === false ? '<span class="fact warn">wallet-disabled coins <b>ALLOWED</b></span>'
@@ -1998,6 +2002,8 @@ function openRuleForm(id) {
   $('rf_from').value = cfg.activeFrom != null ? cfg.activeFrom : 0;
   $('rf_to').value = cfg.activeTo != null ? cfg.activeTo : 0;
   $('rf_maxday').value = cfg.maxTradesPerDay || 0;
+  $('rf_blind').checked = cfg.blindLegs === true;
+  $('rf_blindcancel').value = cfg.blindCancelMs || '';
   $('rf_cool').value = r ? Number(r.cooldown_sec) : 120;
   $('rf_dupwin').value = (cfg.dupWindowSec !== undefined && cfg.dupWindowSec !== null && cfg.dupWindowSec !== '') ? cfg.dupWindowSec : '';
   $('rf_duptol').value = (cfg.dupPxTolPct !== undefined && cfg.dupPxTolPct !== null && cfg.dupPxTolPct !== '') ? cfg.dupPxTolPct : '';
@@ -2069,6 +2075,8 @@ async function saveRule() {
       activeFrom: Number($('rf_from').value),
       activeTo: Number($('rf_to').value),
       maxTradesPerDay: Number($('rf_maxday').value),
+      blindLegs: $('rf_blind').checked,
+      blindCancelMs: $('rf_blindcancel').value === '' ? null : Number($('rf_blindcancel').value),
       entryAttempts: Number($('rf_entryatt').value),
       entryTimeoutMs: Number($('rf_entryto').value),
       midAttempts: Number($('rf_midatt').value),
