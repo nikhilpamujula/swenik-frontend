@@ -403,6 +403,14 @@
     transition:box-shadow .15s;
   }
   .rule.tripped { border-color:rgba(226,61,84,.45); }
+  /* A rule at a ceiling cannot trade at all — it must not look like a quiet one. */
+  .rule.capped { border-color:#e8a13c; background:linear-gradient(0deg,#fffaf1,#fffaf1); box-shadow:0 0 0 1px rgba(232,161,60,.25), var(--shadow-sm); }
+  .cap-banner { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:9px 0 2px;
+                padding:8px 10px; border-radius:8px; background:#fff1db; border:1px solid rgba(232,161,60,.5); }
+  .cap-banner-t { font-size:12px; font-weight:800; color:#8a5200; }
+  .cap-banner-s { font-size:11px; color:#9a6400; }
+  .cap-banner-a { margin-left:auto; display:flex; gap:6px; }
+  .btn.sm { font-size:11px; padding:4px 10px; }
   .rule-top { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   .rule-name { font-weight:800; font-size:14px; letter-spacing:-.01em; }
   .chip { font-size:9.5px; font-weight:800; letter-spacing:.05em; padding:3.5px 9px; border-radius:999px; text-transform:uppercase; }
@@ -1370,6 +1378,48 @@ const fmtHr = h => (h % 24) + ':00';
 // amber near the limit and red at it, so "nothing is trading" and "nothing CAN
 // trade" stop looking the same. Numbers come from the engine's own cachedGates,
 // the same values the gate itself used, so this cannot disagree with reality.
+// Which ceilings are FULL, and — the part that decides what he can do about it
+// — what would actually clear each one. His words: "so that if needed I'll
+// reset." The honest answer differs per cap and the UI should not pretend
+// otherwise: a day counter clears at midnight and cannot be zeroed, a position
+// count clears only when positions go, and a loss stop is meant to be hard to
+// override on the day you most want to.
+function capsFull(caps) {
+  if (!caps) return [];
+  const full = [];
+  const check = (key, label, clears, action) => {
+    const c = caps[key];
+    if (c && c.limit && c.atCap) full.push({ key, label, clears, action });
+  };
+  check('tradesPerDay', 'trades/day', 'resets at midnight', 'edit');
+  check('dailyInr', 'daily ₹ budget', 'resets at midnight', 'edit');
+  check('lossStop', 'daily loss stop', 'resets at midnight', 'edit');
+  check('openPositions', 'open positions', 'only when positions are closed or cleared', 'positions');
+  check('portfolio', 'portfolio ceiling', 'only when positions are closed or cleared', 'positions');
+  return full;
+}
+
+// The banner on a stopped rule. Names the cap, says what clears it, and offers
+// the one action that honestly applies — never a "reset counter" button, which
+// on a loss stop would be a footgun with his own money in it.
+function capsBanner(caps, ruleId) {
+  const full = capsFull(caps);
+  if (!full.length) return '';
+  const positions = full.some(f => f.action === 'positions');
+  const names = full.map(f => f.label).join(' · ');
+  const clears = [...new Set(full.map(f => f.clears))].join('; ');
+  return '<div class="cap-banner">' +
+    '<span class="cap-banner-t">⛔ STOPPED — ' + esc(names) + ' at the limit</span>' +
+    '<span class="cap-banner-s">' + esc(clears) + '</span>' +
+    '<span class="cap-banner-a">' +
+      (positions
+        ? '<button class="btn sm" onclick="setTab(\'activity\');setActFilter(\'open\')">See open positions</button>'
+        : '') +
+      '<button class="btn sm" onclick="openRuleForm(' + ruleId + ')">Raise the limit</button>' +
+    '</span>' +
+  '</div>';
+}
+
 function capsStrip(caps) {
   if (!caps) return '';
   const bits = [];
@@ -1405,7 +1455,13 @@ function renderRules() {
       .map(c => String(c || '').trim().toLowerCase()).filter(Boolean);
     const win = (cfg.activeFrom != null && cfg.activeTo != null && cfg.activeFrom !== cfg.activeTo)
       ? fmtHr(cfg.activeFrom) + '–' + fmtHr(cfg.activeTo) + ' IST' : null;
-    return '<div class="rule ' + (r.tripped ? 'tripped' : '') + '">' +
+    // A rule that CANNOT trade should not look like a rule that simply is not
+    // trading. His ask, 3 Sep: "if any of the limits per day or budget crossed
+    // that rule turned to different colour and give me an alert." The chip
+    // colours alone were too quiet — this puts it on the card itself.
+    const myCaps = (ST.caps || []).find(c => c.ruleId === r.id);
+    const capped = capsFull(myCaps).length > 0;
+    return '<div class="rule ' + (r.tripped ? 'tripped ' : '') + (capped ? 'capped' : '') + '">' +
       '<div class="rule-top">' +
         '<label class="switch"><input type="checkbox" ' + (r.enabled ? 'checked' : '') + ' onchange="toggleRule(' + r.id + ', this.checked)"><span class="slider"></span></label>' +
         '<span class="rule-name">' + esc(r.name) + '</span>' +
@@ -1413,6 +1469,7 @@ function renderRules() {
         '<span class="chip ' + r.mode + '">' + r.mode + '</span>' +
         (r.tripped ? '<span class="chip trip">breaker tripped</span>' : '') +
       '</div>' +
+      capsBanner(myCaps, r.id) +
       '<div class="facts num">' +
         '<span class="fact">≥ <b>' + Number(r.min_net_pct) + '%</b> net</span>' +
         (r.strategy === 'direct_hedge' && Number(cfg.minNetPctUsdt) > 0 ? '<span class="fact">USDT ✓ ≥ <b>' + Number(cfg.minNetPctUsdt) + '%</b></span>' : '') +
@@ -1444,7 +1501,7 @@ function renderRules() {
         (Number(r.consec_fails) > 0 && !r.tripped ? '<span class="fact warn">fails in a row: <b>' + r.consec_fails + '/' + r.max_consec_fails + '</b></span>' : '') +
       '</div>' +
       // THE TRACK — live readings against every ceiling, amber near, red at.
-      capsStrip((ST.caps || []).find(c => c.ruleId === r.id)) +
+      capsStrip(myCaps) +
       (r.tripped ? '<div class="trip-reason selectable">⛔ ' + esc(r.tripped_reason || 'repeated failures') + '</div>' : '') +
       ruleCoinRow(r, cfg, rExcl) +
       '<div class="rule-actions">' +
