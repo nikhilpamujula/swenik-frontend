@@ -470,6 +470,15 @@
   .o-profit { font-weight:800; font-size:13px; }
   .o-time { font-size:10.5px; color:var(--gray-500); flex:none; }
   .o-err { font-size:11px; color:var(--danger); padding:0 14px 10px 16px; }
+  /* caps tracker — a ceiling you can see before it stops you */
+  .caps { display:flex; flex-wrap:wrap; gap:6px; padding:2px 14px 10px 16px; }
+  .cap { font-size:11px; font-variant-numeric:tabular-nums; border-radius:999px;
+         padding:2px 8px; background:var(--chip-bg, #eef2f7); color:var(--muted, #64748b); }
+  .cap b { color:var(--fg, #0f172a); font-weight:700; }
+  .cap.near { background:#fff4e0; color:#9a6400; }
+  .cap.near b { color:#9a6400; }
+  .cap.at { background:#ffe6e6; color:#b3261e; font-weight:600; }
+  .cap.at b { color:#b3261e; }
   /* a clean skip is not an incident — no red, no bold */
   .o-err.o-note { color:var(--muted, #64748b); }
   .caret { flex:none; color:var(--gray-500); transition:transform .18s; font-size:11px; }
@@ -1351,6 +1360,39 @@ function cfgOf(r) {
 }
 const fmtHr = h => (h % 24) + ':00';
 
+// CAPS — the live score against every ceiling on a rule.
+//
+// His ask, 3 Sep: "I should get a message and highlight in app if any no of
+// trades reached, max position reaches — should have somewhere the track."
+//
+// A cap used to be invisible until it was already stopping him, and even then
+// it looked like an ordinary quiet spell. These read out continuously, turn
+// amber near the limit and red at it, so "nothing is trading" and "nothing CAN
+// trade" stop looking the same. Numbers come from the engine's own cachedGates,
+// the same values the gate itself used, so this cannot disagree with reality.
+function capsStrip(caps) {
+  if (!caps) return '';
+  const bits = [];
+  const bar = (label, c, fmt) => {
+    if (!c || !c.limit) return;                       // no ceiling set = nothing to track
+    const used = c.used == null ? null : c.used;
+    const f = fmt || ((v) => v);
+    if (used == null) { bits.push('<span class="cap">' + label + ' <b>—</b>/' + f(c.limit) + '</span>'); return; }
+    const pct = c.limit > 0 ? (used / c.limit) * 100 : 0;
+    const cls = c.atCap ? 'cap at' : pct >= 80 ? 'cap near' : 'cap';
+    bits.push('<span class="' + cls + '">' + label + ' <b>' + f(used) + '</b>/' + f(c.limit) +
+      (c.atCap ? ' · FULL' : '') + '</span>');
+  };
+  bar('trades today', caps.tradesPerDay);
+  bar('open positions', caps.openPositions);
+  bar('spent today', caps.dailyInr, (v) => inr(v));
+  bar('loss today', caps.lossStop, (v) => inr(v));
+  bar('portfolio open', caps.portfolio);
+  if (!bits.length) return '';
+  const stale = caps.ageMs == null ? ' <span class="cap">not evaluated yet</span>' : '';
+  return '<div class="caps">' + bits.join('') + stale + '</div>';
+}
+
 function renderRules() {
   const rules = (ST && ST.rules) || [];
   if (!rules.length) { $('rulesList').innerHTML = '<div class="empty">No rules yet — create one to begin (it starts in paper mode).</div>'; return; }
@@ -1401,6 +1443,8 @@ function renderRules() {
         (r.strategy === 'direct_hedge' || r.strategy === 'loop_pair' ? '<span class="fact">≤<b>' + (cfg.maxOpenPositions || 1) + '</b> open hedge</span>' : '') +
         (Number(r.consec_fails) > 0 && !r.tripped ? '<span class="fact warn">fails in a row: <b>' + r.consec_fails + '/' + r.max_consec_fails + '</b></span>' : '') +
       '</div>' +
+      // THE TRACK — live readings against every ceiling, amber near, red at.
+      capsStrip((ST.caps || []).find(c => c.ruleId === r.id)) +
       (r.tripped ? '<div class="trip-reason selectable">⛔ ' + esc(r.tripped_reason || 'repeated failures') + '</div>' : '') +
       ruleCoinRow(r, cfg, rExcl) +
       '<div class="rule-actions">' +
@@ -2054,7 +2098,21 @@ function setActMode(m) {
 
 async function refreshOrders() {
   try { orders = await apiJson('/api/trader/orders?limit=80'); } catch (e) { return; }
-  $('cntOrders').textContent = orders.length;
+  // The badge counts ATTEMPTS, not rows. His point, 3 Sep: "skipped trades,
+  // don't consider in trade count." The daily cap already ignores them —
+  // store.tradesToday filters `status NOT IN ('skipped','missed')` — but this
+  // badge did not, so 80 rows of pre-trade refusals read as 80 trades. A skip
+  // is the engine deciding NOT to trade; counting it as one inverts the meaning.
+  // Skips stay reachable behind their own filter chip, shown here in muted
+  // parentheses so a burst of them is still visible without inflating the count.
+  {
+    const attempts = orders.filter(o => o.status !== 'skipped').length;
+    const skips = orders.length - attempts;
+    $('cntOrders').textContent = skips ? attempts + ' (' + skips + ')' : String(attempts);
+    $('cntOrders').title = skips
+      ? attempts + ' attempt' + (attempts === 1 ? '' : 's') + ', ' + skips + ' skipped before placing anything'
+      : attempts + ' attempt' + (attempts === 1 ? '' : 's');
+  }
   renderOrders();
   renderChart();
 }
