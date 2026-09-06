@@ -411,6 +411,16 @@
   .cap-banner-t { font-size:12px; font-weight:800; color:#8a5200; }
   .cap-banner-s { font-size:11px; color:#9a6400; }
   .cap-banner-a { margin-left:auto; display:flex; gap:6px; }
+  /* 05am: a hard stop is red, an approach is amber. The amber .cap-banner
+     above keeps its own colours; this only overrides the stop case. */
+  .cap-banner.stop { background:#ffe6e6; border-color:#f3b8b4; }
+  .cap-banner.stop .cap-banner-t { color:#b3261e; }
+  .cap-banner.ovr { background:#eef4ff; border-color:#b9cdf5; }
+  .cap-banner.ovr .cap-banner-t { color:#1d4ed8; }
+  .resets { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 10px 16px; }
+  .resets .btn.sm.danger { color:#b3261e; border-color:#f3b8b4; }
+  .rule.st-blocked { border-left:3px solid #b3261e; }
+  .rule.st-warning { border-left:3px solid #d98200; }
   .btn.sm { font-size:11px; padding:4px 10px; }
   .rule-top { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   .rule-name { font-weight:800; font-size:14px; letter-spacing:-.01em; }
@@ -1424,6 +1434,113 @@ function capsBanner(caps, ruleId) {
   '</div>';
 }
 
+// ---- 05am: WHY IS THIS RULE NOT TRADING? ----------------------------------
+// capsBanner covers the five ceilings. It never covered the two commonest
+// reasons nothing happens: the circuit breaker being tripped, and the rule
+// being switched off. Both were visible only as a small chip, and on 6 Sep the
+// breaker tripped twice while the card still looked normal.
+//
+// The backend now sends `blocking` and `warning` as plain sentences, so this
+// renders them rather than re-deriving anything. Cap entries are left to
+// capsBanner, which has the buttons; this takes what capsBanner cannot see.
+function whyStopped(caps) {
+  if (!caps) return '';
+  const out = [];
+  const capWords = /reached \(|at the limit/;
+  const hard = (caps.blocking || []).filter(b => !capWords.test(b));
+  if (hard.length) {
+    out.push('<div class="cap-banner stop">' +
+      '<span class="cap-banner-t">⛔ NOT TRADING — ' + esc(hard.join(' · ')) + '</span>' +
+      '</div>');
+  }
+  const warn = caps.warning || [];
+  if (warn.length) {
+    out.push('<div class="cap-banner">' +
+      '<span class="cap-banner-t">🟠 APPROACHING A LIMIT</span>' +
+      '<span class="cap-banner-s">' + esc(warn.join(' · ')) + '</span>' +
+      '</div>');
+  }
+  return out.join('');
+}
+
+// ---- 05an: THE RESET CONTROLS ----------------------------------------------
+// The old comment here refused a reset button outright — "on a loss stop it
+// would be a footgun with his own money in it". He asked for all four anyway,
+// so they exist, but none of them zeroes anything by editing history: a reset
+// records what it excluded and the card keeps showing the real day underneath.
+// Uses api() rather than apiJson() on purpose: apiJson throws on any non-OK,
+// and the 409 here is not an error — it is the server handing back today's
+// real loss so the confirmation prompt can show it.
+async function ruleReset(ruleId, kind, extra) {
+  const body = Object.assign({ ruleId, kind }, extra || {});
+  let r, j = {};
+  try {
+    r = await api('/api/trader/rule/reset', { method: 'POST', body: JSON.stringify(body) });
+    j = await r.json().catch(() => ({}));
+  } catch (e) { toast('Failed: ' + e.message); return { ok: false }; }
+  if (r.status === 409 && j.needsConfirm) return { needsConfirm: true, actualLossInr: j.actualLossInr };
+  if (!j.ok) { toast(j.error || 'Reset failed'); return { ok: false }; }
+  refreshStatus();
+  return j;
+}
+
+// (breaker reset already exists as resetBreaker() — not duplicated here)
+
+function askCapOverride(id) {
+  const t = prompt('Raise trades/day for TODAY only.\nLeave blank to keep it as is.');
+  if (t === null) return;
+  const b = prompt('Raise the daily ₹ budget for TODAY only.\nLeave blank to keep it as is.');
+  if (b === null) return;
+  const extra = {};
+  if (String(t).trim()) extra.maxTradesPerDay = Number(t);
+  if (String(b).trim()) extra.dailyInrCap = Number(b);
+  if (!Object.keys(extra).length) return;
+  ruleReset(id, 'caps', extra);
+}
+
+function askCountersReset(id) {
+  if (!confirm('Reset today\'s counters to zero?\n\nNo orders are changed. The engine records what it is excluding and keeps showing the real day beside the new figure. It expires at midnight.')) return;
+  ruleReset(id, 'counters');
+}
+
+// The one with the confirmation. The server refuses unless the typed figure
+// matches today's real loss, so it cannot be pressed without seeing it.
+async function askLossOverride(id) {
+  const probe = await ruleReset(id, 'loss', { confirmLossInr: -1 });
+  if (!probe || !probe.needsConfirm) return;
+  const actual = probe.actualLossInr;
+  const typed = prompt('⚠️ OVERRIDE THE DAILY LOSS STOP\n\nYou are ' + inr(actual) + ' down today.\n'
+    + 'Type that number exactly to continue, or Cancel.\n\n(₹' + actual + ')');
+  if (typed === null) return;
+  if (Number(typed) !== actual) { toast('That does not match ₹' + actual + '. Nothing was changed.'); return; }
+  const cap = prompt('New loss stop for TODAY (₹).\nLeave BLANK to remove the stop entirely for today.');
+  if (cap === null) return;
+  const extra = { confirmLossInr: actual };
+  if (String(cap).trim()) extra.lossStopInr = Number(cap);
+  ruleReset(id, 'loss', extra);
+}
+
+// An active override is never allowed to be invisible.
+function overrideNotice(caps) {
+  if (!caps || !caps.override) return '';
+  const o = caps.override;
+  const raw = o.raw || {};
+  return '<div class="cap-banner ovr">' +
+    '<span class="cap-banner-t">' + (o.lossOverridden ? '🚨' : '♻️') + ' OVERRIDE ACTIVE — ' + esc(o.text || 'counters reset') + '</span>' +
+    '<span class="cap-banner-s">real day so far: <b>' + (raw.trades || 0) + '</b> trades · <b>'
+      + inr(raw.spentInr || 0) + '</b> spent · <b>' + inr(raw.lossInr || 0) + '</b> down · expires at midnight</span>' +
+  '</div>';
+}
+
+function resetActions(r, caps) {
+  const bits = [];
+  // The breaker already has its own button in .rule-actions — resetBreaker().
+  bits.push('<button class="btn sm" onclick="askCapOverride(' + r.id + ')">Raise caps today</button>');
+  bits.push('<button class="btn sm" onclick="askCountersReset(' + r.id + ')">Reset counters</button>');
+  bits.push('<button class="btn sm danger" onclick="askLossOverride(' + r.id + ')">Override loss stop</button>');
+  return '<div class="resets">' + bits.join('') + '</div>';
+}
+
 function capsStrip(caps) {
   if (!caps) return '';
   const bits = [];
@@ -1432,8 +1549,12 @@ function capsStrip(caps) {
     const used = c.used == null ? null : c.used;
     const f = fmt || ((v) => v);
     if (used == null) { bits.push('<span class="cap">' + label + ' <b>—</b>/' + f(c.limit) + '</span>'); return; }
-    const pct = c.limit > 0 ? (used / c.limit) * 100 : 0;
-    const cls = c.atCap ? 'cap at' : pct >= 80 ? 'cap near' : 'cap';
+    // 05am: the backend now sends pct and nearCap, with the amber threshold in
+    // ONE place (TRADER_NEAR_CAP_PCT) instead of hardcoded here. Fall back to
+    // the old local maths so an older server still colours correctly.
+    const pct = c.pct != null ? c.pct : (c.limit > 0 ? (used / c.limit) * 100 : 0);
+    const near = c.nearCap != null ? c.nearCap : (pct >= 80);
+    const cls = c.atCap ? 'cap at' : near ? 'cap near' : 'cap';
     bits.push('<span class="' + cls + '">' + label + ' <b>' + f(used) + '</b>/' + f(c.limit) +
       (c.atCap ? ' · FULL' : '') + '</span>');
   };
@@ -1443,7 +1564,11 @@ function capsStrip(caps) {
   bar('loss today', caps.lossStop, (v) => inr(v));
   bar('portfolio open', caps.portfolio);
   if (!bits.length) return '';
-  const stale = caps.ageMs == null ? ' <span class="cap">not evaluated yet</span>' : '';
+  // 05am: `stale` is explicit now. Before this the counters read "—" all day
+  // because cachedGates was only written during an evaluation and expired
+  // after 5s — the numbers existed, nothing kept them.
+  const isStale = caps.stale != null ? caps.stale : (caps.ageMs == null);
+  const stale = isStale ? ' <span class="cap">not evaluated yet</span>' : '';
   return '<div class="caps">' + bits.join('') + stale + '</div>';
 }
 
@@ -1465,7 +1590,11 @@ function renderRules() {
     // colours alone were too quiet — this puts it on the card itself.
     const myCaps = (ST.caps || []).find(c => c.ruleId === r.id);
     const capped = capsFull(myCaps).length > 0;
-    return '<div class="rule ' + (r.tripped ? 'tripped ' : '') + (capped ? 'capped' : '') + '">' +
+    // 05am: one field from the backend — ok / warning / blocked — so the card
+    // colours on the SAME judgement the alert fires on.
+    const state = (myCaps && myCaps.state) || null;
+    const stateCls = state ? ' st-' + state : '';
+    return '<div class="rule ' + (r.tripped ? 'tripped ' : '') + (capped ? 'capped' : '') + stateCls + '">' +
       '<div class="rule-top">' +
         '<label class="switch"><input type="checkbox" ' + (r.enabled ? 'checked' : '') + ' onchange="toggleRule(' + r.id + ', this.checked)"><span class="slider"></span></label>' +
         '<span class="rule-name">' + esc(r.name) + '</span>' +
@@ -1473,6 +1602,8 @@ function renderRules() {
         '<span class="chip ' + r.mode + '">' + r.mode + '</span>' +
         (r.tripped ? '<span class="chip trip">breaker tripped</span>' : '') +
       '</div>' +
+      whyStopped(myCaps) +
+      overrideNotice(myCaps) +
       capsBanner(myCaps, r.id) +
       '<div class="facts num">' +
         '<span class="fact">≥ <b>' + Number(r.min_net_pct) + '%</b> net</span>' +
@@ -1511,6 +1642,7 @@ function renderRules() {
       capsStrip(myCaps) +
       (r.tripped ? '<div class="trip-reason selectable">⛔ ' + esc(r.tripped_reason || 'repeated failures') + '</div>' : '') +
       ruleCoinRow(r, cfg, rExcl) +
+      resetActions(r, myCaps) +
       '<div class="rule-actions">' +
         '<button class="btn" onclick="openRuleForm(' + r.id + ')">Edit</button>' +
         (r.mode === 'paper'
