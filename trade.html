@@ -840,6 +840,7 @@
          page (track.html) with Execute wired to this trader. -->
     <button class="tabbtn" id="tb-manual" onclick="window.location.href='./track.html'">Track Live ↗</button>
     <button class="tabbtn" id="tb-positions" onclick="setTab('positions')">Positions<span class="cnt" id="cntPos">0</span></button>
+    <button class="tabbtn" id="tb-missed" onclick="setTab('missed')">Missed<span class="cnt" id="cntMissed">0</span></button>
   </div>
 </div>
 
@@ -960,6 +961,27 @@
        with Execute wired to this trader's manual API. -->
 
   <!-- POSITIONS -->
+  <!-- ============================================================
+       MISSED WHILE TRIPPED
+       Arbitrages that cleared a rule's OWN bar while that rule's breaker
+       was tripped. Nothing here was ever an order and nothing here sent an
+       alert — it exists to answer one question: what did being stuck cost.
+       ============================================================ -->
+  <div class="tabpane" id="tab-missed">
+    <div class="panel">
+      <div class="panel-h">
+        <h2>Missed while tripped</h2>
+        <span class="hint">plans that cleared the rule's own % and ₹ bars while its breaker was tripped — never traded, never alerted</span>
+      </div>
+      <div class="panel-b">
+        <div class="tiles" id="missedTiles"></div>
+        <div id="missedBody" style="margin-top:10px;">
+          <div class="jrow">loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="tabpane" id="tab-positions">
     <div class="panel" id="walletPanel" style="display:none;">
       <div class="panel-h"><h2>WazirX Wallet (fake)</h2><span class="hint">ARB2 sells from here — edit to test "less coins than the arb"</span></div>
@@ -1401,10 +1423,11 @@ const openTimelines = new Set();
 function setTab(name) {
   // 'manual' (Track Live) is not a pane anymore — its tab button navigates
   // straight to track.html, the scanner-page clone.
-  for (const t of ['overview', 'rules', 'activity', 'positions']) {
+  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed']) {
     $('tab-' + t).classList.toggle('active', t === name);
     $('tb-' + t).classList.toggle('active', t === name);
   }
+  if (name === 'missed') refreshMissed();
 }
 
 // ---------------- status / master ----------------
@@ -1493,6 +1516,63 @@ async function testKeys() {
     alert(lines.join('\n'));
   } catch (e) { alert('Key test failed: ' + e.message); }
   btn.textContent = 'Test keys'; btn.disabled = false;
+}
+
+// ---------------- missed while tripped ----------------
+// Read-only. Nothing on this tab can place, cancel or arm anything — it reads
+// one endpoint and draws it. The rows are plans that cleared the rule's own
+// bars while its breaker was tripped, so "what being stuck cost" stops being a
+// guess. An empty table is the normal, healthy state.
+let MISSED = null;
+async function refreshMissed() {
+  const body = $('missedBody'); const tiles = $('missedTiles');
+  if (!body) return;
+  try {
+    MISSED = await apiJson('/api/trader/missed?limit=200&hours=168');
+  } catch (e) {
+    body.innerHTML = '<div class="jrow">could not load — ' + esc(e.message) + '</div>';
+    if (tiles) tiles.innerHTML = '';
+    return;
+  }
+  const rows = (MISSED && MISSED.rows) || [];
+  const t = (MISSED && MISSED.totals) || {};
+  const n = Number(t.n || 0);
+  const cnt = $('cntMissed'); if (cnt) cnt.textContent = n;
+  if (tiles) {
+    tiles.innerHTML =
+      tile('Missed', String(n), 'last 7 days', '', true) +
+      tile('Value left', inr2(Number(t.profit_inr || 0)), 'sum of plan profit', n ? 'good' : '') +
+      tile('Best edge', (Number(t.best_pct || 0)).toFixed(2) + '%', 'single best plan', '') +
+      tile('Coins', String(Number(t.coins || 0)), 'distinct', '');
+  }
+  if (!rows.length) {
+    body.innerHTML = '<div class="jrow">nothing recorded — either no rule has tripped in this window, '
+      + 'or tracking is off (TRADER_MISS_TRACK=1 on the box turns it on).</div>';
+    return;
+  }
+  // Deliberately plain: this is a ledger to read, not a control surface.
+  body.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+    + '<thead><tr>'
+    + ['when', 'coin', 'path', 'net %', 'profit', 'size', 'rule bar', 'tripped because']
+      .map(h => '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--gray-200,#e2e8f0);'
+        + 'font-weight:700;white-space:nowrap;">' + h + '</th>').join('')
+    + '</tr></thead><tbody>'
+    + rows.map(r => {
+      const pct = Number(r.net_pct || 0), prof = Number(r.profit_inr || 0);
+      return '<tr>'
+        + '<td style="padding:6px 8px;white-space:nowrap;">' + esc(ago(r.ts)) + '</td>'
+        + '<td style="padding:6px 8px;font-weight:700;">' + esc(String(r.coin || '').toUpperCase()) + '</td>'
+        + '<td style="padding:6px 8px;">' + esc(r.path_kind || '') + '</td>'
+        + '<td style="padding:6px 8px;font-weight:700;color:var(--success,#059669);">' + pct.toFixed(2) + '%</td>'
+        + '<td style="padding:6px 8px;font-weight:700;">' + inr2(prof) + '</td>'
+        + '<td style="padding:6px 8px;">' + inr(Number(r.cost_inr || 0)) + '</td>'
+        + '<td style="padding:6px 8px;white-space:nowrap;opacity:.75;">'
+          + (r.min_net_pct != null ? Number(r.min_net_pct).toFixed(2) + '%' : '—')
+          + ' / ' + (r.min_profit_inr != null ? inr(Number(r.min_profit_inr)) : '—') + '</td>'
+        + '<td style="padding:6px 8px;opacity:.75;">' + esc(r.trip_reason || '—') + '</td>'
+        + '</tr>';
+    }).join('')
+    + '</tbody></table></div>';
 }
 
 // ---------------- overview: tiles + chart + judgment ----------------
