@@ -6256,7 +6256,11 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
     var h1 = document.querySelector('.topbar h1');
     if (h1) h1.textContent = 'Swenik Track Live';
     var sub = document.querySelector('.topbar .subtitle');
-    if (sub) sub.innerHTML = 'cloned scanner page + Execute · <span style="opacity:.9;font-weight:700;">original scanner untouched</span>';
+    // The trader this page executes against is named ON the page. It was
+    // possible to be on Mumbai here without any sign of it; a pinned label is
+    // what makes that impossible to miss next time.
+    if (sub) sub.innerHTML = 'cloned scanner page + Execute · <span style="opacity:.9;font-weight:700;">original scanner untouched</span>'
+      + ' · <span style="opacity:.9;font-weight:700;">manual → Trader 1 · DigitalOcean</span>';
   } catch (e) {}
 })();
 </script>
@@ -6286,16 +6290,22 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   'use strict';
 
   // ---------- trader API glue ----------
-  // Same resolution order as trade.html: explicit URL saved on this device →
-  // the Vercel /trader-api proxy → the known DigitalOcean app URL.
+  // MANUAL TRADES ARE PINNED TO DIGITALOCEAN, ALWAYS.
+  //
+  // This used to read localStorage 'swenik_trader_url' — the SAME key the auto
+  // trader page uses to remember which box it is showing. So the moment
+  // trade.html was pointed at Trader 2 (EC2 Mumbai), every manual Execute on
+  // this page silently followed it there and would have traded the wrong
+  // WazirX account. Manual flow belongs to the DigitalOcean box, and nothing
+  // on another page is allowed to move it.
+  //
+  // Both candidates below are the SAME box reached two ways — the Vercel
+  // /trader-api rewrite first, the app's own hostname if that proxy is down —
+  // so falling from one to the other cannot change which account trades.
   var FT_FALLBACK = 'https://walrus-app-b5qke.ondigitalocean.app';
   var ftBase = null;
   function ftCandidates() {
-    var c = [];
-    try { var u = localStorage.getItem('swenik_trader_url'); if (u) c.push(u.replace(/\/$/, '')); } catch (e) {}
-    c.push(''); // '' → same-origin /trader-api proxy
-    c.push(FT_FALLBACK);
-    return c;
+    return ['', FT_FALLBACK]; // '' → same-origin /trader-api proxy → DigitalOcean
   }
   async function traderApi(path, opts) {
     var cands = ftBase !== null ? [ftBase] : ftCandidates();

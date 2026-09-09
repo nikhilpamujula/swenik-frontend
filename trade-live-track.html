@@ -6232,16 +6232,17 @@ document.addEventListener('touchstart', () => reseatHitMap(), { capture: true, p
   'use strict';
 
   // ---------- trader API glue ----------
-  // Same resolution order as trade.html: explicit URL saved on this device →
-  // the Vercel /trader-api proxy → the known DigitalOcean app URL.
+  // MANUAL TRADES ARE PINNED TO DIGITALOCEAN, ALWAYS — same fix as track.html.
+  //
+  // This used to read localStorage 'swenik_trader_url', the SAME key the auto
+  // trader page uses to remember which box it is showing, so pointing
+  // trade.html at Trader 2 (EC2 Mumbai) silently moved manual Execute to the
+  // wrong WazirX account. Both candidates below are the SAME DigitalOcean box
+  // by two routes, so falling between them cannot change which account trades.
   var FT_FALLBACK = 'https://walrus-app-b5qke.ondigitalocean.app';
   var ftBase = null;
   function ftCandidates() {
-    var c = [];
-    try { var u = localStorage.getItem('swenik_trader_url'); if (u) c.push(u.replace(/\/$/, '')); } catch (e) {}
-    c.push(''); // '' → same-origin /trader-api proxy
-    c.push(FT_FALLBACK);
-    return c;
+    return ['', FT_FALLBACK]; // '' → same-origin /trader-api proxy → DigitalOcean
   }
   async function traderApi(path, opts) {
     var cands = ftBase !== null ? [ftBase] : ftCandidates();
