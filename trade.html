@@ -767,8 +767,9 @@
         <div class="hero-meta">
           <span class="keychip"><span class="dot unk" id="kWzx"></span>WazirX</span>
           <span class="keychip"><span class="dot unk" id="kBin"></span>Binance Fut</span>
+          <span class="boxsw" id="boxSw"></span>
           <button class="ghostbtn" onclick="testKeys()" id="testKeysBtn">Test keys</button>
-          <button class="ghostbtn" onclick="setTraderBase()" title="Set the trader server URL">⚙ Server</button>
+          <button class="ghostbtn" onclick="setTraderBase()" title="Set a custom trader server URL">⚙ Server</button>
           <select id="notifySel" class="heroselect" onchange="setNotify()">
             <option value="all">🔔 all outcomes</option>
             <option value="fails">🔔 failures only</option>
@@ -778,6 +779,55 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- ============================================================
+     OTHER-BOX STRIP
+     Deliberately quiet: small, muted, low contrast. It must never be
+     mistaken for the main panel above it — its only jobs are to stop
+     you being blind to the other account and to get you there in one
+     tap. Everything it shows is read-only.
+     ============================================================ -->
+<style>
+  .otherbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    max-width:1180px; margin:10px auto 0; padding:7px 12px;
+    background:var(--gray-100,#f1f5f9); border:1px solid var(--gray-200,#e2e8f0);
+    border-radius:9px; font-size:11.5px; color:var(--gray-600,#475569);
+    cursor:pointer; user-select:none; transition:background .12s ease; }
+  .otherbar:hover { background:var(--gray-200,#e2e8f0); }
+  .otherbar.stale { opacity:.6; }
+  .otherbar .ob-tag { font-weight:800; letter-spacing:.02em; color:var(--gray-700,#334155);
+    background:#fff; border:1px solid var(--gray-200,#e2e8f0);
+    border-radius:5px; padding:1px 6px; }
+  .otherbar .ob-dot { width:7px; height:7px; border-radius:50%; background:#94a3b8; flex:none; }
+  .otherbar .ob-dot.on  { background:var(--success,#059669);
+    box-shadow:0 0 0 3px rgba(5,150,105,.16); }
+  .otherbar .ob-dot.off { background:#94a3b8; }
+  .otherbar .ob-dot.unk { background:var(--danger,#dc2626); }
+  .otherbar .ob-state { font-weight:700; }
+  .otherbar .ob-sep { opacity:.4; }
+  .otherbar .ob-item.pos { color:var(--success,#059669); font-weight:700; }
+  .otherbar .ob-item.neg { color:var(--danger,#dc2626); font-weight:700; }
+  .otherbar .ob-go { margin-left:auto; font-weight:700; color:var(--gray-500,#64748b); }
+  /* The box switcher in the hero. The selected box carries the page accent,
+     which changes with the box — so the control agrees with the page. */
+  .boxsw { display:inline-flex; background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.22); border-radius:8px; padding:2px; gap:2px; }
+  .boxsw .boxbtn { font:inherit; font-size:11px; font-weight:800; letter-spacing:.02em;
+    padding:4px 10px; border:none; border-radius:6px; cursor:pointer;
+    background:transparent; color:rgba(255,255,255,.72); white-space:nowrap; }
+  .boxsw .boxbtn:hover { color:#fff; }
+  .boxsw .boxbtn.sel { background:#fff; color:var(--accent-600,#2f49b8); }
+</style>
+<div class="otherbar" id="otherBar" onclick="switchToOther()" title="Switch to this trader">
+  <span class="ob-tag" id="obTag">—</span>
+  <span class="ob-dot unk" id="obDot"></span>
+  <span class="ob-state" id="obState">checking…</span>
+  <span class="ob-sep">·</span>
+  <span class="ob-item" id="obTrades"></span>
+  <span class="ob-sep">·</span>
+  <span class="ob-item" id="obPnl"></span>
+  <span class="ob-go">switch →</span>
 </div>
 
 <!-- TABS -->
@@ -1086,33 +1136,183 @@
 // CONFIG
 // ================================================================
 const SANDBOX = false;
-// The trader runs as its OWN DigitalOcean app (separate from the scanner).
-// Routing order: saved URL (⚙ Server button) → same-origin /trader-api
-// (vercel.json rewrite) → whichever worked last.
-function traderBase() {
-  try { return localStorage.getItem('swenik_trader_url') || ''; } catch (e) { return ''; }
+
+// ================================================================
+// TWO TRADER BOXES — each is a SEPARATE deployment on a SEPARATE
+// WazirX account. They share nothing. Arming one does not arm the
+// other, and their balances, rules and order history are distinct.
+//
+// url:'' means "use the same-origin /trader-api rewrite", which
+// vercel.json points at the DigitalOcean trader. Trader 2 is called
+// by its absolute hostname.
+// ================================================================
+const BOXES = [
+  { id:'do',  short:'Trader 1', name:'Trader 1 · DigitalOcean Bangalore',
+    url:'',
+    accent:'#3b5bdb', accent600:'#2f49b8', accentSoft:'#eef1fd', accentLine:'#c9d4f8' },
+  { id:'ec2', short:'Trader 2', name:'Trader 2 · EC2 Mumbai',
+    url:'https://api-ec2.swenik.co.in',
+    accent:'#b45309', accent600:'#92400e', accentSoft:'#fdf3e7', accentLine:'#f0cf9a' }
+];
+const BOX_KEY        = 'swenik_trader_box';
+const LEGACY_URL_KEY = 'swenik_trader_url';
+
+// A URL typed into the old ⚙ Server prompt that is not one of the two
+// known boxes stays usable as a third, custom entry — nothing that
+// worked before this change stops working.
+function allBoxes() {
+  const out = BOXES.slice();
+  let legacy = '';
+  try { legacy = (localStorage.getItem(LEGACY_URL_KEY) || '').trim().replace(/\/$/, ''); } catch (e) {}
+  if (legacy && !out.some(b => b.url === legacy)) {
+    out.push({ id:'custom', short:'Custom', name:'Custom · ' + legacy, url:legacy,
+      accent:'#475569', accent600:'#334155', accentSoft:'#f1f5f9', accentLine:'#cbd5e1' });
+  }
+  return out;
 }
-function setTraderBase() {
-  const cur = traderBase();
-  const v = prompt('Trader server URL (from DigitalOcean, e.g. https://swenik-trader-xxxxx.ondigitalocean.app)\n\nLeave empty to use the site proxy (/trader-api via vercel.json):', cur || '');
-  if (v === null) return;
-  try { localStorage.setItem('swenik_trader_url', v.trim().replace(/\/$/, '')); } catch (e) {}
+
+function currentBox() {
+  const boxes = allBoxes();
+  let id = '';
+  try { id = localStorage.getItem(BOX_KEY) || ''; } catch (e) {}
+  if (!id) {
+    // First load after this upgrade: infer the box from whatever the old
+    // ⚙ Server prompt had saved, so the page opens where it opened before.
+    let legacy = '';
+    try { legacy = (localStorage.getItem(LEGACY_URL_KEY) || '').trim().replace(/\/$/, ''); } catch (e) {}
+    const match = boxes.find(b => b.url && b.url === legacy);
+    id = match ? match.id : 'do';
+  }
+  return boxes.find(b => b.id === id) || boxes[0];
+}
+
+function otherBox() {
+  const cur = currentBox().id;
+  return BOXES.find(b => b.id !== cur) || null;
+}
+
+function traderBase() { return currentBox().url; }
+
+// Switching reloads deliberately. Half this page is cached in module-level
+// state (ST, orders, rules, wallet); repainting it in place would leave one
+// box's numbers on screen under the other box's name.
+function selectBox(id) {
+  const box = allBoxes().find(b => b.id === id);
+  if (!box || box.id === currentBox().id) return;
+  try { localStorage.setItem(BOX_KEY, box.id); } catch (e) {}
   location.reload();
 }
+function switchToOther() { const b = otherBox(); if (b) selectBox(b.id); }
+
+// The whole page changes colour with the box. This is the primary signal —
+// a label you have to look for is not enough when the mistake costs an order
+// on the wrong account.
+function applyBoxTheme() {
+  const b = currentBox();
+  const r = document.documentElement.style;
+  r.setProperty('--accent',      b.accent);
+  r.setProperty('--accent-600',  b.accent600);
+  r.setProperty('--accent-soft', b.accentSoft);
+  r.setProperty('--accent-line', b.accentLine);
+  document.title = 'SWENIK ' + b.short + ' — Fast Trader';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', b.accent600);
+}
+
+function renderBoxSwitch() {
+  const el = document.getElementById('boxSw');
+  if (!el) return;
+  const cur = currentBox().id;
+  el.innerHTML = allBoxes().map(b =>
+    '<button class="boxbtn' + (b.id === cur ? ' sel' : '') + '"'
+    + ' onclick="selectBox(\'' + b.id + '\')" title="' + esc(b.name) + '">'
+    + esc(b.short) + '</button>').join('');
+}
+
+function setTraderBase() {
+  const cur = currentBox().url;
+  const v = prompt('Custom trader server URL.\n\nLeave empty to go back to '
+    + BOXES[0].name + ' via the site proxy:', cur || '');
+  if (v === null) return;
+  const clean = v.trim().replace(/\/$/, '');
+  try {
+    localStorage.setItem(LEGACY_URL_KEY, clean);
+    const known = BOXES.find(b => b.url === clean);
+    localStorage.setItem(BOX_KEY, known ? known.id : (clean ? 'custom' : 'do'));
+  } catch (e) {}
+  location.reload();
+}
+
+// ONE box, ONE route — no cross-box fallback.
+//
+// The previous version pushed BOTH the saved URL and the /trader-api rewrite
+// into a list and tried them in turn. Because vercel.json rewrites
+// /trader-api to the DigitalOcean trader, a single network blip on Trader 2
+// silently re-sent the request to Trader 1 — including
+// POST /api/trader/control — and the UI reported success. You could arm the
+// wrong account and be told it worked. A failure must stay a failure, and
+// must say which box failed.
 async function api(path, opts) {
   if (SANDBOX) return window.SimBackend.handle(path, opts || {});
   const o = Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts);
-  const direct = traderBase();
-  const routes = [];
-  if (direct) routes.push(direct + path);
-  if (location.protocol !== 'file:') routes.push('/trader-api' + path.replace(/^\/api/, ''));
-  if (!routes.length) throw new Error('no trader server set — tap ⚙ Server and paste your DigitalOcean trader URL');
-  let lastErr = null;
-  for (const url of routes) {
-    try { return await fetch(url, o); } catch (e) { lastErr = e; }
+  const box = currentBox();
+  let url;
+  if (box.url) url = box.url + path;
+  else if (location.protocol !== 'file:') url = '/trader-api' + path.replace(/^\/api/, '');
+  else throw new Error('no trader server set — tap ⚙ Server');
+  try {
+    return await fetch(url, o);
+  } catch (e) {
+    throw new Error(box.short + ' unreachable — ' + (e.message || 'network error'));
   }
-  throw lastErr;
 }
+
+// Read-only peek at the OTHER box, for the status strip. Never used for
+// anything that writes.
+async function peekBox(box, path) {
+  const url = box.url ? box.url + path : '/trader-api' + path.replace(/^\/api/, '');
+  const r = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+// /api/trader/status is a large object and this strip reads five fields from
+// it, so it polls well below the main panel's rate.
+let __otherBusy = false;
+async function refreshOther() {
+  const box = otherBox();
+  const bar = document.getElementById('otherBar');
+  if (!box || !bar || __otherBusy) return;
+  __otherBusy = true;
+  const tag = document.getElementById('obTag');
+  if (tag) tag.textContent = box.short;
+  try {
+    const s = await peekBox(box, '/api/trader/status');
+    const armed = !!s.armed;
+    document.getElementById('obDot').className = 'ob-dot ' + (armed ? 'on' : 'off');
+    document.getElementById('obState').textContent = armed ? 'ARMED' : 'disarmed';
+    const live = (s.stats && s.stats.live) || {};
+    document.getElementById('obTrades').textContent =
+      (live.done || 0) + ' done · ' + (live.failed || 0) + ' failed';
+    const p = Number(live.profit || 0);
+    const el = document.getElementById('obPnl');
+    el.textContent = (p >= 0 ? '+' : '') + inr2(p);
+    el.className = 'ob-item ' + (p >= 0 ? 'pos' : 'neg');
+    bar.classList.remove('stale');
+  } catch (e) {
+    document.getElementById('obDot').className = 'ob-dot unk';
+    document.getElementById('obState').textContent = 'unreachable';
+    document.getElementById('obTrades').textContent = '';
+    document.getElementById('obPnl').textContent = '';
+    bar.classList.add('stale');
+  }
+  __otherBusy = false;
+}
+
+// Paint the box colour immediately, before the rest of the page renders —
+// a page that flashes the wrong box's colour is worse than one that never
+// had a colour at all.
+applyBoxTheme();
 // ---- CLEARING OPEN POSITIONS ------------------------------------------------
 // PAPER is bookkeeping — nothing exists anywhere, clearing is free.
 // LIVE is a real Binance futures position and a real WazirX holding. This does
@@ -1251,17 +1451,23 @@ async function refreshStatus() {
 
 async function toggleArm() {
   const target = !(ST && ST.armed);
+  // Name the box in the prompt. With a switcher on the page, "ARM the engine?"
+  // is ambiguous in the one moment where ambiguity is expensive — two boxes,
+  // two WazirX accounts, and the page looks the same on both apart from colour.
+  const box = currentBox();
   if (target) {
     const liveRules = ((ST && ST.rules) || []).filter(r => r.enabled && r.mode === 'live');
     const w = liveRules.length
-      ? 'ARM the engine?\n\n' + liveRules.length + ' LIVE rule(s) are enabled — REAL MONEY can trade:\n· ' + liveRules.map(r => r.name).join('\n· ')
-      : 'ARM the engine? Only paper rules are enabled — no real money moves.';
+      ? 'ARM ' + box.name + '?\n\n'
+        + liveRules.length + ' LIVE rule(s) are enabled — REAL MONEY can trade on THIS account:\n· '
+        + liveRules.map(r => r.name).join('\n· ')
+      : 'ARM ' + box.name + '?\n\nOnly paper rules are enabled — no real money moves.';
     if (!confirm(w)) return;
   }
   try {
     await apiJson('/api/trader/control', { method: 'POST', body: JSON.stringify({ armed: target }) });
     await refreshStatus();
-    toast(target ? 'Engine armed' : 'Engine disarmed — kill switch engaged');
+    toast(target ? box.short + ' armed' : box.short + ' disarmed — kill switch engaged');
   } catch (e) { toast('Failed: ' + e.message); }
 }
 
@@ -2496,12 +2702,17 @@ if (SANDBOX) {
 // Paint the restored money filter onto the chips BEFORE the first render, or
 // the markup's hardcoded "All money" highlight contradicts the list underneath.
 document.querySelectorAll('#actModes .fbtn').forEach(b => b.classList.toggle('active', b.dataset.m === actMode));
+renderBoxSwitch();
+refreshOther();
+// 20s, against the main panel's 4s. The strip reads five fields out of a
+// ~30KB status object on the OTHER box; there is no reason to pull it hard.
+setInterval(() => { if (!document.hidden) refreshOther(); }, 20000);
 tickAll();
 setInterval(() => { if (!document.hidden) refreshStatus(); }, SANDBOX ? 2000 : 4000);
 setInterval(() => { if (!document.hidden) { refreshOrders(); refreshPositions(); } }, SANDBOX ? 2500 : 6000);
 if (SANDBOX) { refreshWallet(); setInterval(() => { if (!document.hidden) refreshWallet(); }, 8000); }
 refreshSettings(); setInterval(() => { if (!document.hidden) refreshSettings(); }, 15000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) tickAll(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickAll(); refreshOther(); } });
 
 // ---------------- PWA: installable app + instant offline shell ----------------
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
