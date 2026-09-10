@@ -2813,5 +2813,465 @@ async function installApp() {
 }
 window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b) b.style.display = 'none'; });
 </script>
+<!-- ==========================================================================
+     SWENIK CALM SKIN — appended 10 Sep 2026
+     Purely additive. Delete everything between this comment and the matching
+     "END SWENIK CALM SKIN" marker to return to the previous appearance
+     exactly; no existing rule, id, class or handler is modified above.
+     ========================================================================== -->
+<style id="swk-calm">
+  /* ---------- palette -------------------------------------------------- */
+  :root{
+    color-scheme:dark;
+    --bg:#0f131b; --bg-2:#131824;
+    --surface:#171d29; --surface-2:#1d2532; --surface-3:#232c3b;
+    --ink:#dde4ee; --ink-2:#9daabd; --ink-3:#6f7c8f;
+    --line:#28303f; --line-2:#333d4e;
+
+    --primary:#1d2634; --primary-light:#27333f;
+    --accent:#7d9bff; --accent-600:#6a8bf5; --accent-soft:#1b2436; --accent-line:#2f3d59;
+    --success:#57c295; --success-soft:#152a24;
+    --danger:#e58ba0;  --danger-soft:#2b1b22;
+    --warning:#d7a55f; --warning-soft:#2a2318;
+    --light:#0f131b; --gray-100:#1d2532; --gray-200:#28303f;
+    --gray-500:#6f7c8f; --gray-700:#9daabd; --gray-800:#c6d0dd; --gray-900:#dde4ee;
+    --border:#28303f;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+    --shadow-md:0 6px 18px rgba(0,0,0,.42);
+    --shadow-lg:0 18px 44px rgba(0,0,0,.55);
+    --ring:0 0 0 3px rgba(125,155,255,.28);
+    --ask-bg:#2b1b22; --bid-bg:#152a24; --spread-bg:#2a2318;
+  }
+
+  /* ---------- ground ---------------------------------------------------- */
+  body{
+    background:var(--bg) !important;
+    color:var(--ink) !important;
+    font-size:15px !important;
+    line-height:1.55 !important;
+    letter-spacing:0 !important;
+  }
+
+  /* ---------- surfaces -------------------------------------------------- */
+  .panel,.tile,.livecard,.obook,.obgrid-wrap,.scanrow,.poscard,.modal,.modal-hd,
+  .rule,.order,.cc-card,.savebar,.legs,.minin,.jumpbar,.mv,.kk-ob-track,
+  .modal .frm .f,.cr-grid .f input,.f input,.f select,.btn,.fbtn,.pctbtn,.segbtn,
+  table.obgrid td.obg-pad,table.obgrid td.obg-gap,table.obgrid th.obg-gap{
+    background:var(--surface) !important;
+    color:var(--ink) !important;
+    border-color:var(--line) !important;
+  }
+  .panel,.rule,.order,.poscard,.livecard,.cc-card{box-shadow:var(--shadow-sm) !important;}
+  .modal{background:var(--surface) !important;box-shadow:var(--shadow-lg) !important;}
+  .modal-hd,.savebar,.jumpbar{background:var(--surface-2) !important;}
+  .topbar,.hero{background:linear-gradient(180deg,#1a2333,#151c28) !important;color:var(--ink) !important;}
+  .charttip,.tgmsg{background:var(--surface-3) !important;color:var(--ink) !important;}
+  .toast{background:var(--surface-3) !important;color:var(--ink) !important;box-shadow:var(--shadow-md) !important;}
+  .slider::before{background:var(--ink) !important;}
+  .tl-dot{box-shadow:0 0 0 2px var(--surface) !important;}
+
+  /* ---------- type scale: nothing below 12.5px -------------------------- */
+  [style*="font-size:9px"],[style*="font-size:10px"],[style*="font-size:11px"]{font-size:12.5px !important;}
+  .sub,.o-err,.o-time,.fact,.chip,.st,.cnt,.hint,.empty,.o-path,.sc-venue,.scan-go,
+  .coin-chip,.offbar-h .n,.cr-coin,.o-coin,.o-profit{font-size:12.5px !important;}
+  .o-coin{font-size:15px !important;font-weight:800 !important;}
+  .o-profit{font-size:14.5px !important;font-weight:800 !important;}
+  h1,h2,h3{letter-spacing:0 !important;}
+
+  /* ---------- text colours: no pure white, no shouting red -------------- */
+  .sub{color:var(--ink-2) !important;}
+  .o-err{color:var(--danger) !important;line-height:1.5 !important;}
+  .o-err.o-note{color:var(--ink-2) !important;}
+  .o-time{color:var(--ink-3) !important;}
+  .o-path{color:var(--ink-2) !important;}
+  .empty{color:var(--ink-2) !important;}
+  .num,.o-profit.pos{color:var(--success) !important;}
+  .o-profit.neg{color:var(--danger) !important;}
+
+  /* ---------- help text: collapsed until asked for ---------------------- */
+  .f .sub{
+    display:none;
+    margin-top:8px;padding:10px 12px;
+    background:var(--surface-2);border:1px solid var(--line);border-radius:10px;
+    line-height:1.6 !important;color:var(--ink-2) !important;
+  }
+  .f.swk-open .sub{display:block;}
+  .f > label:first-of-type{
+    cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+    font-size:14px !important;font-weight:700 !important;color:var(--ink) !important;
+  }
+  .f.swk-has-help > label:first-of-type::after{
+    content:'?';flex:none;
+    width:18px;height:18px;border-radius:50%;
+    background:var(--surface-3);color:var(--ink-2);
+    font-size:11px;font-weight:800;line-height:18px;text-align:center;
+  }
+  .f.swk-open.swk-has-help > label:first-of-type::after{
+    background:var(--accent);color:#0f131b;
+  }
+
+  /* ---------- inputs ---------------------------------------------------- */
+  .f input,.f select,.minin,input,select,textarea{
+    color:var(--ink) !important;font-size:15px !important;
+  }
+  .f input::placeholder,input::placeholder{color:var(--ink-3) !important;}
+  .f input:focus,.f select:focus,input:focus,select:focus{
+    border-color:var(--accent) !important;box-shadow:var(--ring) !important;outline:none !important;
+  }
+  input[type=checkbox]{accent-color:var(--accent) !important;}
+
+  /* ---------- buttons / tabs: bigger targets ---------------------------- */
+  .btn,.fbtn,.pctbtn,.segbtn,.tabbtn{
+    font-size:13.5px !important;
+    min-height:40px;
+    border-radius:11px !important;
+  }
+  .btn.primary{background:var(--accent) !important;color:#0f131b !important;border-color:var(--accent) !important;font-weight:800 !important;}
+  .btn.danger{background:var(--surface) !important;color:var(--danger) !important;border-color:var(--danger) !important;}
+  .bigbtn{color:#0f131b !important;font-size:15px !important;}
+  .tabbtn{color:var(--ink-2) !important;padding:11px 16px !important;}
+  .tabbtn.active{background:var(--accent) !important;color:#0f131b !important;font-weight:800 !important;}
+  .tabbtn.active .cnt{background:rgba(15,19,27,.28) !important;color:#0f131b !important;}
+  .fbtn.active,.pctbtn.active,.segbtn.active,.jbtn.on{
+    background:var(--accent) !important;color:#0f131b !important;border-color:var(--accent) !important;font-weight:800 !important;
+  }
+
+  /* ---------- state pills: readable, calm -------------------------------- */
+  .st,.chip,.fact{
+    padding:4px 10px !important;border-radius:999px !important;font-weight:700 !important;
+  }
+  .chip.trip{background:var(--danger-soft) !important;color:var(--danger) !important;}
+  .rule.capped{border-color:var(--warning) !important;}
+  .cap.near{color:var(--warning) !important;}
+  .cap.at{color:var(--danger) !important;}
+  .fact.blind{background:var(--warning-soft) !important;color:var(--warning) !important;}
+
+  /* ---------- activity rows: breathing room ------------------------------ */
+  .order{margin-bottom:11px !important;border-radius:14px !important;}
+  .order-row{padding:14px 15px !important;gap:10px !important;row-gap:8px !important;}
+  .o-err{padding:0 15px 13px 15px !important;}
+  .caret{color:var(--ink-3) !important;}
+
+  /* ---------- repeat collapsing ------------------------------------------ */
+  .swk-dupe{display:none !important;}
+  .swk-count{
+    display:inline-flex;align-items:center;gap:5px;
+    margin-left:auto;padding:4px 10px;border-radius:999px;
+    background:var(--surface-3);color:var(--ink-2);
+    font-size:12.5px;font-weight:800;white-space:nowrap;
+  }
+
+  /* ---------- coin picker ------------------------------------------------ */
+  .swk-pick{margin-top:8px;}
+  .swk-pick-btn{
+    width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:12px 14px;border-radius:12px;
+    background:var(--surface-2);border:1px solid var(--line);color:var(--ink);
+    font:inherit;font-size:14.5px;font-weight:700;cursor:pointer;text-align:left;
+  }
+  .swk-pick-btn .swk-caret{color:var(--ink-3);font-size:12px;}
+  .swk-pick-btn .swk-val{color:var(--ink-2);font-weight:600;}
+  .swk-pick-body{display:none;margin-top:9px;padding:12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);}
+  .swk-pick.open .swk-pick-body{display:block;}
+  .swk-search{
+    width:100%;padding:11px 12px;border-radius:10px;margin-bottom:11px;
+    background:var(--surface);border:1px solid var(--line);color:var(--ink);font:inherit;font-size:14.5px;
+  }
+  .swk-chips{display:flex;flex-wrap:wrap;gap:8px;max-height:210px;overflow:auto;}
+  .swk-chip{
+    padding:8px 13px;border-radius:999px;cursor:pointer;
+    background:var(--surface);border:1px solid var(--line);color:var(--ink-2);
+    font-size:13px;font-weight:700;user-select:none;
+  }
+  .swk-chip.on{background:var(--accent);border-color:var(--accent);color:#0f131b;}
+  .swk-chip.off-on{background:var(--danger);border-color:var(--danger);color:#0f131b;}
+  .swk-none{color:var(--ink-3);font-size:13px;padding:6px 2px;}
+  .swk-hidden{display:none !important;}
+
+  /* ======================================================================
+     RESPONSIVE SHELL — phone · tablet · desktop · ultra-wide
+     The app was built to a fixed 1120px column, so on a 3440px monitor it sat
+     as a narrow strip with ~2300px of dead space either side while the type
+     stayed at phone size. One --shell variable drives every container, and
+     the lists become multi-column grids only once there is genuinely room —
+     minmax() decides, so there is no width where a column is squeezed.
+     ====================================================================== */
+  :root{ --shell:1120px; --gap:14px; }
+  .sb-inner,.hero-wrap,.tabbar,.wrap,.banner{ max-width:var(--shell) !important; }
+
+  /* tablet — portrait and landscape */
+  @media (min-width:768px){
+    :root{ --shell:1120px; }
+    .wrap{ padding:20px 22px 80px !important; }
+  }
+  /* desktop */
+  @media (min-width:1280px){
+    :root{ --shell:1260px; }
+    body{ font-size:15.5px !important; }
+    #ordersBox{ display:grid; grid-template-columns:repeat(auto-fill,minmax(560px,1fr)); gap:var(--gap); align-items:start; }
+    #ordersBox .order{ margin-bottom:0 !important; }
+    #rulesList{ display:grid; grid-template-columns:repeat(auto-fill,minmax(560px,1fr)); gap:var(--gap); align-items:start; }
+    .modal{ max-width:900px !important; }
+    .frm{ grid-template-columns:repeat(3,1fr) !important; }
+  }
+  /* large desktop */
+  @media (min-width:1600px){
+    :root{ --shell:1560px; --gap:16px; }
+    body{ font-size:16px !important; }
+    /* NOTE — the Overview pane is deliberately NOT gridded into columns here.
+       It was tried and pulled: `.panel:first-of-type` does not select the chart
+       panel (#tilesRow is the first div child, so the chart panel is never
+       :first-of-type), and the pane could not be checked against populated
+       content from this sandbox. It stays a single column at every width until
+       it can be verified with real data. If you want it multi-column later,
+       say so and it gets built against a live screenshot, not a guess.
+       This guard stays regardless: a `#id{display:grid}` rule outranks
+       `.tabpane{display:none}` on specificity, which rendered Overview
+       underneath every other tab the first time round. */
+    .tabpane:not(.active){ display:none !important; }
+  }
+  /* ultra-wide */
+  @media (min-width:2200px){
+    :root{ --shell:1960px; --gap:18px; }
+    body{ font-size:17px !important; }
+    .modal{ max-width:1100px !important; }
+  }
+  @media (min-width:2900px){
+    :root{ --shell:2440px; }
+    body{ font-size:18px !important; }
+  }
+  /* an expanded timeline must never be squeezed by a neighbouring column */
+  #ordersBox .order.open{ grid-column:1/-1; }
+
+  /* the modal is a scroll container, so its own width follows the shell too */
+  @media (min-width:1280px){ .modal{ max-height:88vh !important; } }
+
+  /* ---------- reserve red for failures only ------------------------------ */
+  /* LIVE is a mode, not an alarm. In the old palette it shared the danger red
+     with genuine failures, so a screen of ordinary live activity read as a
+     screen of errors. Amber marks "real money" without shouting. */
+  .chip.live{background:var(--warning-soft) !important;color:var(--warning) !important;}
+  .chip.paper{background:var(--surface-3) !important;color:var(--ink-2) !important;}
+  .swk-chip.off-on{background:#b4687c !important;border-color:#b4687c !important;color:#0f131b !important;}
+
+  /* ---------- tab bar + box switch --------------------------------------- */
+  .tabbar-wrap{background:rgba(19,24,36,.92) !important;border-bottom:1px solid var(--line) !important;}
+  .tabbar{padding:9px 14px !important;}
+  .tabbtn .cnt{background:var(--surface-3) !important;color:var(--ink-2) !important;font-size:12px !important;}
+  .boxsw{background:rgba(255,255,255,.06) !important;}
+  .boxsw .boxbtn{font-size:12.5px !important;color:var(--ink-2) !important;}
+  .boxsw .boxbtn.sel{background:var(--accent) !important;color:#0f131b !important;}
+  .boxsw .boxbtn:hover{color:var(--ink) !important;}
+  /* the ARM button: keep it unmistakable, drop the glow */
+  .bigbtn{box-shadow:none !important;}
+
+  /* ---------- misc ------------------------------------------------------- */
+  hr,.divider{border-color:var(--line) !important;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  @media (max-width:520px){
+    .order-row{font-size:14px !important;}
+    .swk-chips{max-height:180px;}
+  }
+</style>
+
+<script id="swk-calm-js">
+/* SWENIK CALM SKIN — behaviour half. Additive only: every function below is
+   new, or wraps an existing global and still calls it. Nothing above is edited. */
+(function () {
+  'use strict';
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  /* ---------------------------------------------------------------- 1. HELP
+     Every .f field that carries a .sub gets a "?" on its label and hides the
+     help until it is tapped. This is the single biggest source of the small
+     text — some .sub blocks run past 900 characters at 10px. */
+  function markHelp(root) {
+    $$('.f', root || document).forEach(function (f) {
+      if (f.querySelector(':scope > .sub')) f.classList.add('swk-has-help');
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var lab = e.target.closest ? e.target.closest('.f.swk-has-help > label:first-of-type') : null;
+    if (!lab) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    var f = lab.parentElement;
+    if (f.querySelector(':scope > label input')) return;   // checkbox rows keep their own label behaviour
+    e.preventDefault();
+    f.classList.toggle('swk-open');
+  }, true);
+
+  /* ------------------------------------------------------- 2. REPEAT ROLLUP
+     Eight identical WLD skips in four minutes is eight rows of the same
+     sentence. Group by coin + state + message, show the newest, badge it with
+     the count and the age of the oldest. Nothing is discarded from `orders` —
+     this only hides DOM rows, so every filter and timeline still works. */
+  function rollup() {
+    var box = document.getElementById('ordersBox');
+    if (!box) return;
+    $$('.swk-count', box).forEach(function (n) { n.remove(); });
+    $$('.order', box).forEach(function (n) { n.classList.remove('swk-dupe'); });
+
+    var groups = {};
+    $$('.order', box).forEach(function (row) {
+      var coin = (row.querySelector('.o-coin') || {}).textContent || '';
+      var st = (row.querySelector('.st') || {}).textContent || '';
+      var err = (row.querySelector('.o-err') || {}).textContent || '';
+      if (!err) return;                       // completed trades are never rolled up
+      var key = coin + '|' + st + '|' + err.replace(/\s+/g, ' ').trim();
+      (groups[key] = groups[key] || []).push(row);
+    });
+
+    Object.keys(groups).forEach(function (k) {
+      var rows = groups[k];
+      if (rows.length < 2) return;
+      var keep = rows[0];                     // list is newest-first
+      var lastEl = rows[rows.length - 1].querySelector('.o-time');
+      var oldest = lastEl ? lastEl.textContent.trim() : '';
+      for (var i = 1; i < rows.length; i++) rows[i].classList.add('swk-dupe');
+      var badge = document.createElement('span');
+      badge.className = 'swk-count';
+      badge.textContent = '×' + rows.length + (oldest ? ' · over ' + oldest : '');
+      badge.title = rows.length + ' identical rows collapsed';
+      var hdr = keep.querySelector('.order-row');
+      if (hdr) hdr.appendChild(badge);
+    });
+  }
+  if (typeof window.renderOrders === 'function') {
+    var _render = window.renderOrders;
+    window.renderOrders = function () {
+      var out = _render.apply(this, arguments);
+      try { rollup(); } catch (e) { /* a cosmetic rollup must never break Activity */ }
+      return out;
+    };
+  }
+
+  /* --------------------------------------------------------- 3. COIN PICKER
+     rf_coins and rf_excl stay exactly as they are — hidden text inputs that
+     remain the single source of truth, so saveRule(), drawExclChips() and
+     dropExcl() are all untouched. The picker just writes into them.
+     The coin list is DERIVED (rule coin states, recent activity, whatever is
+     already typed) — never a hard-coded list. */
+  function universe() {
+    var set = {};
+    var add = function (c) {
+      c = String(c || '').trim().toLowerCase();
+      if (c && /^[a-z0-9]{2,12}$/.test(c)) set[c] = true;
+    };
+    /* ST and orders are top-level `let` bindings, so they live in the global
+       LEXICAL scope and are NOT properties of window. A later classic script
+       still sees them by name, which is why these are bare identifiers behind
+       typeof guards rather than window.ST / window.orders. */
+    try { if (typeof ST !== 'undefined' && ST && ST.coins) ST.coins.forEach(function (c) { add(c.coin); }); } catch (e) {}
+    try { if (typeof orders !== 'undefined' && orders) orders.forEach(function (o) { add(o.coin); }); } catch (e) {}
+    ['rf_coins', 'rf_excl'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) String(el.value || '').split(',').forEach(add);
+    });
+    return Object.keys(set).sort();
+  }
+  function readList(id) {
+    var el = document.getElementById(id);
+    if (!el) return [];
+    return String(el.value || '').split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+  }
+  function writeList(id, arr) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.value = arr.join(', ');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function buildPicker(inputId, opts) {
+    var input = document.getElementById(inputId);
+    if (!input || input.dataset.swkPicked === '1') return;
+    input.dataset.swkPicked = '1';
+    input.classList.add('swk-hidden');
+
+    var wrap = document.createElement('div');
+    wrap.className = 'swk-pick';
+    wrap.innerHTML =
+      '<button type="button" class="swk-pick-btn">' +
+        '<span class="swk-val"></span><span class="swk-caret">▼</span>' +
+      '</button>' +
+      '<div class="swk-pick-body">' +
+        '<input type="text" class="swk-search" placeholder="type to find or add a coin, then Enter">' +
+        '<div class="swk-chips"></div>' +
+      '</div>';
+    input.parentNode.insertBefore(wrap, input.nextSibling);
+
+    var btn = wrap.querySelector('.swk-pick-btn');
+    var val = wrap.querySelector('.swk-val');
+    var search = wrap.querySelector('.swk-search');
+    var chips = wrap.querySelector('.swk-chips');
+
+    function paint() {
+      var picked = readList(inputId);
+      val.textContent = picked.length
+        ? picked.length + ' selected · ' + picked.slice(0, 3).map(function (c) { return c.toUpperCase(); }).join(', ') + (picked.length > 3 ? '…' : '')
+        : opts.emptyLabel;
+      var q = String(search.value || '').trim().toLowerCase();
+      var list = universe().filter(function (c) { return !q || c.indexOf(q) === 0; });
+      if (!list.length) {
+        chips.innerHTML = '<div class="swk-none">' + (q ? 'No match — press Enter to add "' + q.toUpperCase() + '"' : 'No coins seen yet.') + '</div>';
+        return;
+      }
+      chips.innerHTML = '';
+      list.forEach(function (c) {
+        var on = picked.indexOf(c) >= 0;
+        var el = document.createElement('span');
+        el.className = 'swk-chip' + (on ? (opts.danger ? ' off-on' : ' on') : '');
+        el.textContent = c.toUpperCase();
+        el.onclick = function () {
+          var cur = readList(inputId);
+          var i = cur.indexOf(c);
+          if (i >= 0) cur.splice(i, 1); else cur.push(c);
+          writeList(inputId, cur);
+          paint();
+        };
+        chips.appendChild(el);
+      });
+    }
+
+    btn.onclick = function () { wrap.classList.toggle('open'); paint(); };
+    search.oninput = paint;
+    search.onkeydown = function (ev) {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      var c = String(search.value || '').trim().toLowerCase();
+      if (!/^[a-z0-9]{2,12}$/.test(c)) return;
+      var cur = readList(inputId);
+      if (cur.indexOf(c) < 0) cur.push(c);
+      writeList(inputId, cur);
+      search.value = '';
+      paint();
+    };
+    input.addEventListener('input', paint);
+    paint();
+  }
+
+  function enhanceForm() {
+    markHelp(document.getElementById('ruleModal') || document);
+    buildPicker('rf_coins', { emptyLabel: 'Any coin', danger: false });
+    buildPicker('rf_excl', { emptyLabel: 'Nothing switched off', danger: true });
+  }
+  if (typeof window.openRuleForm === 'function') {
+    var _open = window.openRuleForm;
+    window.openRuleForm = function () {
+      var out = _open.apply(this, arguments);
+      try { setTimeout(enhanceForm, 0); } catch (e) {}
+      return out;
+    };
+  }
+
+  /* ------------------------------------------------------------- 4. ON LOAD */
+  function boot() { try { markHelp(); enhanceForm(); rollup(); } catch (e) {} }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+<!-- ============================ END SWENIK CALM SKIN ====================== -->
+
 </body>
 </html>
