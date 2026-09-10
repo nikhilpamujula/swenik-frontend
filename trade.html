@@ -3046,6 +3046,29 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   /* the modal is a scroll container, so its own width follows the shell too */
   @media (min-width:1280px){ .modal{ max-height:88vh !important; } }
 
+  /* ---------- expanded timeline: the worst offender ---------------------- */
+  /* It rendered on #fbfcfe (near-white) inside a dark card at 10-11.5px, and
+     dumped EVERY detail key as one run-on string — grid{}, http{}, orderId,
+     roundMs, preSendMs, lagAtPlaceMs. Unreadable on a phone. */
+  .timeline{ background:var(--surface-2) !important; border-top:1px solid var(--line) !important; padding:14px 15px 16px !important; }
+  .tl-ev{ font-size:13.5px !important; }
+  .tl-stage{ font-size:14px !important; color:var(--ink) !important; }
+  .tl-t{ font-size:12.5px !important; color:var(--ink-3) !important; }
+  .tl-det{ font-size:13px !important; color:var(--ink-2) !important; line-height:1.6 !important; }
+  .tl-line{ background:var(--line) !important; }
+  .depthstory{ background:var(--surface-3) !important; color:var(--ink-2) !important;
+               font-size:12.5px !important; border-color:var(--line) !important; }
+  .swk-tl-line{ display:block; margin-top:5px; color:var(--ink-2); }
+  .swk-tl-line b{ color:var(--ink); font-weight:700; }
+  .swk-tl-good{ color:var(--success); font-weight:800; }
+  .swk-tl-bad{ color:var(--danger); font-weight:800; }
+  .swk-rawbtn{ margin-top:8px; padding:4px 11px; border-radius:999px; background:var(--surface-3);
+               border:1px solid var(--line); color:var(--ink-3); font:inherit; font-size:12px;
+               font-weight:700; cursor:pointer; }
+  .swk-raw{ display:none; margin-top:7px; padding:10px 11px; border-radius:9px; background:var(--surface);
+            border:1px solid var(--line); color:var(--ink-3); font-size:12px; line-height:1.65; word-break:break-word; }
+  .swk-raw.on{ display:block; }
+
   /* ---------- reserve red for failures only ------------------------------ */
   /* LIVE is a mode, not an alarm. In the old palette it shared the danger red
      with genuine failures, so a screen of ordinary live activity read as a
@@ -3262,6 +3285,89 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       var out = _open.apply(this, arguments);
       try { setTimeout(enhanceForm, 0); } catch (e) {}
       return out;
+    };
+  }
+
+  /* ------------------------------------------------------- 4. TIMELINE VIEW
+     The original loadTimeline joined EVERY detail key into one string. On the
+     IOST order that is grid{}, http{}, drift{}, reply{}, orderId, roundMs,
+     preSendMs, lagAtPlaceMs and sinceValidatedMs in a single 11.5px run-on
+     line. This renders the fields that answer "what happened and how fast",
+     and keeps the complete dump one tap away under [raw] — nothing is lost. */
+  var HIDE = { depth:1, atMs:1, grid:1, http:1, orderId:1, roundMs:1, preSendMs:1,
+               lagAtPlaceMs:1, avgFrom:1, avgIsReal:1, partial:1, action:1 };
+  function esc2(v){ var d=document.createElement('span'); d.textContent=String(v); return d.innerHTML; }
+  function r0(v){ return Math.round(Number(v)); }
+
+  function curated(d){
+    var out=[], drift=d.drift||{}, reply=d.reply||{}, plan=d.plan||{}, timing=d.timing||{};
+    if (d.qty!=null && d.price!=null)
+      out.push('<b>'+esc2(d.qty)+'</b> @ <b>'+esc2(d.price)+'</b>'+
+               (d.side?' · '+esc2(d.side):'')+(d.symbol?' · '+esc2(d.symbol):''));
+    if (plan.netPct!=null)
+      out.push('path <b>'+esc2(plan.path||'?')+'</b> · net <b>'+esc2(plan.netPct)+'%</b> · ₹'+
+               esc2(plan.costInr)+' → profit <b>₹'+esc2(plan.profitInr)+'</b>');
+    var sp=[];
+    if (timing.decideMs!=null) sp.push('decide <b>'+esc2(timing.decideMs)+'ms</b>');
+    if (d.placeMs!=null) sp.push('place <b>'+esc2(d.placeMs)+'ms</b>');
+    if (d.sinceValidatedMs!=null) sp.push('+'+esc2(d.sinceValidatedMs)+'ms after validate');
+    if (sp.length) out.push(sp.join(' · '));
+    /* Freshness. This is the block that actually decides these races, and it
+       was buried mid-string inside drift{} where it could not be read. */
+    var fr=[];
+    if (drift.bookAgeMs!=null) fr.push('book <b>'+r0(drift.bookAgeMs)+'ms</b> old');
+    if (drift.trueAgeMs!=null) fr.push('true age <b>'+r0(drift.trueAgeMs)+'ms</b>');
+    if (drift.pubDelayMs!=null) fr.push('publish delay <b>'+r0(drift.pubDelayMs)+'ms</b>');
+    if (drift.pubSource) fr.push('via '+esc2(drift.pubSource));
+    if (fr.length) out.push(fr.join(' · '));
+    if (d.filledQty!=null){
+      var filled=Number(d.filledQty)||0, want=Number(d.requestedQty!=null?d.requestedQty:d.qty)||0;
+      var ok = want>0 && filled>=want;
+      out.push('<span class="'+(ok?'swk-tl-good':'swk-tl-bad')+'">'+esc2(String(d.status||'').toUpperCase())+'</span>'+
+               ' · filled <b>'+esc2(filled)+'</b>'+(want?' / '+esc2(want):'')+
+               (d.msAfterPlace!=null?' · '+esc2(d.msAfterPlace)+'ms after place':''));
+    } else if (reply.status){
+      out.push('exchange said <b>'+esc2(reply.status)+'</b> · executed '+
+               esc2(reply.executedQty!=null?reply.executedQty:'—'));
+    }
+    if (d.note) out.push('<span style="color:var(--ink-3)">'+esc2(d.note)+'</span>');
+    return out;
+  }
+
+  if (typeof window.loadTimeline === 'function') {
+    window.loadTimeline = async function (id) {
+      var el = document.getElementById('tl' + id);
+      if (!el) return;
+      try {
+        var o = await apiJson('/api/trader/orders/' + id);
+        var evs = o.events || [];
+        if (!evs.length) { el.innerHTML = '<div class="empty">No events recorded.</div>'; return; }
+        el.innerHTML = evs.map(function (e, i) {
+          var d = {};
+          try { d = !e.detail ? {} : (typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail); } catch (x) { d = {}; }
+          var lines = curated(d).map(function (L) { return '<span class="swk-tl-line">' + L + '</span>'; }).join('');
+          var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; })
+            .map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' · ');
+          var depthLine = '';
+          if (d.depth) {
+            var legs = (d.depth.legsUsed || []).map(function (l) { return l.leg + ' → L' + l.levelsUsed; }).join(' · ');
+            depthLine = '<div class="depthstory">🌊 ' + esc2(legs) + (d.depth.stoppedBy ? ' · stopped: ' + esc2(d.depth.stoppedBy) : '') + '</div>';
+          }
+          var t = new Date(e.ts);
+          return '<div class="tl-ev">' +
+            '<div class="tl-rail"><span class="tl-dot ' + (e.ok ? '' : 'bad') + '"></span>' +
+              (i < evs.length - 1 ? '<span class="tl-line"></span>' : '') + '</div>' +
+            '<div class="tl-body">' +
+              '<span class="tl-stage">' + esc2(e.stage) + '</span>' +
+              '<span class="tl-t num">' + t.toLocaleTimeString('en-IN', { hour12: false }) + '</span>' +
+              '<div class="tl-det selectable">' + lines + '</div>' + depthLine +
+              (raw ? '<button type="button" class="swk-rawbtn" onclick="this.nextElementSibling.classList.toggle(\'on\')">raw</button>' +
+                     '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') +
+            '</div></div>';
+        }).join('');
+      } catch (e) {
+        el.innerHTML = '<div class="empty">Could not load timeline (' + esc2(e.message) + ')</div>';
+      }
     };
   }
 
