@@ -3046,6 +3046,61 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   /* the modal is a scroll container, so its own width follows the shell too */
   @media (min-width:1280px){ .modal{ max-height:88vh !important; } }
 
+  /* ---------- the undefined-variable glare ------------------------------- */
+  /* .cap used var(--chip-bg, #eef2f7) and .cap b used var(--fg, #0f172a).
+     Neither variable was ever defined anywhere, so every counter pill fell
+     back to near-white with near-black text — the brightest thing on a dark
+     screen. Defining the three variables fixes the whole family at once. */
+  :root{ --chip-bg:#1d2532; --fg:#dde4ee; --muted:#9daabd; }
+
+  .cap{ background:var(--surface-2) !important; color:var(--ink-2) !important;
+        font-size:12.5px !important; padding:4px 10px !important; }
+  .cap b{ color:var(--ink) !important; }
+  .cap.near{ background:var(--warning-soft) !important; color:var(--warning) !important; }
+  .cap.near b{ color:var(--warning) !important; }
+  .cap.at{ background:var(--danger-soft) !important; color:var(--danger) !important; }
+  .cap.at b{ color:var(--danger) !important; }
+
+  .cap-banner{ background:var(--warning-soft) !important; border-color:rgba(214,162,95,.32) !important; padding:11px 13px !important; }
+  .cap-banner-t{ color:var(--warning) !important; font-size:13.5px !important; }
+  .cap-banner-s{ color:var(--ink-2) !important; font-size:12.5px !important; }
+  .cap-banner.stop{ background:var(--danger-soft) !important; border-color:rgba(229,139,160,.32) !important; }
+  .cap-banner.stop .cap-banner-t{ color:var(--danger) !important; }
+  .cap-banner.ovr{ background:var(--surface-3) !important; border-color:var(--line-2) !important; }
+  .cap-banner.ovr .cap-banner-t{ color:var(--ink) !important; }
+
+  .rule.capped{ background:var(--surface) !important; border-color:var(--warning) !important; box-shadow:var(--shadow-sm) !important; }
+  .rule.tripped{ border-color:var(--danger) !important; }
+  .rule.st-blocked{ border-left-color:var(--danger) !important; }
+  .rule.st-warning{ border-left-color:var(--warning) !important; }
+  .notice{ background:var(--surface-2) !important; border-color:var(--line) !important;
+           color:var(--ink-2) !important; font-size:13px !important; line-height:1.6 !important; }
+  .resets .btn.sm.danger{ color:var(--danger) !important; border-color:var(--danger) !important; }
+  .btn.sm{ font-size:12.5px !important; padding:7px 12px !important; }
+  .rcoins-h{ color:var(--ink-3) !important; font-size:12.5px !important; }
+  .addskip input{ background:var(--surface-2) !important; border-color:var(--line) !important;
+                  color:var(--ink) !important; font-size:14.5px !important; }
+  .coin-chip{ background:var(--surface-2) !important; border-color:var(--line) !important; color:var(--ink-2) !important; }
+  .coin-chip.off{ background:var(--danger-soft) !important; color:var(--danger) !important; }
+  .cc-card{ background:var(--surface-2) !important; border-color:var(--line) !important; }
+  .cc-coin{ color:var(--ink) !important; font-size:16px !important; }
+  .cc-rule,.cc-meta,.cc-why{ color:var(--ink-2) !important; font-size:12.5px !important; }
+
+  /* ---------- coin control as a dropdown --------------------------------- */
+  .swk-coinsel-wrap{ margin:0 0 12px; }
+  .swk-select{ width:100%; padding:12px 14px; border-radius:12px;
+               background:var(--surface-2); border:1px solid var(--line);
+               color:var(--ink); font:inherit; font-size:15px; font-weight:700; }
+
+  /* ---------- a failed leg is highlighted whole --------------------------- */
+  .tl-ev.swk-fail{ background:var(--danger-soft); border-left:3px solid var(--danger);
+                   border-radius:10px; padding:11px 12px 5px; margin:7px 0; }
+  .tl-ev.swk-fail .tl-stage{ color:var(--danger) !important; }
+  .tl-ev.swk-ok{ border-left:3px solid var(--success); border-radius:10px;
+                 padding:11px 12px 5px; margin:7px 0; background:var(--success-soft); }
+  .tl-ev.swk-ok .tl-stage{ color:var(--success) !important; }
+  .swk-errline{ color:var(--danger) !important; font-weight:700; }
+
   /* ---------- expanded timeline: the worst offender ---------------------- */
   /* It rendered on #fbfcfe (near-white) inside a dark card at 10-11.5px, and
      dumped EVERY detail key as one run-on string — grid{}, http{}, orderId,
@@ -3330,8 +3385,23 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       out.push('exchange said <b>'+esc2(reply.status)+'</b> · executed '+
                esc2(reply.executedQty!=null?reply.executedQty:'—'));
     }
+    if (d.error) out.push('<span class="swk-errline">'+esc2(d.error)+'</span>');
     if (d.note) out.push('<span style="color:var(--ink-3)">'+esc2(d.note)+'</span>');
     return out;
+  }
+  /* A leg failed if the exchange refused it, if it carries an error, or if it
+     came back short of what was asked. All three get the whole row highlighted
+     — a red word inside a grey paragraph is not findable on a phone. */
+  function legVerdict(e, d){
+    if (e && e.ok === false) return 'swk-fail';
+    if (d.error) return 'swk-fail';
+    if (d.filledQty != null){
+      var f = Number(d.filledQty)||0;
+      var w = Number(d.requestedQty != null ? d.requestedQty : d.qty)||0;
+      if (w > 0 && f < w) return 'swk-fail';
+      if (w > 0 && f >= w) return 'swk-ok';
+    }
+    return '';
   }
 
   if (typeof window.loadTimeline === 'function') {
@@ -3354,7 +3424,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
             depthLine = '<div class="depthstory">🌊 ' + esc2(legs) + (d.depth.stoppedBy ? ' · stopped: ' + esc2(d.depth.stoppedBy) : '') + '</div>';
           }
           var t = new Date(e.ts);
-          return '<div class="tl-ev">' +
+          return '<div class="tl-ev ' + legVerdict(e, d) + '">' +
             '<div class="tl-rail"><span class="tl-dot ' + (e.ok ? '' : 'bad') + '"></span>' +
               (i < evs.length - 1 ? '<span class="tl-line"></span>' : '') + '</div>' +
             '<div class="tl-body">' +
@@ -3371,8 +3441,78 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     };
   }
 
+  /* --------------------------------------------------- 5. STOP THE FLICKER
+     refreshOrders fires every 6s and renderOrders rebuilds ordersBox wholesale,
+     which destroys and re-fetches any expanded timeline underneath you. Skip
+     the rebuild ONLY when a timeline is open AND the exact same rows would be
+     produced — so a filter change, a new order or a status change still paints
+     immediately. */
+  if (typeof window.renderOrders === 'function') {
+    var _ro2 = window.renderOrders;
+    window.renderOrders = function () {
+      try {
+        if (typeof openTimelines !== 'undefined' && openTimelines && openTimelines.size > 0
+            && typeof orders !== 'undefined' && typeof passFilter === 'function') {
+          var want = orders.filter(passFilter).map(function (o) { return o.id; }).join(',');
+          var have = $$('#ordersBox .order').map(function (n) { return n.id.slice(3); }).join(',');
+          if (want && want === have) return;
+        }
+      } catch (e) { /* never let the guard stop a render */ }
+      return _ro2.apply(this, arguments);
+    };
+  }
+
+  /* ------------------------------------------------------ 6. COIN CONTROL
+     98 coins as a wall of cards is unreadable on a phone. One dropdown picks
+     the coin; the cards themselves are untouched, so setCoinOff and Settings
+     keep working exactly as before. */
+  function coinDropdown() {
+    var grid = document.getElementById('coinGrid');
+    if (!grid || !grid.children.length) return;
+    var sel = document.getElementById('swk-coinsel');
+    if (!sel) {
+      var wrap = document.createElement('div');
+      wrap.className = 'swk-coinsel-wrap';
+      wrap.innerHTML = '<select id="swk-coinsel" class="swk-select"></select>';
+      grid.parentNode.insertBefore(wrap, grid);
+      sel = wrap.querySelector('select');
+      sel.addEventListener('change', function () { showOnly(sel.value); });
+    }
+    var cards = Array.prototype.slice.call(grid.children);
+    var prev = sel.value;
+    sel.innerHTML = '<option value="__all">All coins (' + cards.length + ')</option>' +
+      cards.map(function (c, i) {
+        var n = (c.querySelector('.cc-coin') || {}).textContent || ('#' + (i + 1));
+        var st = (c.querySelector('.cc-st') || {}).textContent || '';
+        return '<option value="' + i + '">' + n.trim() + (st ? ' — ' + st.trim() : '') + '</option>';
+      }).join('');
+    sel.value = (prev && (prev === '__all' || Number(prev) < cards.length)) ? prev : '__all';
+    showOnly(sel.value);
+    function showOnly(v) {
+      var cs = Array.prototype.slice.call(document.getElementById('coinGrid').children);
+      cs.forEach(function (c, i) { c.style.display = (v === '__all' || String(i) === String(v)) ? '' : 'none'; });
+    }
+  }
+  /* The rule card's "coin to switch off" free-text box becomes a native
+     dropdown via datalist — still typeable, still read by addSkip() unchanged. */
+  function skipDatalist() {
+    var dl = document.getElementById('swk-coinlist');
+    if (!dl) { dl = document.createElement('datalist'); dl.id = 'swk-coinlist'; document.body.appendChild(dl); }
+    dl.innerHTML = universe().map(function (c) { return '<option value="' + c + '"></option>'; }).join('');
+    $$('.addskip input').forEach(function (i) { i.setAttribute('list', 'swk-coinlist'); });
+  }
+  ['renderCoins', 'renderRules'].forEach(function (fn) {
+    if (typeof window[fn] !== 'function') return;
+    var orig = window[fn];
+    window[fn] = function () {
+      var out = orig.apply(this, arguments);
+      try { coinDropdown(); skipDatalist(); } catch (e) {}
+      return out;
+    };
+  });
+
   /* ------------------------------------------------------------- 4. ON LOAD */
-  function boot() { try { markHelp(); enhanceForm(); rollup(); } catch (e) {} }
+  function boot() { try { markHelp(); enhanceForm(); rollup(); coinDropdown(); skipDatalist(); } catch (e) {} }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
