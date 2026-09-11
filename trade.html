@@ -2846,6 +2846,50 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     --radius:8px; --radius-sm:8px; --radius-xs:6px;
   }
 
+  /* ---------- type: bigger, lighter, calmer ------------------------------ */
+  /* Binance reads at 500-600 weight, not 800. Heavy weights plus uppercase
+     plus letter-spacing is what made this feel sharp rather than settled. */
+  b, strong{ font-weight:600 !important; }
+  .st,.chip,.fact,.cap,.tabbtn,.btn,.fbtn,.pctbtn,.segbtn,.jbtn,.swk-chip,
+  .cc-coin,.cc-st,.tl-stage,.o-coin,.o-profit,.swk-count,.swk-pick-btn,
+  .cap-banner-t,.rcoins-h,.boxsw .boxbtn{
+    font-weight:600 !important; letter-spacing:0 !important;
+  }
+  .st{ text-transform:none !important; font-size:12.5px !important; padding:4px 10px !important; }
+  .cc-st{ text-transform:none !important; }
+  .o-coin{ font-size:15.5px !important; }
+  .tl-stage{ font-size:14.5px !important; }
+  .sub,.cc-meta,.cc-rule,.o-path,.tl-det{ color:var(--ink-2) !important; font-size:13.5px !important; }
+  .o-time,.tl-t,.cc-why{ color:var(--ink-3) !important; }
+  h1,h2,h3,.panel-h,.rule-top{ font-weight:600 !important; }
+
+  /* cards need to separate from the ground, the way Binance's do */
+  .panel,.rule,.order,.poscard,.cc-card,.livecard,.tile{
+    background:var(--surface) !important; border:1px solid var(--line) !important;
+  }
+  .timeline{ background:var(--bg) !important; }
+
+  /* ---------- light-mode ink left on dark surfaces ------------------------- */
+  /* Found by scanning every CSS rule for a text colour with luminance under 90
+     and no matching background. These were all near-invisible: .cc-meta b is
+     why "60s", "0ms" and "\u20b91,000" disappeared inside the coin cards. */
+  .cc-meta b, .cr-coin, .offbar-h, .mv-coin{ color:var(--ink) !important; }
+  .sc-chip, .sc-tag.conv{ color:var(--accent) !important; background:var(--accent-soft) !important; }
+  #sandboxBar .sb-tag, .sb-btn.on{ color:var(--ink) !important; }
+  .cc-meta{ color:var(--ink-2) !important; }
+  .cc-rule{ color:var(--ink-3) !important; }
+
+  /* ---------- cooling / off coins fold away -------------------------------- */
+  .swk-fold{
+    display:flex; align-items:center; gap:9px; width:100%; margin:10px 0 8px;
+    padding:11px 13px; border-radius:8px; cursor:pointer;
+    background:var(--surface-2); border:1px solid var(--line);
+    color:var(--ink-2); font:inherit; font-size:14px; font-weight:600; text-align:left;
+  }
+  .swk-fold .swk-chev{ transition:transform .18s; color:var(--ink-3); font-size:12px; }
+  .swk-fold.open .swk-chev{ transform:rotate(90deg); }
+  .swk-fold .swk-n{ margin-left:auto; color:var(--ink-3); font-weight:600; }
+
   /* ---------- the last three off-palette surfaces ------------------------ */
   /* .hero carried a blue gradient, .bigbtn.arm/.kill their own emerald and
      crimson gradients with coloured glows, and .ob-tag read var(--gray-700)
@@ -2881,8 +2925,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     background:var(--bg) !important;
     color:var(--ink) !important;
     font-family:'IBM Plex Sans','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif !important;
-    font-size:14.5px !important;
-    line-height:1.5 !important;
+    font-size:15.5px !important;
+    line-height:1.55 !important;
     letter-spacing:0 !important;
   }
 
@@ -3501,30 +3545,57 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      the coin; the cards themselves are untouched, so setCoinOff and Settings
      keep working exactly as before. */
   function coinDropdown() {
+    /* NOT a <select>. Cards stay exactly as rendered; the ones that are not
+       currently armed (cooling, skipped, paused, idle) fold away behind one
+       toggle so the armed coins are what you see. Collapsed state is
+       remembered across the 4-second status refresh. */
     var grid = document.getElementById('coinGrid');
     if (!grid || !grid.children.length) return;
-    var sel = document.getElementById('swk-coinsel');
-    if (!sel) {
-      var wrap = document.createElement('div');
-      wrap.className = 'swk-coinsel-wrap';
-      wrap.innerHTML = '<select id="swk-coinsel" class="swk-select"></select>';
-      grid.parentNode.insertBefore(wrap, grid);
-      sel = wrap.querySelector('select');
-      sel.addEventListener('change', function () { showOnly(sel.value); });
+    var old = document.getElementById('swk-coinsel');
+    if (old && old.parentNode) old.parentNode.remove();          // drop the earlier select
+
+    var cards = Array.prototype.slice.call(grid.children).filter(function (c) {
+      return c.classList && c.classList.contains('cc-card');
+    });
+    if (!cards.length) return;
+
+    var idle = cards.filter(function (c) {
+      var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
+      return st && st !== 'armed' && st !== 'holding';
+    });
+
+    var bar = document.getElementById('swk-fold');
+    if (!idle.length) { if (bar) bar.style.display = 'none'; return; }
+
+    if (!bar) {
+      bar = document.createElement('button');
+      bar.type = 'button';
+      bar.id = 'swk-fold';
+      bar.className = 'swk-fold';
+      bar.innerHTML = '<span class="swk-chev">&#9654;</span><span class="swk-lbl"></span><span class="swk-n"></span>';
+      grid.parentNode.insertBefore(bar, grid);
+      bar.addEventListener('click', function () {
+        bar.classList.toggle('open');
+        try { localStorage.setItem('swk_fold_open', bar.classList.contains('open') ? '1' : '0'); } catch (e) {}
+        paintFold();
+      });
+      try { if (localStorage.getItem('swk_fold_open') === '1') bar.classList.add('open'); } catch (e) {}
     }
-    var cards = Array.prototype.slice.call(grid.children);
-    var prev = sel.value;
-    sel.innerHTML = '<option value="__all">All coins (' + cards.length + ')</option>' +
-      cards.map(function (c, i) {
-        var n = (c.querySelector('.cc-coin') || {}).textContent || ('#' + (i + 1));
-        var st = (c.querySelector('.cc-st') || {}).textContent || '';
-        return '<option value="' + i + '">' + n.trim() + (st ? ' — ' + st.trim() : '') + '</option>';
-      }).join('');
-    sel.value = (prev && (prev === '__all' || Number(prev) < cards.length)) ? prev : '__all';
-    showOnly(sel.value);
-    function showOnly(v) {
-      var cs = Array.prototype.slice.call(document.getElementById('coinGrid').children);
-      cs.forEach(function (c, i) { c.style.display = (v === '__all' || String(i) === String(v)) ? '' : 'none'; });
+    bar.style.display = '';
+    var states = {};
+    idle.forEach(function (c) {
+      var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
+      states[st] = (states[st] || 0) + 1;
+    });
+    bar.querySelector('.swk-lbl').textContent =
+      Object.keys(states).map(function (k) { return k + ' ' + states[k]; }).join(' · ');
+    bar.querySelector('.swk-n').textContent = idle.length + ' hidden';
+    paintFold();
+
+    function paintFold() {
+      var open = bar.classList.contains('open');
+      bar.querySelector('.swk-n').textContent = open ? idle.length + ' shown' : idle.length + ' hidden';
+      idle.forEach(function (c) { c.style.display = open ? '' : 'none'; });
     }
   }
   /* The rule card's "coin to switch off" free-text box becomes a native
@@ -3551,12 +3622,22 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      rule. That amber is what made Trader 2 look wrong. Binance uses a single
      accent for everything, so both boxes get #FCD535 and the box switch pill
      is what tells them apart. */
-  var BINANCE_ACCENT = { '--accent':'#FCD535', '--accent-600':'#F0B90B',
-                         '--accent-soft':'#2A2617', '--accent-line':'#4A4320' };
+  /* Trader 1 = Binance yellow, Trader 2 = a calm blue. Both sit inside the
+     Binance palette; neither is the amber that made box 2 unreadable. */
+  var BOX_ACCENT = {
+    one: { '--accent':'#FCD535', '--accent-600':'#F0B90B', '--accent-soft':'#2A2617', '--accent-line':'#4A4320' },
+    two: { '--accent':'#5AA9FF', '--accent-600':'#3D8BE0', '--accent-soft':'#16222E', '--accent-line':'#2A425C' }
+  };
   function forceAccent(){
     try {
+      var label = '';
+      if (typeof currentBox === 'function') {
+        var b = currentBox();
+        label = String((b && (b.short || b.id)) || '');
+      }
+      var set = /2|ec2/i.test(label) ? BOX_ACCENT.two : BOX_ACCENT.one;
       var r = document.documentElement.style;
-      for (var k in BINANCE_ACCENT) r.setProperty(k, BINANCE_ACCENT[k]);
+      for (var k in set) r.setProperty(k, set[k]);
       var m = document.querySelector('meta[name="theme-color"]');
       if (m) m.setAttribute('content', '#181A20');
     } catch (e) {}
