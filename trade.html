@@ -2869,6 +2869,46 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   }
   .timeline{ background:var(--bg) !important; }
 
+  /* ---------- the ON state of a toggle ------------------------------------ */
+  /* My own surfaces rule set `.f input { background:var(--surface) !important }`
+     which also hit the checkbox and beat `:checked{background:var(--accent)}`.
+     Every switch stayed dark whether on or off. */
+  /* Selectors match the original `.modal .f input[type=checkbox]` specificity so
+     nothing in the base sheet can outrank them. */
+  .f input[type=checkbox], .modal .f input[type=checkbox]{
+    background:var(--surface-3) !important; background-color:var(--surface-3) !important;
+    border:1px solid var(--line) !important;
+    width:52px !important; height:30px !important;
+  }
+  .f input[type=checkbox]:checked, .modal .f input[type=checkbox]:checked{
+    background:var(--accent) !important; background-color:var(--accent) !important;
+    border-color:var(--accent) !important;
+  }
+  .f input[type=checkbox]::after, .modal .f input[type=checkbox]::after{
+    background:var(--ink-2) !important; box-shadow:none !important;
+    width:22px !important; height:22px !important; top:3px !important; left:3px !important;
+  }
+  .f input[type=checkbox]:checked::after, .modal .f input[type=checkbox]:checked::after{
+    background:#0B0E11 !important; transform:translateX(22px) !important;
+  }
+
+  /* ---------- leg detail as columns, Binance-style ------------------------- */
+  /* .tl-body is a flex child with no flex-grow, so it sized to CONTENT and
+     squeezed the grid to 125px inside a 412px screen. That is why the cells
+     stacked one per row instead of filling three columns. */
+  .tl-ev{ align-items:flex-start; }
+  .tl-body{ flex:1 1 auto !important; min-width:0 !important; }
+  .swk-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(86px,1fr));
+             gap:13px 16px; margin-top:11px; }
+  .swk-k{ display:block; font-size:12px; color:var(--ink-3); font-weight:500; line-height:1.3; }
+  .swk-v{ display:block; font-size:15.5px; color:var(--ink); font-weight:600;
+          font-variant-numeric:tabular-nums; margin-top:3px; line-height:1.3; word-break:break-word; }
+  .swk-lg-hd{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .swk-outcome{ margin-top:9px; font-size:15px; font-weight:600; }
+  .tl-ev{ cursor:pointer; }
+  .tl-ev + .tl-ev{ margin-top:4px; }
+  .swk-raw{ margin-top:11px; }
+
   /* ---------- light-mode ink left on dark surfaces ------------------------- */
   /* Found by scanning every CSS rule for a text colour with luminance under 90
      and no matching background. These were all near-invisible: .cc-meta b is
@@ -3432,55 +3472,57 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   function esc2(v){ var d=document.createElement('span'); d.textContent=String(v); return d.innerHTML; }
   function r0(v){ return Math.round(Number(v)); }
 
-  function curated(d){
-    var out=[], drift=d.drift||{}, reply=d.reply||{}, plan=d.plan||{}, timing=d.timing||{};
-    if (d.qty!=null && d.price!=null)
-      out.push('<b>'+esc2(d.qty)+'</b> @ <b>'+esc2(d.price)+'</b>'+
-               (d.side?' · '+esc2(d.side):'')+(d.symbol?' · '+esc2(d.symbol):''));
-    if (plan.netPct!=null)
-      out.push('path <b>'+esc2(plan.path||'?')+'</b> · net <b>'+esc2(plan.netPct)+'%</b> · ₹'+
-               esc2(plan.costInr)+' → profit <b>₹'+esc2(plan.profitInr)+'</b>');
-    var sp=[];
-    if (timing.decideMs!=null) sp.push('decide <b>'+esc2(timing.decideMs)+'ms</b>');
-    if (d.placeMs!=null) sp.push('place <b>'+esc2(d.placeMs)+'ms</b>');
-    if (d.sinceValidatedMs!=null) sp.push('+'+esc2(d.sinceValidatedMs)+'ms after validate');
-    if (sp.length) out.push(sp.join(' · '));
-    /* Freshness. This is the block that actually decides these races, and it
-       was buried mid-string inside drift{} where it could not be read. */
-    var fr=[];
-    if (drift.bookAgeMs!=null) fr.push('book <b>'+r0(drift.bookAgeMs)+'ms</b> old');
-    if (drift.trueAgeMs!=null) fr.push('true age <b>'+r0(drift.trueAgeMs)+'ms</b>');
-    if (drift.pubDelayMs!=null) fr.push('publish delay <b>'+r0(drift.pubDelayMs)+'ms</b>');
-    if (drift.pubSource) fr.push('via '+esc2(drift.pubSource));
-    if (fr.length) out.push(fr.join(' · '));
-    if (d.filledQty!=null){
-      var filled=Number(d.filledQty)||0, want=Number(d.requestedQty!=null?d.requestedQty:d.qty)||0;
-      var ok = want>0 && filled>=want;
-      out.push('<span class="'+(ok?'swk-tl-good':'swk-tl-bad')+'">'+esc2(String(d.status||'').toUpperCase())+'</span>'+
-               ' · filled <b>'+esc2(filled)+'</b>'+(want?' / '+esc2(want):'')+
-               (d.msAfterPlace!=null?' · '+esc2(d.msAfterPlace)+'ms after place':''));
-    } else if (reply.status){
-      out.push('exchange said <b>'+esc2(reply.status)+'</b> · executed '+
-               esc2(reply.executedQty!=null?reply.executedQty:'—'));
+  /* Label/value pairs rather than sentences — the Binance position-card shape.
+     Three columns at phone width, so a leg is 2-3 lines instead of six. */
+  function cells(d){
+    var out = [], drift = d.drift || {}, reply = d.reply || {}, plan = d.plan || {}, timing = d.timing || {};
+    var add = function (k, v) { if (v !== null && v !== undefined && v !== '') out.push([k, v]); };
+    if (d.qty != null)   add('Qty', d.qty);
+    if (d.price != null) add('Price', d.price);
+    if (d.side)          add('Side', d.side);
+    if (plan.netPct != null) {
+      add('Path', plan.path); add('Net', plan.netPct + '%');
+      add('Cost', '\u20b9' + plan.costInr); add('Profit', '\u20b9' + plan.profitInr);
     }
-    if (d.error) out.push('<span class="swk-errline">'+esc2(d.error)+'</span>');
-    if (d.note) out.push('<span style="color:var(--ink-3)">'+esc2(d.note)+'</span>');
+    if (timing.decideMs != null)   add('Decide', timing.decideMs + 'ms');
+    if (d.placeMs != null)         add('Place', d.placeMs + 'ms');
+    if (d.sinceValidatedMs != null) add('After validate', d.sinceValidatedMs + 'ms');
+    if (drift.bookAgeMs != null)   add('Book age', r0(drift.bookAgeMs) + 'ms');
+    if (drift.trueAgeMs != null)   add('True age', r0(drift.trueAgeMs) + 'ms');
+    if (drift.pubDelayMs != null)  add('Publish delay', r0(drift.pubDelayMs) + 'ms');
+    if (drift.pubSource)           add('Source', drift.pubSource);
+    if (d.msAfterPlace != null)    add('After place', d.msAfterPlace + 'ms');
+    if (reply.status && d.filledQty == null) add('Exchange', reply.status);
     return out;
   }
-  /* A leg failed if the exchange refused it, if it carries an error, or if it
-     came back short of what was asked. All three get the whole row highlighted
-     — a red word inside a grey paragraph is not findable on a phone. */
+  function outcomeHtml(d){
+    if (d.filledQty == null) return '';
+    var f = Number(d.filledQty) || 0;
+    var w = Number(d.requestedQty != null ? d.requestedQty : d.qty) || 0;
+    var ok = w > 0 && f >= w;
+    return '<div class="swk-outcome"><span class="' + (ok ? 'swk-tl-good' : 'swk-tl-bad') + '">' +
+      esc2(String(d.status || '').toUpperCase()) + '</span> \u00b7 filled <b>' + esc2(f) + '</b>' +
+      (w ? ' / ' + esc2(w) : '') + '</div>';
+  }
   function legVerdict(e, d){
     if (e && e.ok === false) return 'swk-fail';
     if (d.error) return 'swk-fail';
     if (d.filledQty != null){
-      var f = Number(d.filledQty)||0;
-      var w = Number(d.requestedQty != null ? d.requestedQty : d.qty)||0;
+      var f = Number(d.filledQty) || 0;
+      var w = Number(d.requestedQty != null ? d.requestedQty : d.qty) || 0;
       if (w > 0 && f < w) return 'swk-fail';
       if (w > 0 && f >= w) return 'swk-ok';
     }
     return '';
   }
+  /* Tap anywhere on a leg to reveal its raw dump. The old [raw] button cost a
+     whole row of height under every single event. */
+  document.addEventListener('click', function (e) {
+    var ev = e.target.closest ? e.target.closest('.tl-ev') : null;
+    if (!ev) return;
+    var raw = ev.querySelector('.swk-raw');
+    if (raw) raw.classList.toggle('on');
+  });
 
   if (typeof window.loadTimeline === 'function') {
     window.loadTimeline = async function (id) {
@@ -3493,24 +3535,29 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
         el.innerHTML = evs.map(function (e, i) {
           var d = {};
           try { d = !e.detail ? {} : (typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail); } catch (x) { d = {}; }
-          var lines = curated(d).map(function (L) { return '<span class="swk-tl-line">' + L + '</span>'; }).join('');
+          var grid = cells(d).map(function (c) {
+            return '<div><span class="swk-k">' + esc2(c[0]) + '</span><span class="swk-v">' + esc2(c[1]) + '</span></div>';
+          }).join('');
           var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; })
-            .map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' · ');
+            .map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' \u00b7 ');
           var depthLine = '';
           if (d.depth) {
-            var legs = (d.depth.legsUsed || []).map(function (l) { return l.leg + ' → L' + l.levelsUsed; }).join(' · ');
-            depthLine = '<div class="depthstory">🌊 ' + esc2(legs) + (d.depth.stoppedBy ? ' · stopped: ' + esc2(d.depth.stoppedBy) : '') + '</div>';
+            var legs = (d.depth.legsUsed || []).map(function (l) { return l.leg + ' \u2192 L' + l.levelsUsed; }).join(' \u00b7 ');
+            depthLine = '<div class="depthstory">' + esc2(legs) + (d.depth.stoppedBy ? ' \u00b7 stopped: ' + esc2(d.depth.stoppedBy) : '') + '</div>';
           }
           var t = new Date(e.ts);
           return '<div class="tl-ev ' + legVerdict(e, d) + '">' +
             '<div class="tl-rail"><span class="tl-dot ' + (e.ok ? '' : 'bad') + '"></span>' +
               (i < evs.length - 1 ? '<span class="tl-line"></span>' : '') + '</div>' +
             '<div class="tl-body">' +
-              '<span class="tl-stage">' + esc2(e.stage) + '</span>' +
-              '<span class="tl-t num">' + t.toLocaleTimeString('en-IN', { hour12: false }) + '</span>' +
-              '<div class="tl-det selectable">' + lines + '</div>' + depthLine +
-              (raw ? '<button type="button" class="swk-rawbtn" onclick="this.nextElementSibling.classList.toggle(\'on\')">raw</button>' +
-                     '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') +
+              '<div class="swk-lg-hd"><span class="tl-stage">' + esc2(e.stage) + '</span>' +
+                '<span class="tl-t num">' + t.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
+              outcomeHtml(d) +
+              (grid ? '<div class="swk-grid">' + grid + '</div>' : '') +
+              (d.error ? '<div class="swk-errline" style="margin-top:9px">' + esc2(d.error) + '</div>' : '') +
+              (d.note ? '<div class="swk-k" style="margin-top:9px">' + esc2(d.note) + '</div>' : '') +
+              depthLine +
+              (raw ? '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') +
             '</div></div>';
         }).join('');
       } catch (e) {
@@ -3545,58 +3592,58 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      the coin; the cards themselves are untouched, so setCoinOff and Settings
      keep working exactly as before. */
   function coinDropdown() {
-    /* NOT a <select>. Cards stay exactly as rendered; the ones that are not
-       currently armed (cooling, skipped, paused, idle) fold away behind one
-       toggle so the armed coins are what you see. Collapsed state is
-       remembered across the 4-second status refresh. */
+    /* A disclosure toggle, not a select. Everything that is NOT currently armed
+       (cooling, skipped, paused, idle) folds away behind one tap.
+       CRITICAL: the click handler must NOT close over the card list. renderCoins
+       replaces #coinGrid's innerHTML every 4 seconds, so a captured array points
+       at detached nodes and hiding silently stops working — which is exactly what
+       happened. Every paint re-queries the DOM fresh. */
     var grid = document.getElementById('coinGrid');
     if (!grid || !grid.children.length) return;
-    var old = document.getElementById('swk-coinsel');
-    if (old && old.parentNode) old.parentNode.remove();          // drop the earlier select
+    var stale = document.getElementById('swk-coinsel');
+    if (stale && stale.parentNode) stale.parentNode.remove();
 
-    var cards = Array.prototype.slice.call(grid.children).filter(function (c) {
-      return c.classList && c.classList.contains('cc-card');
-    });
-    if (!cards.length) return;
-
-    var idle = cards.filter(function (c) {
-      var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
-      return st && st !== 'armed' && st !== 'holding';
-    });
-
+    function idleCards() {
+      var g = document.getElementById('coinGrid');
+      if (!g) return [];
+      return Array.prototype.slice.call(g.children).filter(function (c) {
+        if (!c.classList || !c.classList.contains('cc-card')) return false;
+        var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
+        return st && st !== 'armed' && st !== 'holding';
+      });
+    }
+    function isOpen() { try { return localStorage.getItem('swk_fold_open') === '1'; } catch (e) { return false; } }
+    function paintFold() {
+      var bar = document.getElementById('swk-fold');
+      var list = idleCards();
+      if (!bar) return;
+      if (!list.length) { bar.style.display = 'none'; return; }
+      bar.style.display = '';
+      var open = isOpen();
+      bar.classList.toggle('open', open);
+      var states = {};
+      list.forEach(function (c) {
+        var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
+        states[st] = (states[st] || 0) + 1;
+      });
+      bar.querySelector('.swk-lbl').textContent =
+        Object.keys(states).map(function (k) { return k + ' ' + states[k]; }).join(' \u00b7 ');
+      bar.querySelector('.swk-n').textContent = list.length + (open ? ' shown' : ' hidden');
+      list.forEach(function (c) { c.style.display = open ? '' : 'none'; });
+    }
     var bar = document.getElementById('swk-fold');
-    if (!idle.length) { if (bar) bar.style.display = 'none'; return; }
-
     if (!bar) {
       bar = document.createElement('button');
-      bar.type = 'button';
-      bar.id = 'swk-fold';
-      bar.className = 'swk-fold';
+      bar.type = 'button'; bar.id = 'swk-fold'; bar.className = 'swk-fold';
       bar.innerHTML = '<span class="swk-chev">&#9654;</span><span class="swk-lbl"></span><span class="swk-n"></span>';
       grid.parentNode.insertBefore(bar, grid);
       bar.addEventListener('click', function () {
-        bar.classList.toggle('open');
-        try { localStorage.setItem('swk_fold_open', bar.classList.contains('open') ? '1' : '0'); } catch (e) {}
+        var next = isOpen() ? '0' : '1';
+        try { localStorage.setItem('swk_fold_open', next); } catch (e) {}
         paintFold();
       });
-      try { if (localStorage.getItem('swk_fold_open') === '1') bar.classList.add('open'); } catch (e) {}
     }
-    bar.style.display = '';
-    var states = {};
-    idle.forEach(function (c) {
-      var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
-      states[st] = (states[st] || 0) + 1;
-    });
-    bar.querySelector('.swk-lbl').textContent =
-      Object.keys(states).map(function (k) { return k + ' ' + states[k]; }).join(' · ');
-    bar.querySelector('.swk-n').textContent = idle.length + ' hidden';
     paintFold();
-
-    function paintFold() {
-      var open = bar.classList.contains('open');
-      bar.querySelector('.swk-n').textContent = open ? idle.length + ' shown' : idle.length + ' hidden';
-      idle.forEach(function (c) { c.style.display = open ? '' : 'none'; });
-    }
   }
   /* The rule card's "coin to switch off" free-text box becomes a native
      dropdown via datalist — still typeable, still read by addSkip() unchanged. */
