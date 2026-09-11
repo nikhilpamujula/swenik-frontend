@@ -2819,36 +2819,70 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      "END SWENIK CALM SKIN" marker to return to the previous appearance
      exactly; no existing rule, id, class or handler is modified above.
      ========================================================================== -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style id="swk-calm">
-  /* ---------- palette -------------------------------------------------- */
+  /* ---------- palette: Binance dark ------------------------------------- */
+  /* Taken from the Binance app reference: #181A20 ground, #1E2329 cards,
+     #EAECEF / #848E9C text, #0ECB81 up, #F6465D down, #FCD535 accent.
+     Flat 8px corners, hairline borders, no drop shadows. */
   :root{
     color-scheme:dark;
-    --bg:#0f131b; --bg-2:#131824;
-    --surface:#171d29; --surface-2:#1d2532; --surface-3:#232c3b;
-    --ink:#dde4ee; --ink-2:#9daabd; --ink-3:#6f7c8f;
-    --line:#28303f; --line-2:#333d4e;
+    --bg:#181A20; --bg-2:#0B0E11;
+    --surface:#1E2329; --surface-2:#252930; --surface-3:#2B3139;
+    --ink:#EAECEF; --ink-2:#848E9C; --ink-3:#5E6673;
+    --line:#2B3139; --line-2:#363C45;
 
-    --primary:#1d2634; --primary-light:#27333f;
-    --accent:#7d9bff; --accent-600:#6a8bf5; --accent-soft:#1b2436; --accent-line:#2f3d59;
-    --success:#57c295; --success-soft:#152a24;
-    --danger:#e58ba0;  --danger-soft:#2b1b22;
-    --warning:#d7a55f; --warning-soft:#2a2318;
-    --light:#0f131b; --gray-100:#1d2532; --gray-200:#28303f;
-    --gray-500:#6f7c8f; --gray-700:#9daabd; --gray-800:#c6d0dd; --gray-900:#dde4ee;
-    --border:#28303f;
-    --shadow-sm:0 1px 2px rgba(0,0,0,.35);
-    --shadow-md:0 6px 18px rgba(0,0,0,.42);
-    --shadow-lg:0 18px 44px rgba(0,0,0,.55);
-    --ring:0 0 0 3px rgba(125,155,255,.28);
-    --ask-bg:#2b1b22; --bid-bg:#152a24; --spread-bg:#2a2318;
+    --primary:#1E2329; --primary-light:#2B3139;
+    --accent:#FCD535; --accent-600:#F0B90B; --accent-soft:#2A2617; --accent-line:#4A4320;
+    --success:#0ECB81; --success-soft:#0E2A22;
+    --danger:#F6465D;  --danger-soft:#2E1A20;
+    --warning:#F0B90B; --warning-soft:#2A2617;
+    --light:#181A20; --gray-100:#252930; --gray-200:#2B3139;
+    --gray-500:#5E6673; --gray-700:#848E9C; --gray-800:#B7BDC6; --gray-900:#EAECEF;
+    --border:#2B3139;
+    --shadow-sm:none; --shadow-md:0 4px 14px rgba(0,0,0,.5); --shadow-lg:0 12px 32px rgba(0,0,0,.6);
+    --ring:0 0 0 2px rgba(252,213,53,.35);
+    --ask-bg:#2E1A20; --bid-bg:#0E2A22; --spread-bg:#2A2617;
+    --radius:8px; --radius-sm:8px; --radius-xs:6px;
   }
+
+  /* ---------- the last three off-palette surfaces ------------------------ */
+  /* .hero carried a blue gradient, .bigbtn.arm/.kill their own emerald and
+     crimson gradients with coloured glows, and .ob-tag read var(--gray-700)
+     as dark ink. Binance is flat: one surface colour, one green, one red. */
+  .hero{ background:var(--surface) !important; border:1px solid var(--line) !important;
+         border-radius:8px !important; box-shadow:none !important; color:var(--ink) !important; }
+  .hero::after{ display:none !important; }
+  .bigbtn.arm{ background:var(--success) !important; box-shadow:none !important; color:#0B0E11 !important; }
+  .bigbtn.kill{ background:var(--danger) !important; box-shadow:none !important; color:#0B0E11 !important; }
+  .otherbar{ background:var(--surface) !important; border-color:var(--line) !important; }
+  .otherbar:hover{ background:var(--surface) !important; }
+  .otherbar .ob-tag{ background:var(--surface-3) !important; color:var(--ink-2) !important; }
+  .orb,#orb{ border-color:var(--line) !important; }
+
+  /* ---------- hover must never latch on a touch screen ------------------- */
+  /* `.order-row:hover{background:#fafbfe}` is why an expanded card went WHITE
+     on the phone: a tap leaves :hover stuck, and that rule was never covered.
+     Hover styling only exists on devices that actually have a pointer. */
+  .order-row:hover, .livecard-hd:hover { background:transparent; }
+  @media (hover:hover) and (pointer:fine){
+    .order-row:hover, .livecard-hd:hover { background:var(--surface-2); }
+  }
+
+  /* ---------- flat, Binance-shaped surfaces ------------------------------ */
+  .panel,.tile,.livecard,.rule,.order,.poscard,.cc-card,.obook,.scanrow,.legs{
+    box-shadow:none !important; border-radius:8px !important;
+  }
+  .order{ border:1px solid var(--line) !important; }
+  .num,.cap,.o-profit,.tl-t,table.obgrid td,table.ob-table td{ font-variant-numeric:tabular-nums !important; }
 
   /* ---------- ground ---------------------------------------------------- */
   body{
     background:var(--bg) !important;
     color:var(--ink) !important;
-    font-size:15px !important;
-    line-height:1.55 !important;
+    font-family:'IBM Plex Sans','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif !important;
+    font-size:14.5px !important;
+    line-height:1.5 !important;
     letter-spacing:0 !important;
   }
 
@@ -3511,8 +3545,30 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     };
   });
 
+  /* ------------------------------------------------- 7. ONE ACCENT, ALWAYS
+     applyBoxTheme() writes --accent INLINE on documentElement (Trader 1 blue
+     #3b5bdb, Trader 2 amber #b45309), and an inline style beats any stylesheet
+     rule. That amber is what made Trader 2 look wrong. Binance uses a single
+     accent for everything, so both boxes get #FCD535 and the box switch pill
+     is what tells them apart. */
+  var BINANCE_ACCENT = { '--accent':'#FCD535', '--accent-600':'#F0B90B',
+                         '--accent-soft':'#2A2617', '--accent-line':'#4A4320' };
+  function forceAccent(){
+    try {
+      var r = document.documentElement.style;
+      for (var k in BINANCE_ACCENT) r.setProperty(k, BINANCE_ACCENT[k]);
+      var m = document.querySelector('meta[name="theme-color"]');
+      if (m) m.setAttribute('content', '#181A20');
+    } catch (e) {}
+  }
+  if (typeof window.applyBoxTheme === 'function') {
+    var _abt = window.applyBoxTheme;
+    window.applyBoxTheme = function () { var o = _abt.apply(this, arguments); forceAccent(); return o; };
+  }
+  forceAccent();
+
   /* ------------------------------------------------------------- 4. ON LOAD */
-  function boot() { try { markHelp(); enhanceForm(); rollup(); coinDropdown(); skipDatalist(); } catch (e) {} }
+  function boot() { try { forceAccent(); markHelp(); enhanceForm(); rollup(); coinDropdown(); skipDatalist(); } catch (e) {} }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
