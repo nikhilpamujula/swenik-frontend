@@ -2892,22 +2892,39 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     background:#0B0E11 !important; transform:translateX(22px) !important;
   }
 
-  /* ---------- leg detail as columns, Binance-style ------------------------- */
-  /* .tl-body is a flex child with no flex-grow, so it sized to CONTENT and
-     squeezed the grid to 125px inside a 412px screen. That is why the cells
-     stacked one per row instead of filling three columns. */
-  .tl-ev{ align-items:flex-start; }
+  /* ---------- a leg reads like a fill, not a spec sheet -------------------- */
+  /* One headline (what traded), then dim-label / bright-value pairs flowing
+     inline so six fields take two rows instead of eight. */
+  .swk-hero{ display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin-top:9px; }
+  .swk-qty, .swk-px{ font-size:19px; font-weight:600; color:var(--ink);
+                     font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  .swk-at{ font-size:13px; color:var(--ink-3); font-weight:500; }
+  .swk-side{ margin-left:auto; font-size:11.5px; font-weight:600; padding:3px 9px;
+             border-radius:4px; background:var(--surface-3); color:var(--ink-2); text-transform:uppercase; }
+  .swk-side.buy{ background:var(--success-soft); color:var(--success); }
+  .swk-side.sell{ background:var(--danger-soft); color:var(--danger); }
+
+  .swk-kv{ display:flex; flex-wrap:wrap; gap:5px 18px; margin-top:9px; }
+  .swk-kv > span{ display:inline-flex; align-items:baseline; gap:6px; white-space:nowrap; }
+  .swk-kv i{ font-style:normal; font-size:12.5px; color:var(--ink-3); font-weight:500; }
+  .swk-kv b{ font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+  .swk-lg-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .swk-outcome{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:9px;
+                font-size:16px; font-weight:600; }
+  .swk-outcome .swk-fill{ color:var(--ink); font-variant-numeric:tabular-nums; }
+  .swk-outcome .swk-ms{ margin-left:auto; font-size:13px; color:var(--ink-3); font-weight:500; }
+  .tl-ev{ cursor:pointer; align-items:flex-start; }
+  .tl-ev + .tl-ev{ margin-top:6px; }
   .tl-body{ flex:1 1 auto !important; min-width:0 !important; }
-  .swk-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(86px,1fr));
-             gap:13px 16px; margin-top:11px; }
-  .swk-k{ display:block; font-size:12px; color:var(--ink-3); font-weight:500; line-height:1.3; }
-  .swk-v{ display:block; font-size:15.5px; color:var(--ink); font-weight:600;
-          font-variant-numeric:tabular-nums; margin-top:3px; line-height:1.3; word-break:break-word; }
-  .swk-lg-hd{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .swk-outcome{ margin-top:9px; font-size:15px; font-weight:600; }
-  .tl-ev{ cursor:pointer; }
-  .tl-ev + .tl-ev{ margin-top:4px; }
   .swk-raw{ margin-top:11px; }
+
+  /* ---------- panels that stay folded until you open them ------------------ */
+  .panel-h{ cursor:pointer; user-select:none; }
+  .panel-h .swk-pchev{ margin-left:auto; flex:none; color:var(--ink-3); font-size:13px;
+                       transition:transform .18s; }
+  .panel.swk-open .panel-h .swk-pchev{ transform:rotate(90deg); }
+  .panel.swk-shut > .panel-b{ display:none !important; }
 
   /* ---------- light-mode ink left on dark surfaces ------------------------- */
   /* Found by scanning every CSS rule for a text colour with luminance under 90
@@ -3472,37 +3489,62 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   function esc2(v){ var d=document.createElement('span'); d.textContent=String(v); return d.innerHTML; }
   function r0(v){ return Math.round(Number(v)); }
 
-  /* Label/value pairs rather than sentences — the Binance position-card shape.
-     Three columns at phone width, so a leg is 2-3 lines instead of six. */
-  function cells(d){
-    var out = [], drift = d.drift || {}, reply = d.reply || {}, plan = d.plan || {}, timing = d.timing || {};
-    var add = function (k, v) { if (v !== null && v !== undefined && v !== '') out.push([k, v]); };
-    if (d.qty != null)   add('Qty', d.qty);
-    if (d.price != null) add('Price', d.price);
-    if (d.side)          add('Side', d.side);
-    if (plan.netPct != null) {
-      add('Path', plan.path); add('Net', plan.netPct + '%');
-      add('Cost', '\u20b9' + plan.costInr); add('Profit', '\u20b9' + plan.profitInr);
+  function nfmt(v){
+    var n = Number(v);
+    if (!Number.isFinite(n)) return String(v);
+    if (Math.abs(n) >= 1000 && n === Math.round(n)) return n.toLocaleString('en-IN');
+    return String(v);
+  }
+  /* The headline: what actually traded, at a size you can read at arm's length. */
+  function heroHtml(d){
+    var plan = d.plan || {};
+    if (d.qty != null && d.price != null){
+      return '<div class="swk-hero">' +
+        '<span class="swk-qty">' + esc2(nfmt(d.qty)) + '</span>' +
+        '<span class="swk-at">@</span>' +
+        '<span class="swk-px">' + esc2(d.price) + '</span>' +
+        (d.side ? '<span class="swk-side ' + esc2(d.side) + '">' + esc2(d.side) + '</span>' : '') +
+      '</div>';
     }
-    if (timing.decideMs != null)   add('Decide', timing.decideMs + 'ms');
-    if (d.placeMs != null)         add('Place', d.placeMs + 'ms');
-    if (d.sinceValidatedMs != null) add('After validate', d.sinceValidatedMs + 'ms');
-    if (drift.bookAgeMs != null)   add('Book age', r0(drift.bookAgeMs) + 'ms');
-    if (drift.trueAgeMs != null)   add('True age', r0(drift.trueAgeMs) + 'ms');
-    if (drift.pubDelayMs != null)  add('Publish delay', r0(drift.pubDelayMs) + 'ms');
-    if (drift.pubSource)           add('Source', drift.pubSource);
-    if (d.msAfterPlace != null)    add('After place', d.msAfterPlace + 'ms');
-    if (reply.status && d.filledQty == null) add('Exchange', reply.status);
-    return out;
+    if (plan.netPct != null){
+      return '<div class="swk-hero">' +
+        '<span class="swk-qty">' + esc2(plan.netPct) + '%</span>' +
+        '<span class="swk-at">net \u2192</span>' +
+        '<span class="swk-px">\u20b9' + esc2(plan.profitInr) + '</span>' +
+        (plan.path ? '<span class="swk-side">path ' + esc2(plan.path) + '</span>' : '') +
+      '</div>';
+    }
+    return '';
   }
   function outcomeHtml(d){
     if (d.filledQty == null) return '';
     var f = Number(d.filledQty) || 0;
     var w = Number(d.requestedQty != null ? d.requestedQty : d.qty) || 0;
     var ok = w > 0 && f >= w;
-    return '<div class="swk-outcome"><span class="' + (ok ? 'swk-tl-good' : 'swk-tl-bad') + '">' +
-      esc2(String(d.status || '').toUpperCase()) + '</span> \u00b7 filled <b>' + esc2(f) + '</b>' +
-      (w ? ' / ' + esc2(w) : '') + '</div>';
+    return '<div class="swk-outcome">' +
+      '<span class="' + (ok ? 'swk-tl-good' : 'swk-tl-bad') + '">' + esc2(String(d.status || '').toUpperCase()) + '</span>' +
+      '<span class="swk-fill">' + esc2(nfmt(f)) + (w ? ' / ' + esc2(nfmt(w)) : '') + '</span>' +
+      (d.msAfterPlace != null ? '<span class="swk-ms">after ' + esc2(d.msAfterPlace) + 'ms</span>' : '') +
+    '</div>';
+  }
+  /* Inline label/value pairs. Dim label, bright value, side by side — they wrap
+     into two rows instead of stacking into eight. */
+  function kvHtml(d){
+    var out = [], drift = d.drift || {}, reply = d.reply || {}, timing = d.timing || {}, plan = d.plan || {};
+    var add = function (k, v) {
+      if (v === null || v === undefined || v === '') return;
+      out.push('<span><i>' + esc2(k) + '</i><b>' + esc2(v) + '</b></span>');
+    };
+    if (timing.decideMs != null)    add('decide', timing.decideMs + 'ms');
+    if (plan.costInr != null)       add('cost', '\u20b9' + nfmt(plan.costInr));
+    if (d.placeMs != null)          add('place', d.placeMs + 'ms');
+    if (d.sinceValidatedMs != null) add('after validate', d.sinceValidatedMs + 'ms');
+    if (drift.bookAgeMs != null)    add('book', r0(drift.bookAgeMs) + 'ms');
+    if (drift.trueAgeMs != null)    add('true age', r0(drift.trueAgeMs) + 'ms');
+    if (drift.pubDelayMs != null)   add('publish', r0(drift.pubDelayMs) + 'ms');
+    if (drift.pubSource)            add('via', drift.pubSource);
+    if (reply.status && d.filledQty == null) add('exchange', reply.status);
+    return out.length ? '<div class="swk-kv">' + out.join('') + '</div>' : '';
   }
   function legVerdict(e, d){
     if (e && e.ok === false) return 'swk-fail';
@@ -3535,9 +3577,6 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
         el.innerHTML = evs.map(function (e, i) {
           var d = {};
           try { d = !e.detail ? {} : (typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail); } catch (x) { d = {}; }
-          var grid = cells(d).map(function (c) {
-            return '<div><span class="swk-k">' + esc2(c[0]) + '</span><span class="swk-v">' + esc2(c[1]) + '</span></div>';
-          }).join('');
           var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; })
             .map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' \u00b7 ');
           var depthLine = '';
@@ -3552,10 +3591,9 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
             '<div class="tl-body">' +
               '<div class="swk-lg-hd"><span class="tl-stage">' + esc2(e.stage) + '</span>' +
                 '<span class="tl-t num">' + t.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
-              outcomeHtml(d) +
-              (grid ? '<div class="swk-grid">' + grid + '</div>' : '') +
+              heroHtml(d) + outcomeHtml(d) + kvHtml(d) +
               (d.error ? '<div class="swk-errline" style="margin-top:9px">' + esc2(d.error) + '</div>' : '') +
-              (d.note ? '<div class="swk-k" style="margin-top:9px">' + esc2(d.note) + '</div>' : '') +
+              (d.note ? '<div style="margin-top:9px;font-size:13px;color:var(--ink-3)">' + esc2(d.note) + '</div>' : '') +
               depthLine +
               (raw ? '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') +
             '</div></div>';
@@ -3591,60 +3629,42 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      98 coins as a wall of cards is unreadable on a phone. One dropdown picks
      the coin; the cards themselves are untouched, so setCoinOff and Settings
      keep working exactly as before. */
-  function coinDropdown() {
-    /* A disclosure toggle, not a select. Everything that is NOT currently armed
-       (cooling, skipped, paused, idle) folds away behind one tap.
-       CRITICAL: the click handler must NOT close over the card list. renderCoins
-       replaces #coinGrid's innerHTML every 4 seconds, so a captured array points
-       at detached nodes and hiding silently stops working — which is exactly what
-       happened. Every paint re-queries the DOM fresh. */
-    var grid = document.getElementById('coinGrid');
-    if (!grid || !grid.children.length) return;
-    var stale = document.getElementById('swk-coinsel');
-    if (stale && stale.parentNode) stale.parentNode.remove();
-
-    function idleCards() {
-      var g = document.getElementById('coinGrid');
-      if (!g) return [];
-      return Array.prototype.slice.call(g.children).filter(function (c) {
-        if (!c.classList || !c.classList.contains('cc-card')) return false;
-        var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
-        return st && st !== 'armed' && st !== 'holding';
-      });
-    }
-    function isOpen() { try { return localStorage.getItem('swk_fold_open') === '1'; } catch (e) { return false; } }
-    function paintFold() {
-      var bar = document.getElementById('swk-fold');
-      var list = idleCards();
-      if (!bar) return;
-      if (!list.length) { bar.style.display = 'none'; return; }
-      bar.style.display = '';
-      var open = isOpen();
-      bar.classList.toggle('open', open);
-      var states = {};
-      list.forEach(function (c) {
-        var st = ((c.querySelector('.cc-st') || {}).textContent || '').trim().toLowerCase();
-        states[st] = (states[st] || 0) + 1;
-      });
-      bar.querySelector('.swk-lbl').textContent =
-        Object.keys(states).map(function (k) { return k + ' ' + states[k]; }).join(' \u00b7 ');
-      bar.querySelector('.swk-n').textContent = list.length + (open ? ' shown' : ' hidden');
-      list.forEach(function (c) { c.style.display = open ? '' : 'none'; });
-    }
-    var bar = document.getElementById('swk-fold');
-    if (!bar) {
-      bar = document.createElement('button');
-      bar.type = 'button'; bar.id = 'swk-fold'; bar.className = 'swk-fold';
-      bar.innerHTML = '<span class="swk-chev">&#9654;</span><span class="swk-lbl"></span><span class="swk-n"></span>';
-      grid.parentNode.insertBefore(bar, grid);
-      bar.addEventListener('click', function () {
-        var next = isOpen() ? '0' : '1';
-        try { localStorage.setItem('swk_fold_open', next); } catch (e) {}
-        paintFold();
-      });
-    }
-    paintFold();
+  /* Movers and Coin Control are reference panels, not things you watch. They
+     start SHUT and open on a tap, with the state remembered. Replaces the
+     earlier per-card fold, which only hid part of the noise. */
+  function foldPanels(){
+    [['moversPanel','0'], ['coinPanel','0']].forEach(function (pair) {
+      var id = pair[0], dflt = pair[1];
+      var panel = document.getElementById(id);
+      if (!panel) return;
+      var hd = panel.querySelector(':scope > .panel-h');
+      if (!hd) return;
+      if (!hd.querySelector('.swk-pchev')) {
+        var chev = document.createElement('span');
+        chev.className = 'swk-pchev';
+        chev.innerHTML = '&#9654;';
+        hd.appendChild(chev);
+        hd.addEventListener('click', function () {
+          var open = panel.classList.contains('swk-open');
+          try { localStorage.setItem('swk_p_' + id, open ? '0' : '1'); } catch (e) {}
+          paint();
+        });
+      }
+      function paint(){
+        var open = dflt === '1';
+        try { var v = localStorage.getItem('swk_p_' + id); if (v !== null) open = v === '1'; } catch (e) {}
+        panel.classList.toggle('swk-open', open);
+        panel.classList.toggle('swk-shut', !open);
+        var c = panel.querySelector('.swk-pchev');
+        if (c) c.title = open ? 'hide' : 'show';
+      }
+      paint();
+    });
+    var stale = document.getElementById('swk-fold');   if (stale) stale.remove();
+    var stale2 = document.getElementById('swk-coinsel');
+    if (stale2 && stale2.parentNode) stale2.parentNode.remove();
   }
+  var coinDropdown = foldPanels;
   /* The rule card's "coin to switch off" free-text box becomes a native
      dropdown via datalist — still typeable, still read by addSkip() unchanged. */
   function skipDatalist() {
