@@ -2819,36 +2819,45 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      "END SWENIK CALM SKIN" marker to return to the previous appearance
      exactly; no existing rule, id, class or handler is modified above.
      ========================================================================== -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<!-- the scanner's face, so both pages read identically -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <style id="swk-calm">
-  /* ---------- palette: Binance dark ------------------------------------- */
-  /* Taken from the Binance app reference: #181A20 ground, #1E2329 cards,
-     #EAECEF / #848E9C text, #0ECB81 up, #F6465D down, #FCD535 accent.
-     Flat 8px corners, hairline borders, no drop shadows. */
+  /* ---------- palette: the SWENIK scanner, exactly -----------------------
+     12 Sep: "match it to scanner page, make it uniform". These are the same
+     values track.html declares in its own :root — deep navy rail, indigo
+     accent, emerald/rose semantics, cool-tinted neutrals on #f3f5fa.
+     Only the VALUES change. Every layout rule below still reads --surface,
+     --ink, --line and so on, so the structure work is untouched. */
   :root{
-    color-scheme:dark;
-    --bg:#181A20; --bg-2:#0B0E11;
-    --surface:#1E2329; --surface-2:#252930; --surface-3:#2B3139;
-    --ink:#EAECEF; --ink-2:#848E9C; --ink-3:#5E6673;
-    --line:#2B3139; --line-2:#363C45;
+    color-scheme:light;
+    --bg:#f3f5fa; --bg-2:#eef1f6;
+    --surface:#ffffff; --surface-2:#f7f9fc; --surface-3:#eef1f6;
+    --ink:#26303f; --ink-2:#586576; --ink-3:#8b96a8;
+    --line:#e4e9f1; --line-2:#d8e0ec;
 
-    --primary:#1E2329; --primary-light:#2B3139;
-    --accent:#FCD535; --accent-600:#F0B90B; --accent-soft:#2A2617; --accent-line:#4A4320;
-    --success:#0ECB81; --success-soft:#0E2A22;
-    --danger:#F6465D;  --danger-soft:#2E1A20;
-    --warning:#F0B90B; --warning-soft:#2A2617;
-    --light:#181A20; --gray-100:#252930; --gray-200:#2B3139;
-    --gray-500:#5E6673; --gray-700:#848E9C; --gray-800:#B7BDC6; --gray-900:#EAECEF;
-    --border:#2B3139;
-    --shadow-sm:none; --shadow-md:0 4px 14px rgba(0,0,0,.5); --shadow-lg:0 12px 32px rgba(0,0,0,.6);
-    --ring:0 0 0 2px rgba(252,213,53,.35);
-    --ask-bg:#2E1A20; --bid-bg:#0E2A22; --spread-bg:#2A2617;
-    --radius:8px; --radius-sm:8px; --radius-xs:6px;
+    --primary:#0f1c33; --primary-light:#1b2f52;
+    --accent:#3b5bdb; --accent-600:#2f49b8; --accent-soft:#eef1fd; --accent-line:#c9d4f8;
+    --success:#0f9d63; --success-soft:#e6f6ee;
+    --danger:#e23d54;  --danger-soft:#fdedf0;
+    --warning:#e0973a; --warning-soft:#fbf4dd;
+    --light:#f3f5fa; --gray-100:#eef1f6; --gray-200:#e2e7ef;
+    --gray-500:#8b96a8; --gray-700:#586576; --gray-800:#2f3a4c; --gray-900:#26303f;
+    --border:#e4e9f1;
+    --shadow-sm:0 1px 2px rgba(16,28,53,.04),0 1px 3px rgba(16,28,53,.06);
+    --shadow-md:0 6px 16px rgba(16,28,53,.08),0 2px 5px rgba(16,28,53,.05);
+    --shadow-lg:0 18px 44px rgba(16,28,53,.18);
+    --ring:0 0 0 3px rgba(59,91,219,.30);
+    --ask-bg:#fdeef1; --bid-bg:#e7f7ef; --spread-bg:#fbf4dd;
+    --radius:14px; --radius-sm:10px; --radius-xs:8px;
+    /* text that sits ON a filled accent/success/danger button */
+    --on-accent:#ffffff;
   }
 
   /* ---------- type: bigger, lighter, calmer ------------------------------ */
   /* Binance reads at 500-600 weight, not 800. Heavy weights plus uppercase
      plus letter-spacing is what made this feel sharp rather than settled. */
+  /* the scanner's Inter tuning: cv05 for l-vs-1, tnum for aligned columns */
+  body{ font-feature-settings:"cv05" 1, "tnum" 1 !important; }
   b, strong{ font-weight:600 !important; }
   .st,.chip,.fact,.cap,.tabbtn,.btn,.fbtn,.pctbtn,.segbtn,.jbtn,.swk-chip,
   .cc-coin,.cc-st,.tl-stage,.o-coin,.o-profit,.swk-count,.swk-pick-btn,
@@ -2889,7 +2898,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     width:22px !important; height:22px !important; top:3px !important; left:3px !important;
   }
   .f input[type=checkbox]:checked::after, .modal .f input[type=checkbox]:checked::after{
-    background:#0B0E11 !important; transform:translateX(22px) !important;
+    background:var(--surface) !important; transform:translateX(22px) !important;
   }
 
   /* ---------- a leg reads like a fill, not a spec sheet -------------------- */
@@ -2954,8 +2963,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .hero{ background:var(--surface) !important; border:1px solid var(--line) !important;
          border-radius:8px !important; box-shadow:none !important; color:var(--ink) !important; }
   .hero::after{ display:none !important; }
-  .bigbtn.arm{ background:var(--success) !important; box-shadow:none !important; color:#0B0E11 !important; }
-  .bigbtn.kill{ background:var(--danger) !important; box-shadow:none !important; color:#0B0E11 !important; }
+  .bigbtn.arm{ background:var(--success) !important; box-shadow:none !important; color:var(--on-accent) !important; }
+  .bigbtn.kill{ background:var(--danger) !important; box-shadow:none !important; color:var(--on-accent) !important; }
   .otherbar{ background:var(--surface) !important; border-color:var(--line) !important; }
   .otherbar:hover{ background:var(--surface) !important; }
   .otherbar .ob-tag{ background:var(--surface-3) !important; color:var(--ink-2) !important; }
@@ -2981,7 +2990,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   body{
     background:var(--bg) !important;
     color:var(--ink) !important;
-    font-family:'IBM Plex Sans','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif !important;
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif !important;
     font-size:15.5px !important;
     line-height:1.55 !important;
     letter-spacing:0 !important;
@@ -2999,7 +3008,34 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .panel,.rule,.order,.poscard,.livecard,.cc-card{box-shadow:var(--shadow-sm) !important;}
   .modal{background:var(--surface) !important;box-shadow:var(--shadow-lg) !important;}
   .modal-hd,.savebar,.jumpbar{background:var(--surface-2) !important;}
-  .topbar,.hero{background:linear-gradient(180deg,#1a2333,#151c28) !important;color:var(--ink) !important;}
+  /* 12 Sep: the scanner puts navy ONLY on the header rail; everything below it
+     is a white card on #f3f5fa. The hero was sharing the topbar's gradient,
+     which left a dark slab mid-page and a dropdown of dark text on dark. */
+  .topbar{background:linear-gradient(180deg,var(--primary),var(--primary-light)) !important;color:#fff !important;}
+  .hero{
+    background:var(--surface) !important; color:var(--ink) !important;
+    border:1px solid var(--line) !important; box-shadow:var(--shadow-sm) !important;
+    border-radius:var(--radius) !important;
+  }
+  .hero .sub,.hero .cap,.hero small{ color:var(--ink-2) !important; }
+  .hero h1,.hero h2,.hero .st{ color:var(--ink) !important; }
+  /* the pills inside it follow the card, not the old dark ground */
+  .hero .chip,.hero .btn,.hero .fbtn,.hero select,.hero .boxsw{
+    background:var(--surface-2) !important; color:var(--ink) !important;
+    border:1px solid var(--line) !important;
+  }
+  .hero select,.hero select option{ color:var(--ink) !important; }
+  .hero .boxsw .boxbtn.sel{ background:var(--accent) !important; color:var(--on-accent) !important; }
+  /* .keychip and .ghostbtn were pale blue on navy. On a white card they were
+     invisible — WazirX / Binance Fut / Test keys / Server all vanished. */
+  .hero .keychip,.keychip{
+    background:var(--gray-100) !important; color:var(--ink-2) !important;
+    border:1px solid var(--line) !important;
+  }
+  .hero .ghostbtn,.ghostbtn{
+    color:var(--accent) !important; border:1px solid var(--line) !important;
+    background:var(--surface-2) !important;
+  }
   .charttip,.tgmsg{background:var(--surface-3) !important;color:var(--ink) !important;}
   .toast{background:var(--surface-3) !important;color:var(--ink) !important;box-shadow:var(--shadow-md) !important;}
   .slider::before{background:var(--ink) !important;}
@@ -3042,7 +3078,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     font-size:11px;font-weight:800;line-height:18px;text-align:center;
   }
   .f.swk-open.swk-has-help > label:first-of-type::after{
-    background:var(--accent);color:#0f131b;
+    background:var(--accent);color:var(--on-accent);
   }
 
   /* ---------- inputs ---------------------------------------------------- */
@@ -3061,14 +3097,14 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     min-height:40px;
     border-radius:11px !important;
   }
-  .btn.primary{background:var(--accent) !important;color:#0f131b !important;border-color:var(--accent) !important;font-weight:800 !important;}
+  .btn.primary{background:var(--accent) !important;color:var(--on-accent) !important;border-color:var(--accent) !important;font-weight:800 !important;}
   .btn.danger{background:var(--surface) !important;color:var(--danger) !important;border-color:var(--danger) !important;}
-  .bigbtn{color:#0f131b !important;font-size:15px !important;}
+  .bigbtn{color:var(--on-accent) !important;font-size:15px !important;}
   .tabbtn{color:var(--ink-2) !important;padding:11px 16px !important;}
-  .tabbtn.active{background:var(--accent) !important;color:#0f131b !important;font-weight:800 !important;}
-  .tabbtn.active .cnt{background:rgba(15,19,27,.28) !important;color:#0f131b !important;}
+  .tabbtn.active{background:var(--accent) !important;color:var(--on-accent) !important;font-weight:800 !important;}
+  .tabbtn.active .cnt{background:rgba(255,255,255,.28) !important;color:var(--on-accent) !important;}
   .fbtn.active,.pctbtn.active,.segbtn.active,.jbtn.on{
-    background:var(--accent) !important;color:#0f131b !important;border-color:var(--accent) !important;font-weight:800 !important;
+    background:var(--accent) !important;color:var(--on-accent) !important;border-color:var(--accent) !important;font-weight:800 !important;
   }
 
   /* ---------- state pills: readable, calm -------------------------------- */
@@ -3118,8 +3154,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     background:var(--surface);border:1px solid var(--line);color:var(--ink-2);
     font-size:13px;font-weight:700;user-select:none;
   }
-  .swk-chip.on{background:var(--accent);border-color:var(--accent);color:#0f131b;}
-  .swk-chip.off-on{background:var(--danger);border-color:var(--danger);color:#0f131b;}
+  .swk-chip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+  .swk-chip.off-on{background:var(--danger);border-color:var(--danger);color:var(--on-accent);}
   .swk-none{color:var(--ink-3);font-size:13px;padding:6px 2px;}
   .swk-hidden{display:none !important;}
 
@@ -3186,7 +3222,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      Neither variable was ever defined anywhere, so every counter pill fell
      back to near-white with near-black text — the brightest thing on a dark
      screen. Defining the three variables fixes the whole family at once. */
-  :root{ --chip-bg:#1d2532; --fg:#dde4ee; --muted:#9daabd; }
+  :root{ --chip-bg:var(--gray-100); --fg:var(--ink); --muted:var(--ink-2); }
 
   .cap{ background:var(--surface-2) !important; color:var(--ink-2) !important;
         font-size:12.5px !important; padding:4px 10px !important; }
@@ -3196,10 +3232,10 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .cap.at{ background:var(--danger-soft) !important; color:var(--danger) !important; }
   .cap.at b{ color:var(--danger) !important; }
 
-  .cap-banner{ background:var(--warning-soft) !important; border-color:rgba(214,162,95,.32) !important; padding:11px 13px !important; }
+  .cap-banner{ background:var(--warning-soft) !important; border-color:rgba(224,151,58,.35) !important; padding:11px 13px !important; }
   .cap-banner-t{ color:var(--warning) !important; font-size:13.5px !important; }
   .cap-banner-s{ color:var(--ink-2) !important; font-size:12.5px !important; }
-  .cap-banner.stop{ background:var(--danger-soft) !important; border-color:rgba(229,139,160,.32) !important; }
+  .cap-banner.stop{ background:var(--danger-soft) !important; border-color:rgba(226,61,84,.28) !important; }
   .cap-banner.stop .cap-banner-t{ color:var(--danger) !important; }
   .cap-banner.ovr{ background:var(--surface-3) !important; border-color:var(--line-2) !important; }
   .cap-banner.ovr .cap-banner-t{ color:var(--ink) !important; }
@@ -3265,15 +3301,15 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      screen of errors. Amber marks "real money" without shouting. */
   .chip.live{background:var(--warning-soft) !important;color:var(--warning) !important;}
   .chip.paper{background:var(--surface-3) !important;color:var(--ink-2) !important;}
-  .swk-chip.off-on{background:#b4687c !important;border-color:#b4687c !important;color:#0f131b !important;}
+  .swk-chip.off-on{background:var(--danger) !important;border-color:var(--danger) !important;color:var(--on-accent) !important;}
 
   /* ---------- tab bar + box switch --------------------------------------- */
-  .tabbar-wrap{background:rgba(19,24,36,.92) !important;border-bottom:1px solid var(--line) !important;}
+  .tabbar-wrap{background:rgba(255,255,255,.92) !important;border-bottom:1px solid var(--line) !important;}
   .tabbar{padding:9px 14px !important;}
   .tabbtn .cnt{background:var(--surface-3) !important;color:var(--ink-2) !important;font-size:12px !important;}
-  .boxsw{background:rgba(255,255,255,.06) !important;}
+  .boxsw{background:var(--gray-100) !important;}
   .boxsw .boxbtn{font-size:12.5px !important;color:var(--ink-2) !important;}
-  .boxsw .boxbtn.sel{background:var(--accent) !important;color:#0f131b !important;}
+  .boxsw .boxbtn.sel{background:var(--accent) !important;color:var(--on-accent) !important;}
   .boxsw .boxbtn:hover{color:var(--ink) !important;}
   /* the ARM button: keep it unmistakable, drop the glow */
   .bigbtn{box-shadow:none !important;}
@@ -3692,8 +3728,11 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   /* Trader 1 = Binance yellow, Trader 2 = a calm blue. Both sit inside the
      Binance palette; neither is the amber that made box 2 unreadable. */
   var BOX_ACCENT = {
-    one: { '--accent':'#FCD535', '--accent-600':'#F0B90B', '--accent-soft':'#2A2617', '--accent-line':'#4A4320' },
-    two: { '--accent':'#5AA9FF', '--accent-600':'#3D8BE0', '--accent-soft':'#16222E', '--accent-line':'#2A425C' }
+    /* Both live in the scanner's family. Trader 1 keeps the scanner's own
+       indigo so the two pages are indistinguishable; Trader 2 gets a teal of
+       the same weight, so you can still tell the boxes apart at a glance. */
+    one: { '--accent':'#3b5bdb', '--accent-600':'#2f49b8', '--accent-soft':'#eef1fd', '--accent-line':'#c9d4f8' },
+    two: { '--accent':'#0e8f8f', '--accent-600':'#0b7373', '--accent-soft':'#e4f4f4', '--accent-line':'#bfe4e4' }
   };
   function forceAccent(){
     try {
@@ -3706,7 +3745,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       var r = document.documentElement.style;
       for (var k in set) r.setProperty(k, set[k]);
       var m = document.querySelector('meta[name="theme-color"]');
-      if (m) m.setAttribute('content', '#181A20');
+      if (m) m.setAttribute('content', '#0f1c33');
     } catch (e) {}
   }
   if (typeof window.applyBoxTheme === 'function') {
