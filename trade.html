@@ -2533,6 +2533,18 @@ async function saveRule() {
       coinRules: readCoinRules()
     }
   };
+  // --- config merge (19 Sep) --------------------------------------------
+  // The API REPLACES config wholesale (config = COALESCE($12, config)), so a
+  // body that carries only the fields this form renders DELETES every key the
+  // form does not render: intraMaxBookGapPct, strandTripsBreaker, dayOverride
+  // and anything added to the engine later. That is what wiped rule 4 on
+  // 18 Sep. Merge the form's fields OVER the rule's existing config so the
+  // UI can only ever change what it actually shows.
+  const __prevCfg = editingRuleId
+    ? cfgOf(((typeof ST === 'object' && ST && ST.rules) || []).find(x => String(x.id) === String(editingRuleId)) || {})
+    : {};
+  body.config = Object.assign({}, __prevCfg, body.config);
+
   if (!body.name) { toast('Give the rule a name.'); return; }
   try {
     if (editingRuleId) await apiJson('/api/trader/rules/' + editingRuleId, { method: 'PUT', body: JSON.stringify(body) });
@@ -2853,24 +2865,30 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     --on-accent:#ffffff;
   }
 
-  /* ---------- type: bigger, lighter, calmer ------------------------------ */
-  /* Binance reads at 500-600 weight, not 800. Heavy weights plus uppercase
-     plus letter-spacing is what made this feel sharp rather than settled. */
+  /* ---------- type: the scanner's scale, exactly -------------------------
+     19 Sep: "don't change scanner design, I have asked autotrade design change
+     so it appears common." The 10 Sep skin had drifted this page to a Binance
+     type scale — 15.5px / 1.55 / letter-spacing 0 / weight 600 — while the
+     scanner stayed at 13.5px / 1.45 / -0.011em / weight 700. Every number
+     below is now read off track.html's own sheet, not chosen. */
   /* the scanner's Inter tuning: cv05 for l-vs-1, tnum for aligned columns */
   body{ font-feature-settings:"cv05" 1, "tnum" 1 !important; }
-  b, strong{ font-weight:600 !important; }
+  b, strong{ font-weight:700 !important; }
   .st,.chip,.fact,.cap,.tabbtn,.btn,.fbtn,.pctbtn,.segbtn,.jbtn,.swk-chip,
   .cc-coin,.cc-st,.tl-stage,.o-coin,.o-profit,.swk-count,.swk-pick-btn,
   .cap-banner-t,.rcoins-h,.boxsw .boxbtn{
-    font-weight:600 !important; letter-spacing:0 !important;
+    font-weight:700 !important; letter-spacing:0 !important;
   }
-  .st{ text-transform:none !important; font-size:12.5px !important; padding:4px 10px !important; }
-  .cc-st{ text-transform:none !important; }
-  .o-coin{ font-size:15.5px !important; }
-  .tl-stage{ font-size:14.5px !important; }
-  .sub,.cc-meta,.cc-rule,.o-path,.tl-det{ color:var(--ink-2) !important; font-size:13.5px !important; }
+  /* status pills are the scanner's .badge, value for value */
+  .st{ text-transform:uppercase !important; font-size:9.5px !important; font-weight:700 !important;
+       letter-spacing:.06em !important; padding:4px 9px !important; border-radius:999px !important; }
+  .cc-st{ text-transform:uppercase !important; letter-spacing:.06em !important; }
+  /* .o-coin is this page's .coin-pair */
+  .o-coin{ font-size:15px !important; font-weight:700 !important; letter-spacing:-.02em !important; }
+  .tl-stage{ font-size:13px !important; }
+  .sub,.cc-meta,.cc-rule,.o-path,.tl-det{ color:var(--gray-700) !important; font-size:11.5px !important; }
   .o-time,.tl-t,.cc-why{ color:var(--ink-3) !important; }
-  h1,h2,h3,.panel-h,.rule-top{ font-weight:600 !important; }
+  h1,h2,h3,.panel-h,.rule-top{ font-weight:700 !important; letter-spacing:-.02em !important; }
 
   /* cards need to separate from the ground, the way Binance's do */
   .panel,.rule,.order,.poscard,.cc-card,.livecard,.tile{
@@ -2905,24 +2923,25 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   /* One headline (what traded), then dim-label / bright-value pairs flowing
      inline so six fields take two rows instead of eight. */
   .swk-hero{ display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin-top:9px; }
-  .swk-qty, .swk-px{ font-size:19px; font-weight:600; color:var(--ink);
+  .swk-qty, .swk-px{ font-size:16.5px; font-weight:700; color:var(--ink);
                      font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
-  .swk-at{ font-size:13px; color:var(--ink-3); font-weight:500; }
-  .swk-side{ margin-left:auto; font-size:11.5px; font-weight:600; padding:3px 9px;
-             border-radius:4px; background:var(--surface-3); color:var(--ink-2); text-transform:uppercase; }
+  .swk-at{ font-size:12px; color:var(--ink-3); font-weight:500; }
+  .swk-side{ margin-left:auto; font-size:9.5px; font-weight:700; padding:4px 9px;
+             border-radius:999px; background:var(--surface-3); color:var(--ink-2);
+             text-transform:uppercase; letter-spacing:.06em; }
   .swk-side.buy{ background:var(--success-soft); color:var(--success); }
   .swk-side.sell{ background:var(--danger-soft); color:var(--danger); }
 
   .swk-kv{ display:flex; flex-wrap:wrap; gap:5px 18px; margin-top:9px; }
   .swk-kv > span{ display:inline-flex; align-items:baseline; gap:6px; white-space:nowrap; }
-  .swk-kv i{ font-style:normal; font-size:12.5px; color:var(--ink-3); font-weight:500; }
-  .swk-kv b{ font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .swk-kv i{ font-style:normal; font-size:11.5px; color:var(--ink-3); font-weight:500; }
+  .swk-kv b{ font-size:12.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
 
   .swk-lg-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
   .swk-outcome{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:9px;
-                font-size:16px; font-weight:600; }
+                font-size:16.5px; font-weight:700; letter-spacing:-.01em; }
   .swk-outcome .swk-fill{ color:var(--ink); font-variant-numeric:tabular-nums; }
-  .swk-outcome .swk-ms{ margin-left:auto; font-size:13px; color:var(--ink-3); font-weight:500; }
+  .swk-outcome .swk-ms{ margin-left:auto; font-size:11px; color:var(--ink-3); font-weight:500; }
   .tl-ev{ cursor:pointer; align-items:flex-start; }
   .tl-ev + .tl-ev{ margin-top:6px; }
   .tl-body{ flex:1 1 auto !important; min-width:0 !important; }
@@ -2950,11 +2969,11 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     display:flex; align-items:center; gap:9px; width:100%; margin:10px 0 8px;
     padding:11px 13px; border-radius:8px; cursor:pointer;
     background:var(--surface-2); border:1px solid var(--line);
-    color:var(--ink-2); font:inherit; font-size:14px; font-weight:600; text-align:left;
+    color:var(--ink-2); font:inherit; font-size:12.5px; font-weight:700; text-align:left;
   }
   .swk-fold .swk-chev{ transition:transform .18s; color:var(--ink-3); font-size:12px; }
   .swk-fold.open .swk-chev{ transform:rotate(90deg); }
-  .swk-fold .swk-n{ margin-left:auto; color:var(--ink-3); font-weight:600; }
+  .swk-fold .swk-n{ margin-left:auto; color:var(--ink-3); font-weight:700; }
 
   /* ---------- the last three off-palette surfaces ------------------------ */
   /* .hero carried a blue gradient, .bigbtn.arm/.kill their own emerald and
@@ -2981,19 +3000,22 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
 
   /* ---------- flat, Binance-shaped surfaces ------------------------------ */
   .panel,.tile,.livecard,.rule,.order,.poscard,.cc-card,.obook,.scanrow,.legs{
-    box-shadow:none !important; border-radius:8px !important;
+    box-shadow:var(--shadow-sm) !important; border-radius:var(--radius) !important;
   }
   .order{ border:1px solid var(--line) !important; }
   .num,.cap,.o-profit,.tl-t,table.obgrid td,table.ob-table td{ font-variant-numeric:tabular-nums !important; }
 
   /* ---------- ground ---------------------------------------------------- */
   body{
-    background:var(--bg) !important;
+    background:
+      radial-gradient(1200px 600px at 100% -10%, #eaf0fb 0%, rgba(234,240,251,0) 60%),
+      var(--bg) !important;
+    background-attachment:fixed !important;
     color:var(--ink) !important;
     font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif !important;
-    font-size:15.5px !important;
-    line-height:1.55 !important;
-    letter-spacing:0 !important;
+    font-size:13.5px !important;
+    line-height:1.45 !important;
+    letter-spacing:-0.011em !important;
   }
 
   /* ---------- surfaces -------------------------------------------------- */
@@ -3141,7 +3163,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     font:inherit;font-size:14.5px;font-weight:700;cursor:pointer;text-align:left;
   }
   .swk-pick-btn .swk-caret{color:var(--ink-3);font-size:12px;}
-  .swk-pick-btn .swk-val{color:var(--ink-2);font-weight:600;}
+  .swk-pick-btn .swk-val{color:var(--ink-2);font-weight:700;}
   .swk-pick-body{display:none;margin-top:9px;padding:12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);}
   .swk-pick.open .swk-pick-body{display:block;}
   .swk-search{
@@ -3178,7 +3200,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   /* desktop */
   @media (min-width:1280px){
     :root{ --shell:1260px; }
-    body{ font-size:15.5px !important; }
+    body{ font-size:13.5px !important; }  /* scanner parity — it has no desktop bump */
     #ordersBox{ display:grid; grid-template-columns:repeat(auto-fill,minmax(560px,1fr)); gap:var(--gap); align-items:start; }
     #ordersBox .order{ margin-bottom:0 !important; }
     #rulesList{ display:grid; grid-template-columns:repeat(auto-fill,minmax(560px,1fr)); gap:var(--gap); align-items:start; }
