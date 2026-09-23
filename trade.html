@@ -1017,6 +1017,10 @@
     </div>
     <div class="tiles" id="blindTiles"></div>
     <div class="panel">
+      <div class="panel-h"><h2>Tape vs depth — who arrives first</h2><span class="hint" id="raceHint">every trade print vs the depth frame showing the same trade</span></div>
+      <div class="panel-b"><div class="tiles" id="raceTiles" style="margin-bottom:8px;"></div><div id="raceBody"></div></div>
+    </div>
+    <div class="panel">
       <div class="panel-h"><h2>Blind paper ledger</h2><span class="hint">worst = we were behind everyone · best = we were first</span></div>
       <div class="panel-b"><div id="blindBody"><div class="jrow">loading…</div></div></div>
     </div>
@@ -1572,6 +1576,7 @@ async function refreshBlind(loadForm) {
   if (!body) return;
   try { BLIND = await apiJson('/api/trader/blind?limit=200'); }
   catch (e) { body.innerHTML = '<div class="jrow">could not load — ' + esc(e.message) + '</div>'; return; }
+  refreshFeedRace();
   const c = BLIND.config || {}, s = BLIND.stats || {}, rows = BLIND.rows || [];
   if (loadForm || !blindFormLoaded) {
     $('bl_enabled').value = String(!!c.enabled);
@@ -1615,6 +1620,32 @@ async function refreshBlind(loadForm) {
       + '<td style="' + td + '">' + st(r.state) + '</td>'
       + '</tr>').join('')
     + '</tbody></table></div>';
+}
+async function refreshFeedRace() {
+  const tiles = $('raceTiles'), body = $('raceBody');
+  if (!tiles) return;
+  let f;
+  try { f = ((await apiJson('/api/trader/tapetrig')) || {}).feedRace; }
+  catch (e) { body.innerHTML = '<div class="jrow">could not load — ' + esc(e.message) + '</div>'; return; }
+  if (!f) { tiles.innerHTML = ''; body.innerHTML = '<div class="jrow">not available on this build (needs tapeTrigger 05dh).</div>'; return; }
+  const pc = (v) => (v == null ? '—' : v.toFixed(1) + '%');
+  const ms = (d) => (d && d.n ? d.p10 + ' / ' + d.p50 + ' / ' + d.p90 + ' ms' : '—');
+  tiles.innerHTML =
+    tile('Matched prints', String(f.resolved || 0), 'of ' + (f.prints || 0) + ' prints seen', '', true) +
+    tile('Tape first', pc(f.tapeFirstPct), (f.tapeFirst || 0) + ' prints · lead p10/p50/p90 ' + ms(f.tapeLeadMs), 'pos') +
+    tile('Depth first', pc(f.depthFirstPct), (f.depthFirst || 0) + ' prints · lead p10/p50/p90 ' + ms(f.depthLeadMs), '') +
+    tile('Not matched', String((f.noMatch || 0) + (f.notInBook || 0)), (f.noMatch || 0) + ' no frame in 2s · ' + (f.notInBook || 0) + ' price not in book', '');
+  const rows = f.recent || [];
+  body.innerHTML = rows.length ? '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>'
+    + ['when', 'market', 'price', 'qty', 'side hit', 'first', 'by'].map(h => '<th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--gray-200,#e2e8f0);font-weight:700;">' + h + '</th>').join('')
+    + '</tr></thead><tbody>' + rows.map(r => '<tr>'
+      + '<td style="padding:5px 8px;white-space:nowrap;">' + esc(new Date(r.at).toLocaleTimeString('en-IN', { hour12: false })) + '</td>'
+      + '<td style="padding:5px 8px;font-weight:700;">' + esc(String(r.sym).toUpperCase()) + '</td>'
+      + '<td style="padding:5px 8px;">' + esc(r.price) + '</td><td style="padding:5px 8px;">' + esc(r.qty) + '</td>'
+      + '<td style="padding:5px 8px;">' + esc(r.side) + '</td>'
+      + '<td style="padding:5px 8px;font-weight:700;color:' + (r.first === 'tape' ? 'var(--success,#059669)' : '#b7791f') + ';">' + esc(r.first) + '</td>'
+      + '<td style="padding:5px 8px;">' + esc(r.leadMs) + ' ms</td></tr>').join('') + '</tbody></table></div>'
+    : '<div class="jrow">no matched prints yet.</div>';
 }
 async function saveBlind() {
   const body = {
