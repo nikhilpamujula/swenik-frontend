@@ -1004,9 +1004,15 @@
             </div></div>
           <div class="f"><label>Path A cap ₹ / trade</label><input id="bl_capInr" type="number" step="1000"><div class="sub">sized down to what coin/USDT bids can absorb at ≥ min %</div></div>
           <div class="f"><label>Path B allocation ₹ / coin</label><input id="bl_bAllocInr" type="number" step="1000"><div class="sub">coin held per coin for the INR sell</div></div>
-          <div class="f"><label>Min loop %</label><input id="bl_minPct" type="number" step="0.1"><div class="sub">checked on our coin/USDT + USDT/INR books at signal time</div></div>
+          <div class="f"><label>Min loop %</label><input id="bl_minPct" type="number" step="0.1"><div class="sub">only trade at or above this % (e.g. 5)</div></div>
+          <div class="f"><label>Max loop %</label><input id="bl_maxPct" type="number" step="1"><div class="sub">above this is usually a stale book — skip (0 = off)</div></div>
           <div class="f"><label>Cancel after (ms)</label><input id="bl_windowMs" type="number" step="50"><div class="sub">an unfilled blind order counts as cancelled after this</div></div>
-          <div class="f"><label>Min order ₹</label><input id="bl_minInr" type="number" step="50"></div>
+          <div class="f"><label>Min INR leg ₹</label><input id="bl_minInr" type="number" step="10"><div class="sub">WazirX refuses tiny orders — skip below this</div></div>
+          <div class="f"><label>Min USDT leg $</label><input id="bl_minUsdt" type="number" step="0.5"><div class="sub">same for the coin/USDT leg</div></div>
+          <div class="f"><label>Same price blocked for (sec)</label><input id="bl_dedupeSec" type="number" step="10"><div class="sub">same coin, same path, same price never fires twice inside this</div></div>
+          <div class="f"><label>Per-coin cooldown (sec)</label><input id="bl_coinCooldownSec" type="number" step="1"><div class="sub">after a blind trade, that coin waits this long (any price)</div></div>
+          <div class="f"><label>Max per coin / hour</label><input id="bl_maxPerCoinHour" type="number" step="1"><div class="sub">0 = no limit</div></div>
+          <div class="f"><label>Max USDT book age (ms)</label><input id="bl_maxUsdtAgeMs" type="number" step="1000"><div class="sub">WazirX resends every ~10s; older = dead feed, skip</div></div>
           <div class="f full"><label>Coins (blank = all)</label><input id="bl_coins" placeholder="e.g. bonk, bch, ondo, dot, celr"></div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
@@ -1583,6 +1589,8 @@ async function refreshBlind(loadForm) {
     $('bl_pathA').checked = !!c.pathA; $('bl_pathB').checked = !!c.pathB;
     $('bl_capInr').value = c.capInr; $('bl_bAllocInr').value = c.bAllocInr; $('bl_minPct').value = c.minPct;
     $('bl_windowMs').value = c.windowMs; $('bl_minInr').value = c.minInr; $('bl_coins').value = c.coins || '';
+    $('bl_maxPct').value = c.maxPct; $('bl_minUsdt').value = c.minUsdt; $('bl_dedupeSec').value = c.dedupeSec;
+    $('bl_coinCooldownSec').value = c.coinCooldownSec; $('bl_maxPerCoinHour').value = c.maxPerCoinHour; $('bl_maxUsdtAgeMs').value = c.maxUsdtAgeMs;
     blindFormLoaded = true;
   }
   const taken = (s.taken && (s.taken.A || 0) + (s.taken.B || 0)) || 0;
@@ -1652,6 +1660,8 @@ async function saveBlind() {
     enabled: $('bl_enabled').value === 'true', pathA: $('bl_pathA').checked, pathB: $('bl_pathB').checked,
     capInr: Number($('bl_capInr').value), bAllocInr: Number($('bl_bAllocInr').value), minPct: Number($('bl_minPct').value),
     windowMs: Number($('bl_windowMs').value), minInr: Number($('bl_minInr').value), coins: $('bl_coins').value,
+    maxPct: Number($('bl_maxPct').value), minUsdt: Number($('bl_minUsdt').value), dedupeSec: Number($('bl_dedupeSec').value),
+    coinCooldownSec: Number($('bl_coinCooldownSec').value), maxPerCoinHour: Number($('bl_maxPerCoinHour').value), maxUsdtAgeMs: Number($('bl_maxUsdtAgeMs').value),
   };
   try { await apiJson('/api/trader/blind/config', { method: 'POST', body: JSON.stringify(body) }); toast('Blind settings saved'); refreshBlind(true); }
   catch (e) { toast(e.message || 'Could not save blind settings'); }
