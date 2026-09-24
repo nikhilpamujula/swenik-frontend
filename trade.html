@@ -709,6 +709,40 @@
     background:#0f1c33; color:#fff; font-size:12px; font-weight:600;
     padding:10px 16px; border-radius:11px; box-shadow:var(--shadow-lg); display:none; max-width:88vw;
   }
+
+  /* ---------- blind (05dp) ---------- */
+  .bl-sw { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  .bl-swi { display:flex; align-items:center; gap:10px; flex:1 1 180px; padding:9px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:#fbfcfe; font-size:12.5px; line-height:1.3; }
+  .switch.live input:checked + .slider { background:var(--danger); }
+  .bl-sep { width:1px; align-self:stretch; background:var(--gray-200); margin:2px 4px; }
+  .bl-coins { display:flex; gap:6px; overflow-x:auto; padding:0 0 10px; margin-bottom:2px; scrollbar-width:thin; }
+  .bl-coin { flex:none; font:inherit; font-size:11.5px; color:var(--gray-700); background:#fff; border:1px solid var(--border); border-radius:999px; padding:5px 11px; cursor:pointer; white-space:nowrap; }
+  .bl-coin b { color:var(--gray-800); }
+  .bl-coin.on { background:var(--primary); border-color:var(--primary); color:#fff; }
+  .bl-coin.on b, .bl-coin.on .pos, .bl-coin.on .neg { color:#fff; }
+  .bl-tl { display:flex; gap:10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; line-height:1.65; }
+  .bl-tl-c { flex:0 0 92px; color:var(--gray-700); }
+  .bl-tl-w { min-width:0; overflow-wrap:anywhere; padding-left:14px; color:var(--gray-800); }
+  .bl-tl-w.stp { padding-left:0; font-weight:700; }
+  #blindModal .f input[type=checkbox] { margin-left:10px !important; }
+  .bl-tl.bad .bl-tl-w { color:var(--danger); }
+  #tab-blind .order-row { padding:9px 12px 9px 14px; gap:8px; }
+  #tab-blind .o-path { flex:1 1 150px; }
+  #tab-blind .filters { flex-wrap:nowrap; overflow-x:auto; margin-bottom:8px; scrollbar-width:none; }
+  #tab-blind .filters::-webkit-scrollbar { display:none; }
+  #tab-blind .fbtn { flex:none; }
+  #tab-blind .tiles { margin-bottom:10px; }
+  @media (max-width:430px){
+    .bl-sw { flex-wrap:nowrap; gap:6px; }
+    .bl-swi { flex:1 1 0; flex-direction:column; align-items:flex-start; gap:5px; padding:8px 9px; font-size:12px; }
+    .bl-swi .hint { display:none; }
+    #tab-blind .o-path { flex-basis:100%; order:9; }
+    #tab-blind .tiles { grid-template-columns:1fr 1fr; gap:8px; }
+    #tab-blind .tile .v { font-size:17px; }
+    .bl-tl { gap:6px; font-size:10.5px; }
+    .bl-tl-c { flex-basis:70px; font-size:9.5px; }
+    .bl-tl-w { padding-left:8px; }
+  }
 </style>
 </head>
 <body>
@@ -984,105 +1018,57 @@
   </div>
 
   <!-- ============================================================
-       BLIND — 05dk
-       Trades the tape's picture before the depth frame. Paper scoring always;
-       LIVE orders only with TRADER_BLIND_LIVE=1 on the box AND Live on here.
-       Runs parallel to the auto trader: its own config, ledger and orders.
+       BLIND — 05dp
+       Trades the tape's picture before the depth frame. Two separate
+       switches: Paper (scores every signal) and Live (real orders; also needs
+       TRADER_BLIND_LIVE=1 on the box). Runs parallel to the auto trader:
+       its own config, ledger and orders.
        ============================================================ -->
   <div class="tabpane" id="tab-blind">
-    <div class="panel">
-      <div class="panel-h"><h2>Blind trades</h2><span class="hint" id="blindHint">runs beside the auto trader</span></div>
-      <div class="panel-b">
-        <div id="bl_banner" style="display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;font-weight:600;"></div>
-        <div class="tiles" id="blindTodayTiles" style="margin-bottom:6px;"></div>
+    <div class="rule" id="blCard">
+      <div class="rule-top">
+        <span class="rule-name">Blind trades</span>
+        <span class="chip strat">tape → before depth</span>
+        <span id="blChips" style="display:contents;"></span>
+        <span class="hint" id="blindHint" style="margin-left:auto;"></span>
+      </div>
+      <div class="bl-sw">
+        <div class="bl-swi"><label class="switch"><input type="checkbox" id="blSwPaper" onchange="blindSwitch('paper', this)"><span class="slider"></span></label><span><b>Paper</b><br><span class="hint">scores every signal · no orders</span></span></div>
+        <div class="bl-swi"><label class="switch live"><input type="checkbox" id="blSwLive" onchange="blindSwitch('live', this)"><span class="slider"></span></label><span><b>Live</b><br><span class="hint" id="blLiveSub">real orders</span></span></div>
+        <div class="bl-swi"><label class="switch"><input type="checkbox" id="blSwTg" onchange="blindSwitch('tg', this)"><span class="slider"></span></label><span><b>Telegram</b><br><span class="hint">every live trade</span></span></div>
+      </div>
+      <div class="facts num" id="blFacts"></div>
+      <div id="bl_banner" class="notice" style="display:none;margin:10px 0 0;"></div>
+      <div class="rule-actions">
+        <button class="btn" onclick="openBlindSettings()">Settings</button>
+        <button class="btn" onclick="resetBlind()">Reset ledger</button>
       </div>
     </div>
 
-    <div class="panel">
-      <div class="panel-h"><h2>Live settings</h2><span class="hint" id="bl_liveState"></span></div>
-      <div class="panel-b">
-        <div class="frm">
-          <div class="f"><label>Live</label>
-            <select id="bl_live"><option value="false">Off — paper only</option><option value="true">ON — place real orders</option></select>
-            <div class="sub">needs TRADER_BLIND_LIVE=1 on the box · parallel to the auto trader</div></div>
-          <div class="f"><label>Live paths</label>
-            <div style="display:flex;gap:14px;align-items:center;height:38px;">
-              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_livePathA"> A live</label>
-              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_livePathB"> B live</label>
-            </div><div class="sub">a path that is off here still scores on paper</div></div>
-          <div class="f"><label>Telegram</label>
-            <div style="display:flex;gap:14px;align-items:center;height:38px;">
-              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_liveNotify"> message on every live trade</label>
-            </div><div class="sub" id="bl_notifySub">uses the auto trader's Telegram (notify mode must not be off)</div></div>
-          <div class="f"><label>Path A size ₹ / trade</label><input id="bl_liveCapInrA" type="number" step="500"><div class="sub">INR spent buying the coin; leg 2 sells what filled</div></div>
-          <div class="f"><label>Path B size ₹ / trade</label><input id="bl_liveCapInrB" type="number" step="500"><div class="sub">coin sold on INR (needs the coin + USDT to buy back)</div></div>
-          <div class="f"><label>Live min loop %</label><input id="bl_liveMinPct" type="number" step="0.1"><div class="sub">0 = same as paper min %; leg 2 price walks only levels above this</div></div>
-          <div class="f"><label>Daily loss stop ₹</label><input id="bl_liveLossStopInr" type="number" step="100"><div class="sub">live switches itself off when today's real P&amp;L ≤ −this (0 = off)</div></div>
-          <div class="f"><label>Max live trades / day</label><input id="bl_maxLivePerDay" type="number" step="1"><div class="sub">0 = no limit · IST day</div></div>
-          <div class="f full"><label>Live coins (blank = every coin paper trades)</label><input id="bl_liveCoins" placeholder="e.g. xrp, doge"></div>
-          <div class="f"><label>Fee % per leg</label><input id="bl_feePct" type="number" step="0.01"><div class="sub">used for leg 2 size (path A) and real P&amp;L</div></div>
-          <div class="f"><label>Late-fill watch (ms)</label><input id="bl_graceMs" type="number" step="100"><div class="sub">after the cancel, late leg 1 fills still go to leg 2</div></div>
-          <div class="f"><label>Path B: no coin → skip (min)</label><input id="bl_noInvMin" type="number" step="5"><div class="sub">after "not enough balance" on the INR sell</div></div>
-        </div>
-        <details style="margin-top:12px;">
-          <summary style="cursor:pointer;font-weight:700;">Paper / signal settings (apply to live too)</summary>
-          <div class="frm" style="margin-top:10px;">
-            <div class="f"><label>Blind (paper)</label>
-              <select id="bl_enabled"><option value="true">On — record blind trades</option><option value="false">Off</option></select>
-              <div class="sub">off = no paper and no live</div></div>
-            <div class="f"><label>Paths</label>
-              <div style="display:flex;gap:14px;align-items:center;height:38px;">
-                <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_pathA"> A: buy INR → sell USDT</label>
-                <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_pathB"> B: sell INR → buy USDT</label>
-              </div></div>
-            <div class="f"><label>Path A cap ₹ (paper)</label><input id="bl_capInr" type="number" step="1000"></div>
-            <div class="f"><label>Path B allocation ₹ (paper)</label><input id="bl_bAllocInr" type="number" step="1000"></div>
-            <div class="f"><label>Min loop %</label><input id="bl_minPct" type="number" step="0.1"></div>
-            <div class="f"><label>Max loop %</label><input id="bl_maxPct" type="number" step="1"><div class="sub">above = stale book, skip (0 = off)</div></div>
-            <div class="f"><label>Cancel leg 1 after (ms)</label><input id="bl_windowMs" type="number" step="50"></div>
-            <div class="f"><label>Min INR leg ₹</label><input id="bl_minInr" type="number" step="10"></div>
-            <div class="f"><label>Min USDT leg $</label><input id="bl_minUsdt" type="number" step="0.5"></div>
-            <div class="f"><label>Same price blocked (sec)</label><input id="bl_dedupeSec" type="number" step="10"></div>
-            <div class="f"><label>Per-coin cooldown (sec)</label><input id="bl_coinCooldownSec" type="number" step="1"></div>
-            <div class="f"><label>Max per coin / hour</label><input id="bl_maxPerCoinHour" type="number" step="1"></div>
-            <div class="f"><label>Max USDT book age (ms)</label><input id="bl_maxUsdtAgeMs" type="number" step="1000"></div>
-            <div class="f full"><label>Coins (blank = all)</label><input id="bl_coins" placeholder="e.g. bonk, bch, ondo"></div>
-          </div>
-        </details>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
-          <button class="btn" onclick="resetBlind()">Reset ledger</button>
-          <button class="btn primary" onclick="saveBlind()">Save</button>
-        </div>
-      </div>
-    </div>
+    <div class="tiles" id="blindTiles"></div>
 
-    <div class="panel">
-      <div class="panel-h"><h2>Track</h2><span class="hint" id="bl_filterHint"></span></div>
-      <div class="panel-b">
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-          <select id="bf_range" onchange="blindFilter()"><option value="today">Today (IST)</option><option value="all">All (since reset)</option></select>
-          <select id="bf_kind" onchange="blindFilter()"><option value="">Live + paper</option><option value="live">Live only</option><option value="paper">Paper only</option></select>
-          <select id="bf_path" onchange="blindFilter()"><option value="">Both paths</option><option value="A">Path A</option><option value="B">Path B</option></select>
-          <select id="bf_result" onchange="blindFilter()"><option value="">Any result</option>
-            <option value="done">live: done</option><option value="leg2_failed">live: leg 2 failed</option><option value="leg2_partial">live: leg 2 partial</option>
-            <option value="no_fill_cancelled">no fill / cancelled</option><option value="leg1_no_balance">live: no balance</option>
-            <option value="filled">paper: filled</option><option value="only_if_first">paper: only if first</option></select>
-          <input id="bf_coin" placeholder="coin" style="width:90px;" onchange="blindFilter()">
-          <button class="btn" onclick="$('bf_coin').value='';blindFilter()">clear coin</button>
-        </div>
-        <div class="tiles" id="blindTiles"></div>
-      </div>
+    <div class="filters" id="bfRange">
+      <button class="fbtn active" data-v="today" onclick="blindPick('range','today')">Today</button>
+      <button class="fbtn" data-v="all" onclick="blindPick('range','all')">All</button>
+      <span class="bl-sep"></span>
+      <button class="fbtn active" data-v="" onclick="blindPick('kind','')">Live + paper</button>
+      <button class="fbtn" data-v="live" onclick="blindPick('kind','live')">🔴 Live</button>
+      <button class="fbtn" data-v="paper" onclick="blindPick('kind','paper')">Paper</button>
     </div>
-
-    <div class="panel">
-      <div class="panel-h"><h2>By coin</h2><span class="hint">tap a coin to filter</span></div>
-      <div class="panel-b"><div id="blindCoins"><div class="jrow">loading…</div></div></div>
+    <div class="filters" id="bfResult">
+      <button class="fbtn active" data-v="" onclick="blindPick('result','')">All</button>
+      <button class="fbtn" data-v="done" onclick="blindPick('result','done')">Done</button>
+      <button class="fbtn" data-v="problem" onclick="blindPick('result','problem')">Problems</button>
+      <button class="fbtn" data-v="nofill" onclick="blindPick('result','nofill')">No fill</button>
+      <button class="fbtn" data-v="skipped" onclick="blindPick('result','skipped')">Skipped</button>
+      <span class="bl-sep"></span>
+      <button class="fbtn active" data-v="" onclick="blindPick('path','')">A + B</button>
+      <button class="fbtn" data-v="A" onclick="blindPick('path','A')">A</button>
+      <button class="fbtn" data-v="B" onclick="blindPick('path','B')">B</button>
     </div>
-
-    <div class="panel">
-      <div class="panel-h"><h2>Ledger</h2><span class="hint">tap a row for its timeline · paper: worst = behind everyone, best = first</span></div>
-      <div class="panel-b"><div id="blindBody"><div class="jrow">loading…</div></div></div>
-    </div>
+    <div class="bl-coins" id="blindCoins"></div>
+    <div id="blindBody"><div class="empty">Loading…</div></div>
+    <div style="display:flex;justify-content:center;margin-top:4px;"><button class="btn sm" id="blMore" style="display:none;" onclick="blindMore()">Show more</button></div>
   </div>
 
   <div class="tabpane" id="tab-positions">
@@ -1101,6 +1087,58 @@
 </div>
 
 <!-- RULE EDITOR -->
+<!-- BLIND SETTINGS (05dp) -->
+<div class="modal-overlay hidden" id="blindModal">
+  <div class="modal">
+    <div class="modal-hd"><span>Blind settings</span><button class="close-x" onclick="closeBlindSettings()">×</button></div>
+    <div class="modal-bd">
+      <div class="fsec">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Live — real orders</div>
+        <div class="frm">
+          <div class="f"><label>Path A live</label><input type="checkbox" id="bl_livePathA"><div class="sub">buy on INR → sell on USDT (keeps the USDT)</div></div>
+          <div class="f"><label>Path B live</label><input type="checkbox" id="bl_livePathB"><div class="sub">sell held coin on INR → buy it back on USDT</div></div>
+          <div class="f"><label>Path A size ₹ / trade</label><input id="bl_liveCapInrA" type="number" step="500"></div>
+          <div class="f"><label>Path B size ₹ / trade</label><input id="bl_liveCapInrB" type="number" step="500"></div>
+          <div class="f"><label>Live min loop %</label><input id="bl_liveMinPct" type="number" step="0.1"><div class="sub">0 = same as paper min %</div></div>
+          <div class="f"><label>Daily loss stop ₹</label><input id="bl_liveLossStopInr" type="number" step="100"><div class="sub">Live switches itself off at −this today (0 = off)</div></div>
+          <div class="f"><label>Max live trades / day</label><input id="bl_maxLivePerDay" type="number" step="1"><div class="sub">IST day · 0 = no limit</div></div>
+          <div class="f"><label>Fee % per leg</label><input id="bl_feePct" type="number" step="0.01"></div>
+          <div class="f full"><label>Live coins (blank = every coin)</label><input id="bl_liveCoins" placeholder="e.g. xrp, doge"></div>
+          <div class="f"><label>Late-fill watch (ms)</label><input id="bl_graceMs" type="number" step="100"><div class="sub">after the cancel, late leg 1 fills still get their leg 2</div></div>
+          <div class="f"><label>Path B no coin → skip (min)</label><input id="bl_noInvMin" type="number" step="5"></div>
+        </div>
+      </div>
+      <div class="fsec">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Signal — applies to paper and live</div>
+        <div class="frm">
+          <div class="f"><label>Path A signals</label><input type="checkbox" id="bl_pathA"></div>
+          <div class="f"><label>Path B signals</label><input type="checkbox" id="bl_pathB"></div>
+          <div class="f"><label>Min loop %</label><input id="bl_minPct" type="number" step="0.1"></div>
+          <div class="f"><label>Max loop %</label><input id="bl_maxPct" type="number" step="1"><div class="sub">above = stale book, skip (0 = off)</div></div>
+          <div class="f"><label>Cancel leg 1 after (ms)</label><input id="bl_windowMs" type="number" step="50"></div>
+          <div class="f"><label>Max USDT book age (ms)</label><input id="bl_maxUsdtAgeMs" type="number" step="1000"></div>
+          <div class="f"><label>Min INR leg ₹</label><input id="bl_minInr" type="number" step="10"></div>
+          <div class="f"><label>Min USDT leg $</label><input id="bl_minUsdt" type="number" step="0.5"></div>
+          <div class="f"><label>Same price blocked (sec)</label><input id="bl_dedupeSec" type="number" step="10"></div>
+          <div class="f"><label>Per-coin cooldown (sec)</label><input id="bl_coinCooldownSec" type="number" step="1"></div>
+          <div class="f"><label>Max per coin / hour</label><input id="bl_maxPerCoinHour" type="number" step="1"></div>
+          <div class="f full"><label>Coins (blank = all)</label><input id="bl_coins" placeholder="e.g. bonk, bch, ondo"></div>
+        </div>
+      </div>
+      <div class="fsec folded">
+        <div class="fsec-h" onclick="toggleSec(this)"><span class="cx">▼</span>Paper sizing</div>
+        <div class="frm">
+          <div class="f"><label>Path A paper cap ₹</label><input id="bl_capInr" type="number" step="1000"></div>
+          <div class="f"><label>Path B paper allocation ₹</label><input id="bl_bAllocInr" type="number" step="1000"></div>
+        </div>
+      </div>
+      <div class="savebar">
+        <button class="btn" onclick="closeBlindSettings()">Cancel</button>
+        <button class="btn primary" onclick="saveBlind()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay hidden" id="ruleModal">
   <div class="modal">
     <div class="modal-hd"><span id="ruleModalTitle">New rule</span><button class="close-x" onclick="closeRuleForm()">×</button></div>
@@ -1628,124 +1666,179 @@ async function testKeys() {
 // bars while its breaker was tripped, so "what being stuck cost" stops being a
 // guess. An empty table is the normal, healthy state.
 let MISSED = null;
-// ---------------- blind — 05dk ----------------
-let BLIND = null, blindFormLoaded = false;
-const BLIND_OPEN = new Set();                // row ids whose timeline is expanded
+// ---------------- blind — 05dp ----------------
+let BLIND = null, blindFormLoaded = false, BL_LIMIT = 40;
+const BLF = { range: 'today', kind: '', result: '', path: '', coin: '' };
+const BLIND_OPEN = new Set();
 const BL_LIVE_FIELDS = ['liveCapInrA', 'liveCapInrB', 'liveMinPct', 'liveLossStopInr', 'maxLivePerDay', 'feePct', 'graceMs', 'noInvMin'];
 const BL_PAPER_FIELDS = ['capInr', 'bAllocInr', 'minPct', 'maxPct', 'windowMs', 'minInr', 'minUsdt', 'dedupeSec', 'coinCooldownSec', 'maxPerCoinHour', 'maxUsdtAgeMs'];
+const blN = (v, d) => (v == null ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 6 : d }));
+const blClock = (t, ms) => { const d = new Date(t); return d.toLocaleTimeString('en-IN', { hour12: false }) + (ms ? '.' + String(d.getMilliseconds()).padStart(3, '0') : ''); };
 function blindQuery() {
-  const q = new URLSearchParams({ limit: '200' });
-  const add = (k, id) => { const v = ($(id) && $(id).value || '').trim(); if (v) q.set(k, v); };
-  add('range', 'bf_range'); add('kind', 'bf_kind'); add('path', 'bf_path'); add('result', 'bf_result'); add('coin', 'bf_coin');
+  const q = new URLSearchParams({ limit: String(BL_LIMIT) });
+  for (const k of Object.keys(BLF)) if (BLF[k]) q.set(k, BLF[k]);
   return q.toString();
 }
-function blindFilter() { refreshBlind(false); }
-function blindCoin(c) { $('bf_coin').value = c; refreshBlind(false); }
+function blindPick(k, v) { BLF[k] = v; BL_LIMIT = 40; blindMarkFilters(); refreshBlind(false); }
+function blindCoin(c) { BLF.coin = BLF.coin === c ? '' : c; BL_LIMIT = 40; refreshBlind(false); }
+function blindMore() { BL_LIMIT = Math.min(1000, BL_LIMIT + 60); refreshBlind(false); }
 function blindToggle(id) { if (BLIND_OPEN.has(id)) BLIND_OPEN.delete(id); else BLIND_OPEN.add(id); drawBlindLedger(); }
+function blindMarkFilters() {
+  const mark = (boxId, keys) => { const box = $(boxId); if (!box) return; let k = 0;
+    box.querySelectorAll('.fbtn').forEach((b) => { const on = b.getAttribute('onclick').match(/blindPick\('(\w+)','(\w*)'\)/); if (on) b.classList.toggle('active', BLF[on[1]] === on[2]); }); };
+  mark('bfRange'); mark('bfResult');
+}
+async function blindPost(body, msg) {
+  await apiJson('/api/trader/blind/config', { method: 'POST', body: JSON.stringify(body) });
+  if (msg) toast(msg);
+  refreshBlind(true);
+}
+async function blindSwitch(which, el) {
+  const on = el.checked;
+  try {
+    if (which === 'paper') await blindPost({ enabled: on }, on ? 'Paper on' : 'Paper off');
+    else if (which === 'tg') await blindPost({ liveNotify: on }, on ? 'Telegram on' : 'Telegram off');
+    else if (which === 'live') {
+      const c = (BLIND && BLIND.config) || {};
+      if (on && !confirm('Turn LIVE blind trades ON?\n\nReal orders will be placed on WazirX: path A about ₹' + (c.liveCapInrA || c.liveCapInr) + ', path B about ₹' + (c.liveCapInrB || c.liveCapInr) + ' each.')) { el.checked = false; return; }
+      await blindPost({ live: on }, on ? 'Live ON' : 'Live off');
+    }
+  } catch (e) { el.checked = !on; toast(e.message || 'Could not switch'); }
+}
+function openBlindSettings() {
+  const c = (BLIND && BLIND.config) || {};
+  $('bl_pathA').checked = !!c.pathA; $('bl_pathB').checked = !!c.pathB;
+  BL_PAPER_FIELDS.forEach((k) => { if ($('bl_' + k)) $('bl_' + k).value = c[k] != null ? c[k] : ''; });
+  BL_LIVE_FIELDS.forEach((k) => { if ($('bl_' + k)) $('bl_' + k).value = c[k] != null ? c[k] : (k.startsWith('liveCapInr') ? (c.liveCapInr || '') : ''); });
+  $('bl_coins').value = c.coins || ''; $('bl_liveCoins').value = c.liveCoins || '';
+  $('bl_livePathA').checked = c.livePathA !== false; $('bl_livePathB').checked = c.livePathB !== false;
+  $('blindModal').classList.remove('hidden');
+}
+function closeBlindSettings() { $('blindModal').classList.add('hidden'); }
+async function saveBlind() {
+  const body = { pathA: $('bl_pathA').checked, pathB: $('bl_pathB').checked, coins: $('bl_coins').value,
+    livePathA: $('bl_livePathA').checked, livePathB: $('bl_livePathB').checked, liveCoins: $('bl_liveCoins').value };
+  BL_PAPER_FIELDS.concat(BL_LIVE_FIELDS).forEach((k) => { const v = $('bl_' + k) && $('bl_' + k).value; if (v !== '' && v != null) body[k] = Number(v); });
+  try { await blindPost(body, 'Blind settings saved'); closeBlindSettings(); }
+  catch (e) { toast(e.message || 'Could not save blind settings'); }
+}
+async function resetBlind() {
+  if (!confirm('Clear the blind ledger and counters?\n(settings stay; today\'s live totals and the loss stop are kept)')) return;
+  try { await blindPost({ reset: true }, 'Blind ledger cleared'); } catch (e) { toast(e.message || 'Could not reset'); }
+}
 async function refreshBlind(loadForm) {
   const body = $('blindBody');
   if (!body) return;
   try { BLIND = await apiJson('/api/trader/blind?' + blindQuery()); }
-  catch (e) { body.innerHTML = '<div class="jrow">could not load — ' + esc(e.message) + '</div>'; return; }
+  catch (e) { body.innerHTML = '<div class="empty">Could not load — ' + esc(e.message) + '</div>'; return; }
   const c = BLIND.config || {}, s = BLIND.stats || {}, LV = BLIND.live || null;
-  if (loadForm || !blindFormLoaded) {
-    $('bl_enabled').value = String(!!c.enabled); $('bl_pathA').checked = !!c.pathA; $('bl_pathB').checked = !!c.pathB;
-    BL_PAPER_FIELDS.forEach((k) => { if ($('bl_' + k)) $('bl_' + k).value = c[k]; });
-    $('bl_coins').value = c.coins || '';
-    $('bl_live').value = String(!!c.live);
-    BL_LIVE_FIELDS.forEach((k) => { if ($('bl_' + k) && c[k] !== undefined) $('bl_' + k).value = c[k]; });
-    $('bl_livePathA').checked = c.livePathA !== false; $('bl_livePathB').checked = c.livePathB !== false;
-    $('bl_liveCoins').value = c.liveCoins || '';
-    $('bl_liveNotify').checked = c.liveNotify !== false;
-    blindFormLoaded = true;
-  }
-  const cnt = $('cntBlind'); if (cnt) cnt.textContent = (BLIND.summary && BLIND.summary.rows) || 0;
-  $('bl_liveState').textContent = !LV ? 'server has no live module' : BLIND.mode === 'LIVE' ? 'RUNNING' : c.live ? 'requested but not ready: ' + (LV.ready || '') : LV.envLive ? 'allowed on the box · switched off here' : 'TRADER_BLIND_LIVE is not set on the box';
-  $('blindHint').textContent = (c.enabled ? 'ON' : 'OFF') + ' · ' + (BLIND.mode === 'LIVE' ? 'LIVE A ₹' + (c.liveCapInrA || c.liveCapInr || 0) + ' · B ₹' + (c.liveCapInrB || c.liveCapInr || 0) : 'paper only')
-    + (BLIND.restored && BLIND.restored.rows ? ' · history reloaded ' + BLIND.restored.rows + ' rows' : '') + ' · watching ' + (BLIND.watchingNow || 0);
+  const capA = c.liveCapInrA || c.liveCapInr, capB = c.liveCapInrB || c.liveCapInr;
+  // switches (never fight a finger that is on them)
+  const setSw = (id, v) => { const el = $(id); if (el && document.activeElement !== el) el.checked = !!v; };
+  setSw('blSwPaper', c.enabled); setSw('blSwLive', c.live); setSw('blSwTg', c.liveNotify !== false);
+  $('blSwTg').disabled = BLIND.notify === undefined;
+  $('blLiveSub').textContent = 'real orders · A ' + inr(capA) + ' · B ' + inr(capB);
+  // status chips
+  const chips = [];
+  if (BLIND.mode === 'LIVE') chips.push('<span class="chip live">live</span>');
+  if (c.enabled) chips.push('<span class="chip paper">paper</span>');
+  if (!c.enabled && !c.live) chips.push('<span class="chip strat">off</span>');
+  if (c.live && LV && LV.ready) chips.push('<span class="chip trip">live blocked</span>');
+  if (LV && !LV.envLive) chips.push('<span class="chip strat">live not allowed on box</span>');
+  if (BLIND.liveStop) chips.push('<span class="chip trip">loss stop hit</span>');
+  if (BLIND.usdtPauseUntil) chips.push('<span class="chip trip">B paused</span>');
+  $('blChips').innerHTML = chips.join('');
+  $('blindHint').textContent = 'watching ' + (BLIND.watchingNow || 0) + ' · ' + (s.signals || 0) + ' signals since restart';
+  const cnt = $('cntBlind'); if (cnt) cnt.textContent = (BLIND.liveToday && BLIND.liveToday.trades) || 0;
+  // facts
+  const liveMin = Math.max(Number(c.minPct) || 0, Number(c.liveMinPct) || 0);
+  $('blFacts').innerHTML =
+    '<span class="fact">signal ≥ <b>' + c.minPct + '%</b></span>' +
+    '<span class="fact">live ≥ <b>' + liveMin + '%</b></span>' +
+    '<span class="fact">A <b>' + inr(capA) + '</b>' + (c.livePathA === false ? ' · <b>paper only</b>' : '') + '</span>' +
+    '<span class="fact">B <b>' + inr(capB) + '</b>' + (c.livePathB === false ? ' · <b>paper only</b>' : '') + '</span>' +
+    '<span class="fact">cancel <b>' + c.windowMs + 'ms</b></span>' +
+    (Number(c.liveLossStopInr) > 0 ? '<span class="fact warn">loss stop <b>' + inr(c.liveLossStopInr) + '</b>/day</span>' : '<span class="fact">no loss stop</span>') +
+    '<span class="fact">≤ <b>' + (c.maxLivePerDay || '∞') + '</b> live/day</span>' +
+    (c.liveCoins ? '<span class="fact">live coins <b>' + esc(c.liveCoins) + '</b></span>' : '') +
+    (c.coins ? '<span class="fact">coins <b>' + esc(c.coins) + '</b></span>' : '') +
+    (!c.pathA || !c.pathB ? '<span class="fact warn">signals <b>' + (c.pathA ? 'A' : '') + (c.pathB ? 'B' : '') + ' only</b></span>' : '');
+  // banner: the one thing that needs him
   const ban = $('bl_banner'), stop = BLIND.liveStop;
-  if (stop) { ban.style.display = ''; ban.style.background = 'rgba(220,38,38,.1)'; ban.style.color = 'var(--danger,#dc2626)';
-    ban.textContent = 'Live switched OFF by the daily loss stop at ' + new Date(stop.at).toLocaleTimeString('en-IN', { hour12: false }) + ' — today ' + inr2(stop.pnl) + ' over ' + stop.trades + ' trades (limit −' + inr(stop.limit) + '). Raise or clear the limit to turn it back on.'; }
-  else if (BLIND.usdtPauseUntil) { ban.style.display = ''; ban.style.background = 'rgba(220,38,38,.1)'; ban.style.color = 'var(--danger,#dc2626)';
-    ban.textContent = 'Path B live paused until ' + new Date(BLIND.usdtPauseUntil).toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' — not enough USDT to buy the coin back. Add USDT, then press Save to resume now.'; }
-  else if (BLIND.mode === 'LIVE') { ban.style.display = ''; ban.style.background = 'rgba(245,158,11,.1)'; ban.style.color = '#b7791f'; ban.textContent = 'LIVE — real orders: path A about ' + inr(c.liveCapInrA || c.liveCapInr) + ', path B about ' + inr(c.liveCapInrB || c.liveCapInr) + ' per trade.'; }
-  else ban.style.display = 'none';
-  if ($('bl_notifySub')) $('bl_notifySub').textContent = BLIND.notify ? (BLIND.notify.engine ? 'sent through the auto trader\'s Telegram (its notify mode must not be off)' : 'engine Telegram not found on the server — no messages') : 'needs server 05dm';
+  let bt = '';
+  if (stop) bt = '⛔ Live switched off by the daily loss stop at ' + blClock(stop.at) + ' — today ' + inr2(stop.pnl) + ' over ' + stop.trades + ' trades (limit −' + inr(stop.limit) + '). Raise or clear the limit in Settings, then switch Live on.';
+  else if (BLIND.usdtPauseUntil) bt = '⏸ Path B live paused until ' + blClock(BLIND.usdtPauseUntil).slice(0, 5) + ' — not enough USDT to buy the coin back. Add USDT, then Save settings to resume now.';
+  else if (c.live && LV && LV.ready) bt = 'Live is switched on but blocked: ' + LV.ready + '. Paper only until that is fixed.';
+  ban.style.display = bt ? '' : 'none'; ban.textContent = bt;
+  // tiles
   const T = BLIND.liveToday || { trades: 0, pnl: 0 };
-  $('blindTodayTiles').innerHTML =
-    tile('Live today (IST)', String(T.trades), 'of ' + (c.maxLivePerDay || '∞') + ' allowed', '', true) +
-    tile('Live P&L today', inr2(T.pnl), c.liveLossStopInr > 0 ? 'stops at −' + inr(c.liveLossStopInr) : 'no loss stop', T.pnl >= 0 ? 'pos' : 'neg') +
-    tile('Live since restart', String((LV && LV.attempts) || 0) + ' sent', LV ? 'leg 2 ' + (LV.leg2Orders || 0) + ' ok / ' + (LV.leg2Rejected || 0) + ' rejected' + (LV.lastError ? ' · last error: ' + LV.lastError : '') : '', LV && (LV.leg2Rejected || LV.errors) ? 'neg' : '') +
-    tile('Signals since restart', String(s.signals || 0), Object.entries(s.skipped || {}).map(([k, v]) => k + ' ' + v).join(' · ') || 'none skipped', '');
-  const S = BLIND.summary || { live: {} }, SL = S.live || {};
-  $('bl_filterHint').textContent = S.rows + ' rows match';
+  const S = BLIND.summary || { live: {} }, SL = S.live || {}, R = BLF.range === 'today' ? 'today' : 'all';
+  const U = BLIND.usdtinr && BLIND.usdtinr.now;
   $('blindTiles').innerHTML =
-    tile('Blind trades', String(S.rows || 0), 'A ' + (S.A || 0) + ' · B ' + (S.B || 0), '', true) +
-    tile('Paper would fill', (S.fillWorst || 0) + ' – ' + (S.fillBest || 0), 'behind everyone – first in line', '') +
-    tile('Paper P&L', inr2(S.pnlWorst) + ' – ' + inr2(S.pnlBest), 'worst – best', (S.pnlWorst || 0) >= 0 ? 'pos' : 'neg') +
-    tile('Live trades', String(SL.trades || 0), 'full ' + (SL.full || 0) + ' · partial ' + (SL.partial || 0) + ' · none ' + (SL.none || 0), '') +
-    tile('Live P&L (real)', inr2(SL.pnl), (SL.priceFromLimit ? SL.priceFromLimit + ' priced at limit (fills not seen) · ' : '') + 'USDT at usdtinr of the moment', (SL.pnl || 0) >= 0 ? 'pos' : 'neg') +
-    tile('Open', String((SL.resting || 0)) + ' resting', (SL.unhedged || 0) + ' trades with unhedged coin', (SL.resting || SL.unhedged) ? 'neg' : '');
+    tile('Live today', '<span class="' + (T.pnl >= 0 ? 'pos' : 'neg') + '">' + (T.pnl >= 0 ? '+' : '') + inr2(T.pnl) + '</span>', T.trades + ' trades' + (c.maxLivePerDay ? ' of ' + c.maxLivePerDay : '') + (Number(c.liveLossStopInr) > 0 ? ' · stop −' + inr(c.liveLossStopInr) : ''), '', true) +
+    tile('Live · ' + R, String(SL.trades || 0), 'full ' + (SL.full || 0) + ' · part ' + (SL.partial || 0) + ' · none ' + (SL.none || 0) + ((SL.resting || SL.unhedged) ? ' · ⚠ ' + (SL.resting || 0) + ' resting, ' + (SL.unhedged || 0) + ' unhedged' : ''), '') +
+    tile('Paper · ' + R, '<span class="' + ((S.pnlWorst || 0) >= 0 ? 'pos' : 'neg') + '">' + inr(S.pnlWorst) + ' – ' + inr(S.pnlBest) + '</span>', (S.rows || 0) + ' signals · fill ' + (S.fillWorst || 0) + '–' + (S.fillBest || 0), '') +
+    (BLIND.usdtinr ? tile('USDT/INR', U ? U[1] + ' / ' + U[2] : '—', U && U[3] != null ? 'bid / ask · book ' + (U[3] / 1000).toFixed(1) + 's old' : 'recorded every 5s', '') : '');
+  // coin chips
   const by = BLIND.byCoin || [];
-  const th = (h) => '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--gray-200,#e2e8f0);font-weight:700;white-space:nowrap;">' + h + '</th>';
-  const td = 'padding:6px 8px;white-space:nowrap;';
-  $('blindCoins').innerHTML = !by.length ? '<div class="jrow">nothing yet.</div>' : '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>'
-    + ['coin', 'trades', 'A / B', 'paper fill worst–best', 'paper P&L worst–best', 'live', 'live P&L'].map(th).join('') + '</tr></thead><tbody>'
-    + by.slice(0, 40).map((r) => '<tr style="cursor:pointer;" onclick="blindCoin(\'' + esc(r.coin) + '\')">'
-      + '<td style="' + td + 'font-weight:700;">' + esc(String(r.coin).toUpperCase()) + '</td>'
-      + '<td style="' + td + '">' + r.n + '</td><td style="' + td + '">' + r.A + ' / ' + r.B + '</td>'
-      + '<td style="' + td + '">' + r.fillWorst + ' – ' + r.fillBest + '</td>'
-      + '<td style="' + td + '">' + inr2(r.pnlWorst) + ' – ' + inr2(r.pnlBest) + '</td>'
-      + '<td style="' + td + '">' + (r.liveN ? r.liveN + ' (' + r.liveFilled + ' filled)' : '—') + '</td>'
-      + '<td style="' + td + 'font-weight:700;color:' + (r.livePnl > 0 ? 'var(--success,#059669)' : r.livePnl < 0 ? 'var(--danger,#dc2626)' : 'inherit') + ';">' + (r.liveN ? inr2(r.livePnl) : '—') + '</td></tr>').join('')
-    + '</tbody></table></div>';
+  $('blindCoins').innerHTML = (BLF.coin && !by.some((r) => r.coin === BLF.coin) ? [{ coin: BLF.coin, n: 0, liveN: 0, livePnl: 0 }] : []).concat(by.slice(0, 30)).map((r) =>
+    '<button class="bl-coin' + (BLF.coin === r.coin ? ' on' : '') + '" onclick="blindCoin(\'' + esc(r.coin) + '\')"><b>' + esc(String(r.coin).toUpperCase()) + '</b> ' + r.n
+    + (r.liveN ? ' · <span class="' + (r.livePnl >= 0 ? 'pos' : 'neg') + '">' + (r.livePnl >= 0 ? '+' : '') + inr(r.livePnl) + '</span>' : '') + (BLF.coin === r.coin ? ' ✕' : '') + '</button>').join('');
+  $('blMore').style.display = (S.rows || 0) > (BLIND.rows || []).length ? '' : 'none';
   drawBlindLedger();
+}
+function blindRowView(r) {
+  const L = r.live, placed = !!(L && L.leg1);
+  const dust = !(L && Math.abs(L.unhedged || 0) > 0.005 * Math.abs(L.filled || 0) && Math.abs(L.unhedged || 0) * (L.leg1Px || 0) >= 10);
+  const problem = placed && ((L.state !== 'done' && L.state !== 'no_fill_cancelled') || L.leg2Resting > 0 || L.stranded || !dust);
+  let cls, label, side, profit = null, note = '';
+  if (placed) {
+    if (L.state === 'waiting_fill' || L.state === 'placing') { cls = 'running'; label = 'running'; side = 's-running'; }
+    else if (problem) { cls = 'failed'; label = String(L.state).replace(/_/g, ' '); side = 's-failed'; }
+    else if (L.state === 'no_fill_cancelled') { cls = 'skipped'; label = 'no fill'; side = ''; }
+    else { cls = 'done'; label = 'done'; side = 's-done'; }
+    profit = L.pnl;
+    if (L.leg2Resting > 0) note = 'leg 2 still resting ' + blN(L.leg2Resting) + ' — check open orders';
+    else if (L.stranded) note = 'leg 2 rejected — ' + blN(L.stranded) + ' ' + String(r.coin).toUpperCase() + ' unhedged';
+  } else {
+    if (r.state === 'filled') { cls = 'hedged'; label = 'paper fill'; side = 's-hedged'; }
+    else if (r.state === 'only_if_first') { cls = 'missed'; label = 'if first'; side = ''; }
+    else if (r.state === 'watching') { cls = 'running'; label = 'watching'; side = 's-running'; }
+    else if (r.state === 'live_only') { cls = 'skipped'; label = 'skipped'; side = ''; }
+    else { cls = 'skipped'; label = 'no fill'; side = ''; }
+    if (L && (L.skipped || L.error)) note = 'live: ' + (L.skipped || String(L.state || '').replace(/_/g, ' ') + ' — ' + L.error);
+  }
+  return { placed, cls, label, side, profit, note };
 }
 function drawBlindLedger() {
   const body = $('blindBody'), rows = (BLIND && BLIND.rows) || [];
-  if (!rows.length) { body.innerHTML = '<div class="jrow">no blind trades match.</div>'; return; }
-  const td = 'padding:6px 8px;white-space:nowrap;';
-  const n = (v, d) => (v == null ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 6 : d }));
-  const st = (x) => x === 'filled' ? '<span style="color:var(--success,#059669);font-weight:700;">filled</span>'
-    : x === 'only_if_first' ? '<span style="color:#b7791f;font-weight:700;">only if first</span>'
-    : x === 'watching' ? '<span style="opacity:.7;">watching…</span>' : '<span style="opacity:.7;">no fill</span>';
-  const cols = ['when', 'coin', 'path', 'price', 'loop %', 'paper size', 'paper fill w–b', 'paper P&L w–b', 'paper', 'live', 'live P&L'];
-  body.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>'
-    + cols.map(h => '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--gray-200,#e2e8f0);font-weight:700;white-space:nowrap;">' + h + '</th>').join('')
-    + '</tr></thead><tbody>'
-    + rows.map(r => {
-      const L = r.live, open = BLIND_OPEN.has(r.id);
-      const lp = L && L.leg1 ? '<span style="font-weight:700;color:' + ((L.pnl || 0) >= 0 ? 'var(--success,#059669)' : 'var(--danger,#dc2626)') + ';">' + inr2(L.pnl) + '</span>' + (L.final === false ? ' <span style="opacity:.6;">open</span>' : '') : '—';
-      return '<tr style="cursor:pointer;' + (L && L.leg1 ? 'background:rgba(245,158,11,.06);' : '') + '" onclick="blindToggle(\'' + esc(r.id) + '\')">'
-        + '<td style="' + td + '">' + (open ? '▾ ' : '▸ ') + esc(new Date(r.at).toLocaleTimeString('en-IN', { hour12: false })) + '</td>'
-        + '<td style="' + td + 'font-weight:700;">' + esc(String(r.coin || '').toUpperCase()) + '</td>'
-        + '<td style="' + td + '">' + esc(r.path) + (r.path === 'A' ? ' buy INR' : ' sell INR') + '</td>'
-        + '<td style="' + td + '">' + n(r.price, 8) + '</td>'
-        + '<td style="' + td + 'font-weight:700;color:var(--success,#059669);">' + Number(r.pct || 0).toFixed(2) + '%</td>'
-        + '<td style="' + td + '">' + n(r.size) + ' <span style="opacity:.6;">(' + inr(r.sizeInr) + ')</span></td>'
-        + '<td style="' + td + '">' + n(r.fillWorst) + ' – ' + n(r.fillBest) + '</td>'
-        + '<td style="' + td + '">' + (r.pnlWorst == null ? '—' : inr2(r.pnlWorst) + ' – ' + inr2(r.pnlBest)) + '</td>'
-        + '<td style="' + td + '">' + st(r.state) + '</td>'
-        + '<td style="' + td + '">' + liveCell(L) + '</td>'
-        + '<td style="' + td + '">' + lp + '</td></tr>'
-        + (open ? '<tr><td colspan="' + cols.length + '" style="padding:8px 12px 14px 12px;background:var(--gray-50,#f8fafc);"><div style="position:sticky;left:12px;max-width:min(900px,calc(100vw - 84px));white-space:normal;">' + blindTimeline(r) + '</div></td></tr>' : '');
-    }).join('')
-    + '</tbody></table></div>';
+  if (!rows.length) { body.innerHTML = '<div class="empty">No blind trades match.</div>'; return; }
+  body.innerHTML = rows.map((r) => {
+    const v = blindRowView(r), open = BLIND_OPEN.has(r.id);
+    const path = r.path === 'A' ? 'A · buy INR → sell USDT' : 'B · sell INR → buy USDT';
+    const money = v.placed
+      ? '<span class="o-profit num ' + ((v.profit || 0) >= 0 ? 'pos' : 'neg') + '">' + ((v.profit || 0) >= 0 ? '+' : '') + inr2(v.profit || 0) + '</span>'
+      : (r.pnlBest != null ? '<span class="o-profit num mut" style="font-weight:700;font-size:12px;">' + inr(r.pnlWorst) + '–' + inr(r.pnlBest) + '</span>' : '');
+    return '<div class="order ' + v.side + (open ? ' open' : '') + '">' +
+      '<div class="order-row" onclick="blindToggle(\'' + esc(r.id) + '\')">' +
+        '<span class="caret">▶</span>' +
+        '<span class="st ' + v.cls + '">' + esc(v.label) + '</span>' +
+        '<span class="chip ' + (v.placed ? 'live' : 'paper') + '">' + (v.placed ? 'live' : 'paper') + '</span>' +
+        '<span class="o-coin">' + esc(String(r.coin || '').toUpperCase()) + '</span>' +
+        '<span class="o-path">' + path + ' · <b>' + Number(r.pct || 0).toFixed(2) + '%</b> @ ' + blN(r.price, 8) + '</span>' +
+        money +
+        '<span class="o-time num">' + blClock(r.at) + '</span>' +
+      '</div>' +
+      (v.note ? '<div class="o-err' + (v.placed ? '' : ' o-note') + ' selectable">' + esc(v.note) + '</div>' : '') +
+      (open ? '<div class="timeline" style="display:block;">' + blindTimeline(r) + '</div>' : '') +
+    '</div>';
+  }).join('');
 }
-function liveCell(L) {
-  if (!L) return '<span style="opacity:.4;">—</span>';
-  if (L.skipped) return '<span style="opacity:.6;">skipped: ' + esc(L.skipped) + '</span>';
-  const n = (v) => (v == null ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 6 }));
-  const col = L.state === 'done' ? 'var(--success,#059669)' : L.state === 'no_fill_cancelled' ? 'inherit' : L.state === 'waiting_fill' || L.state === 'placing' ? '#b7791f' : 'var(--danger,#dc2626)';
-  return '<span style="font-weight:700;color:' + col + ';">' + esc(String(L.state || '').replace(/_/g, ' ')) + '</span>'
-    + (L.leg1 ? ' <span style="opacity:.7;">' + n(L.filled) + '/' + n(L.leg1.qty) + (L.leg2Resting > 0 ? ' · leg 2 resting ' + n(L.leg2Resting) : '') + '</span>' : '');
-}
-// Stepped timeline: clock on the stamped events (print, end), "+Nms what" on
+// Stepped timeline: clock on the stamped events (first, last), "+Nms what" on
 // every line, running delta in brackets.
 function blindTimeline(r) {
-  const L = r.live, n = (v) => (v == null ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 8 }));
-  const clk = (t) => { const d = new Date(t); return d.toLocaleTimeString('en-IN', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0'); };
-  const t0 = r.at, ev = [{ at: t0, what: 'tape print → path ' + r.path + ' ' + (r.path === 'A' ? 'buy' : 'sell') + ' ' + String(r.coin).toUpperCase() + '/INR @ ' + n(r.price) + ' · loop ' + Number(r.pct || 0).toFixed(2) + '%' }];
+  const L = r.live, n = (v) => blN(v, 8), C = String(r.coin).toUpperCase();
+  const t0 = r.at, ev = [{ at: t0, what: 'tape print → path ' + r.path + ' ' + (r.path === 'A' ? 'buy' : 'sell') + ' ' + C + '/INR @ ' + n(r.price) + ' · loop ' + Number(r.pct || 0).toFixed(2) + '%' }];
   if (r.seenAt != null) ev.push({ at: t0 + r.seenAt, what: 'depth shows ' + n(r.seenQty) + ' at our price (paper)' });
   if (L && L.leg1) {
     const W = {
@@ -1761,48 +1854,32 @@ function blindTimeline(r) {
       cancel_failed: (e) => 'cancel failed: ' + e.why,
       watch_end: (e) => 'leg 2 watch ended' + (e.resting > 0 ? ' · ' + n(e.resting) + ' still resting' : ''),
     };
-    for (const e of (L.ev || [])) ev.push({ at: e.at, what: (W[e.e] || (() => e.e))(e) });
+    for (const e of (L.ev || [])) ev.push({ at: e.at, what: (W[e.e] || (() => e.e))(e), bad: /rejected|failed/.test(e.e) });
     for (const f of (L.fills || [])) ev.push({ at: f.at, what: 'exchange fill, leg ' + f.leg + ': ' + n(f.q) + ' @ ' + n(f.px) });
+  } else if (L && L.ev) {
+    for (const e of L.ev) ev.push({ at: e.at, what: e.e.replace(/_/g, ' ') + (e.why ? ': ' + e.why : ''), bad: /rejected/.test(e.e) });
   } else if (L && L.skipped) ev.push({ at: t0, what: 'live skipped: ' + L.skipped });
   ev.sort((a, b) => a.at - b.at);
   let prev = t0;
   const lines = ev.map((e, i) => {
     const rel = e.at - t0, d = e.at - prev; prev = e.at;
     const stamp = i === 0 || i === ev.length - 1;
-    return '<div style="display:flex;gap:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7;">'
-      + '<span style="flex:0 0 96px;opacity:' + (stamp ? '1' : '0') + ';">' + clk(e.at) + '</span>'
-      + '<span style="min-width:0;overflow-wrap:anywhere;' + (stamp ? 'font-weight:700;' : 'padding-left:14px;') + '">' + (i === 0 ? '' : '+' + rel + 'ms  ') + esc(e.what) + (i === 0 ? '' : ' <span style="opacity:.6;">[+' + d + ']</span>') + '</span></div>';
+    return '<div class="bl-tl' + (e.bad ? ' bad' : '') + '"><span class="bl-tl-c">' + (stamp ? blClock(e.at, true) : '') + '</span>'
+      + '<span class="bl-tl-w' + (stamp ? ' stp' : '') + '">' + (i === 0 ? '' : '+' + rel + 'ms  ') + esc(e.what) + (i === 0 ? '' : ' <span class="mut">[+' + d + ']</span>') + '</span></div>';
   }).join('');
-  let foot = '';
+  const facts = [];
   if (L && L.leg1) {
-    foot = '<div style="margin-top:8px;font-size:12px;">'
-      + 'leg 1 ' + n(L.filled) + ' / ' + n(L.leg1.qty) + ' @ ' + n(L.leg1Px) + ' · leg 2 filled ' + n(L.leg2Filled) + (L.leg2Resting > 0 ? ' · <b>resting ' + n(L.leg2Resting) + '</b>' : '')
-      + (Math.abs(L.unhedged || 0) > 0 ? ' · unhedged ' + n(L.unhedged) + ' ' + String(r.coin).toUpperCase() + ' (at cost)' : '')
-      + (L.usdtGot != null ? ' · USDT kept ' + n(L.usdtGot) : '') + (L.usdtSpent != null ? ' · USDT spent ' + n(L.usdtSpent) : '')
-      + ' · <b>P&amp;L ' + inr2(L.pnl) + '</b>' + (L.priceSrc === 'limit' ? ' (some prices = limit, fills not seen)' : '')
-      + (L.stranded ? ' · stranded ' + n(L.stranded) : '') + (L.error ? ' · ' + esc(L.error) : '') + '</div>';
+    facts.push('leg 1 <b>' + n(L.filled) + ' / ' + n(L.leg1.qty) + '</b> @ ' + n(L.leg1Px || L.leg1.price));
+    facts.push('leg 2 filled <b>' + n(L.leg2Filled) + '</b>' + (L.leg2Resting > 0 ? ' · resting <b>' + n(L.leg2Resting) + '</b>' : ''));
+    if (Math.abs(L.unhedged || 0) > 0) facts.push((Math.abs(L.unhedged) > 0.005 * Math.abs(L.filled || 0) ? 'unhedged' : 'dust') + ' <b>' + n(L.unhedged) + ' ' + C + '</b>');
+    if (L.usdtGot) facts.push('USDT kept <b>' + n(L.usdtGot) + '</b>');
+    if (L.usdtSpent) facts.push('USDT spent <b>' + n(L.usdtSpent) + '</b>');
+    facts.push('P&amp;L <b>' + inr2(L.pnl) + '</b>' + (L.priceSrc === 'limit' ? ' (limit prices)' : ''));
   }
-  return lines + foot;
+  if (r.fillWorst != null) facts.push('paper ' + n(r.size) + ' (' + inr(r.sizeInr) + ') · fill <b>' + n(r.fillWorst) + '–' + n(r.fillBest) + '</b> · P&amp;L <b>' + inr2(r.pnlWorst) + '–' + inr2(r.pnlBest) + '</b>');
+  return lines + (facts.length ? '<div class="facts num" style="margin-top:8px;">' + facts.map((f) => '<span class="fact">' + f + '</span>').join('') + '</div>' : '');
 }
-async function saveBlind() {
-  const body = { enabled: $('bl_enabled').value === 'true', pathA: $('bl_pathA').checked, pathB: $('bl_pathB').checked, coins: $('bl_coins').value };
-  BL_PAPER_FIELDS.forEach((k) => { body[k] = Number($('bl_' + k).value); });
-  if (BLIND && BLIND.config && BLIND.config.live !== undefined) {
-    BL_LIVE_FIELDS.forEach((k) => { if (BLIND.config[k] !== undefined) body[k] = Number($('bl_' + k).value); });
-    body.live = $('bl_live').value === 'true';
-    if (BLIND.config.livePathA !== undefined) { body.livePathA = $('bl_livePathA').checked; body.livePathB = $('bl_livePathB').checked; body.liveCoins = $('bl_liveCoins').value; }
-    if (BLIND.config.liveNotify !== undefined) body.liveNotify = $('bl_liveNotify').checked;
-    if (body.live && !BLIND.config.live && !confirm('Turn LIVE blind trades ON?\n\nReal orders will be placed on WazirX: path A about ₹' + body.liveCapInrA + ', path B about ₹' + body.liveCapInrB + ' each.')) return;
-  }
-  try { await apiJson('/api/trader/blind/config', { method: 'POST', body: JSON.stringify(body) }); toast('Blind settings saved'); refreshBlind(true); }
-  catch (e) { toast(e.message || 'Could not save blind settings'); }
-}
-async function resetBlind() {
-  if (!confirm('Clear the blind ledger and counters? (settings stay; today\'s live totals and the loss stop are kept)')) return;
-  try { await apiJson('/api/trader/blind/config', { method: 'POST', body: JSON.stringify({ reset: true }) }); toast('Blind ledger cleared'); refreshBlind(true); }
-  catch (e) { toast(e.message || 'Could not reset'); }
-}
-setInterval(() => { if (!document.hidden && $('tab-blind') && $('tab-blind').classList.contains('active')) refreshBlind(false); }, 3000);
+setInterval(() => { if (!document.hidden && $('tab-blind') && $('tab-blind').classList.contains('active') && $('blindModal').classList.contains('hidden')) refreshBlind(false); }, 3000);
 
 async function refreshMissed() {
   const body = $('missedBody'); const tiles = $('missedTiles');
