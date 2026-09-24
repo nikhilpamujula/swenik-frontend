@@ -1677,6 +1677,8 @@ async function testKeys() {
 let MISSED = null;
 // ---------------- blind — 05dp ----------------
 let BLIND = null, blindFormLoaded = false, BL_LIMIT = 40;
+// 05ds: the server answers "unchanged" (no work) when nothing moved since our last look
+let BL_VER = null, BL_LASTQ = '';
 const BLF = { range: 'today', kind: '', result: '', path: '', coin: '' };
 const BLIND_OPEN = new Set();
 const BL_LIVE_FIELDS = ['holdMs', 'liveCapInrA', 'liveCapInrB', 'liveMinPct', 'liveLossStopInr', 'maxLivePerDay', 'feePct', 'graceMs', 'noInvMin'];
@@ -1742,8 +1744,13 @@ async function resetBlind() {
 async function refreshBlind(loadForm) {
   const body = $('blindBody');
   if (!body) return;
-  try { BLIND = await apiJson('/api/trader/blind?' + blindQuery()); }
+  const bq = blindQuery();
+  const withV = !loadForm && BL_VER && bq === BL_LASTQ;
+  let resp;
+  try { resp = await apiJson('/api/trader/blind?' + bq + (withV ? '&v=' + encodeURIComponent(BL_VER) : '')); }
   catch (e) { body.innerHTML = '<div class="empty">Could not load — ' + esc(e.message) + '</div>'; return; }
+  if (resp && resp.unchanged) return;              // nothing new on the server - keep what is on screen
+  BLIND = resp; BL_VER = (resp && resp.v) || null; BL_LASTQ = bq;
   const c = BLIND.config || {}, s = BLIND.stats || {}, LV = BLIND.live || null;
   const capA = c.liveCapInrA || c.liveCapInr, capB = c.liveCapInrB || c.liveCapInr;
   // switches (never fight a finger that is on them)
@@ -1927,7 +1934,7 @@ function blindTimeline(r) {
   if (r.fillWorst != null) facts.push('paper ' + n(r.size) + ' (' + inr(r.sizeInr) + ') · fill <b>' + n(r.fillWorst) + '–' + n(r.fillBest) + '</b> · P&amp;L <b>' + inr2(r.pnlWorst) + '–' + inr2(r.pnlBest) + '</b>');
   return lines + (facts.length ? '<div class="facts num" style="margin-top:8px;">' + facts.map((f) => '<span class="fact">' + f + '</span>').join('') + '</div>' : '');
 }
-setInterval(() => { if (!document.hidden && $('tab-blind') && $('tab-blind').classList.contains('active') && $('blindModal').classList.contains('hidden')) refreshBlind(false); }, 3000);
+setInterval(() => { if (!document.hidden && $('tab-blind') && $('tab-blind').classList.contains('active') && $('blindModal').classList.contains('hidden')) refreshBlind(false); }, 10000);   // 05ds: 10s, Blind tab only
 
 async function refreshMissed() {
   const body = $('missedBody'); const tiles = $('missedTiles');
