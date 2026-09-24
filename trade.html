@@ -1010,7 +1010,12 @@
               <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_livePathA"> A live</label>
               <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_livePathB"> B live</label>
             </div><div class="sub">a path that is off here still scores on paper</div></div>
-          <div class="f"><label>Live size ₹ / trade</label><input id="bl_liveCapInr" type="number" step="500"><div class="sub">leg 1 size; leg 2 = what actually filled</div></div>
+          <div class="f"><label>Telegram</label>
+            <div style="display:flex;gap:14px;align-items:center;height:38px;">
+              <label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" id="bl_liveNotify"> message on every live trade</label>
+            </div><div class="sub" id="bl_notifySub">uses the auto trader's Telegram (notify mode must not be off)</div></div>
+          <div class="f"><label>Path A size ₹ / trade</label><input id="bl_liveCapInrA" type="number" step="500"><div class="sub">INR spent buying the coin; leg 2 sells what filled</div></div>
+          <div class="f"><label>Path B size ₹ / trade</label><input id="bl_liveCapInrB" type="number" step="500"><div class="sub">coin sold on INR (needs the coin + USDT to buy back)</div></div>
           <div class="f"><label>Live min loop %</label><input id="bl_liveMinPct" type="number" step="0.1"><div class="sub">0 = same as paper min %; leg 2 price walks only levels above this</div></div>
           <div class="f"><label>Daily loss stop ₹</label><input id="bl_liveLossStopInr" type="number" step="100"><div class="sub">live switches itself off when today's real P&amp;L ≤ −this (0 = off)</div></div>
           <div class="f"><label>Max live trades / day</label><input id="bl_maxLivePerDay" type="number" step="1"><div class="sub">0 = no limit · IST day</div></div>
@@ -1626,7 +1631,7 @@ let MISSED = null;
 // ---------------- blind — 05dk ----------------
 let BLIND = null, blindFormLoaded = false;
 const BLIND_OPEN = new Set();                // row ids whose timeline is expanded
-const BL_LIVE_FIELDS = ['liveCapInr', 'liveMinPct', 'liveLossStopInr', 'maxLivePerDay', 'feePct', 'graceMs', 'noInvMin'];
+const BL_LIVE_FIELDS = ['liveCapInrA', 'liveCapInrB', 'liveMinPct', 'liveLossStopInr', 'maxLivePerDay', 'feePct', 'graceMs', 'noInvMin'];
 const BL_PAPER_FIELDS = ['capInr', 'bAllocInr', 'minPct', 'maxPct', 'windowMs', 'minInr', 'minUsdt', 'dedupeSec', 'coinCooldownSec', 'maxPerCoinHour', 'maxUsdtAgeMs'];
 function blindQuery() {
   const q = new URLSearchParams({ limit: '200' });
@@ -1651,17 +1656,21 @@ async function refreshBlind(loadForm) {
     BL_LIVE_FIELDS.forEach((k) => { if ($('bl_' + k) && c[k] !== undefined) $('bl_' + k).value = c[k]; });
     $('bl_livePathA').checked = c.livePathA !== false; $('bl_livePathB').checked = c.livePathB !== false;
     $('bl_liveCoins').value = c.liveCoins || '';
+    $('bl_liveNotify').checked = c.liveNotify !== false;
     blindFormLoaded = true;
   }
   const cnt = $('cntBlind'); if (cnt) cnt.textContent = (BLIND.summary && BLIND.summary.rows) || 0;
   $('bl_liveState').textContent = !LV ? 'server has no live module' : BLIND.mode === 'LIVE' ? 'RUNNING' : c.live ? 'requested but not ready: ' + (LV.ready || '') : LV.envLive ? 'allowed on the box · switched off here' : 'TRADER_BLIND_LIVE is not set on the box';
-  $('blindHint').textContent = (c.enabled ? 'ON' : 'OFF') + ' · ' + (BLIND.mode === 'LIVE' ? 'LIVE ₹' + (c.liveCapInr || 0) + '/trade' : 'paper only')
+  $('blindHint').textContent = (c.enabled ? 'ON' : 'OFF') + ' · ' + (BLIND.mode === 'LIVE' ? 'LIVE A ₹' + (c.liveCapInrA || c.liveCapInr || 0) + ' · B ₹' + (c.liveCapInrB || c.liveCapInr || 0) : 'paper only')
     + (BLIND.restored && BLIND.restored.rows ? ' · history reloaded ' + BLIND.restored.rows + ' rows' : '') + ' · watching ' + (BLIND.watchingNow || 0);
   const ban = $('bl_banner'), stop = BLIND.liveStop;
   if (stop) { ban.style.display = ''; ban.style.background = 'rgba(220,38,38,.1)'; ban.style.color = 'var(--danger,#dc2626)';
     ban.textContent = 'Live switched OFF by the daily loss stop at ' + new Date(stop.at).toLocaleTimeString('en-IN', { hour12: false }) + ' — today ' + inr2(stop.pnl) + ' over ' + stop.trades + ' trades (limit −' + inr(stop.limit) + '). Raise or clear the limit to turn it back on.'; }
-  else if (BLIND.mode === 'LIVE') { ban.style.display = ''; ban.style.background = 'rgba(245,158,11,.1)'; ban.style.color = '#b7791f'; ban.textContent = 'LIVE — real orders of about ' + inr(c.liveCapInr) + ' per blind trade.'; }
+  else if (BLIND.usdtPauseUntil) { ban.style.display = ''; ban.style.background = 'rgba(220,38,38,.1)'; ban.style.color = 'var(--danger,#dc2626)';
+    ban.textContent = 'Path B live paused until ' + new Date(BLIND.usdtPauseUntil).toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' — not enough USDT to buy the coin back. Add USDT, then press Save to resume now.'; }
+  else if (BLIND.mode === 'LIVE') { ban.style.display = ''; ban.style.background = 'rgba(245,158,11,.1)'; ban.style.color = '#b7791f'; ban.textContent = 'LIVE — real orders: path A about ' + inr(c.liveCapInrA || c.liveCapInr) + ', path B about ' + inr(c.liveCapInrB || c.liveCapInr) + ' per trade.'; }
   else ban.style.display = 'none';
+  if ($('bl_notifySub')) $('bl_notifySub').textContent = BLIND.notify ? (BLIND.notify.engine ? 'sent through the auto trader\'s Telegram (its notify mode must not be off)' : 'engine Telegram not found on the server — no messages') : 'needs server 05dm';
   const T = BLIND.liveToday || { trades: 0, pnl: 0 };
   $('blindTodayTiles').innerHTML =
     tile('Live today (IST)', String(T.trades), 'of ' + (c.maxLivePerDay || '∞') + ' allowed', '', true) +
@@ -1782,7 +1791,8 @@ async function saveBlind() {
     BL_LIVE_FIELDS.forEach((k) => { if (BLIND.config[k] !== undefined) body[k] = Number($('bl_' + k).value); });
     body.live = $('bl_live').value === 'true';
     if (BLIND.config.livePathA !== undefined) { body.livePathA = $('bl_livePathA').checked; body.livePathB = $('bl_livePathB').checked; body.liveCoins = $('bl_liveCoins').value; }
-    if (body.live && !BLIND.config.live && !confirm('Turn LIVE blind trades ON?\n\nReal orders of about ₹' + body.liveCapInr + ' each will be placed on WazirX.')) return;
+    if (BLIND.config.liveNotify !== undefined) body.liveNotify = $('bl_liveNotify').checked;
+    if (body.live && !BLIND.config.live && !confirm('Turn LIVE blind trades ON?\n\nReal orders will be placed on WazirX: path A about ₹' + body.liveCapInrA + ', path B about ₹' + body.liveCapInrB + ' each.')) return;
   }
   try { await apiJson('/api/trader/blind/config', { method: 'POST', body: JSON.stringify(body) }); toast('Blind settings saved'); refreshBlind(true); }
   catch (e) { toast(e.message || 'Could not save blind settings'); }
