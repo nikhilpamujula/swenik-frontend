@@ -1047,6 +1047,11 @@
 
     <div class="tiles" id="blindTiles"></div>
 
+    <div class="panel" id="blNoCoinPanel" style="display:none;">
+      <div class="panel-h"><h2>Path B — missed for no coin</h2><span class="hint" id="blNoCoinHint"></span></div>
+      <div class="panel-b" style="padding-top:10px;"><div id="blNoCoin"></div></div>
+    </div>
+
     <div class="filters" id="bfRange">
       <button class="fbtn active" data-v="today" onclick="blindPick('range','today')">Today</button>
       <button class="fbtn" data-v="all" onclick="blindPick('range','all')">All</button>
@@ -1762,7 +1767,8 @@ async function refreshBlind(loadForm) {
     '<span class="fact">≤ <b>' + (c.maxLivePerDay || '∞') + '</b> live/day</span>' +
     (c.liveCoins ? '<span class="fact">live coins <b>' + esc(c.liveCoins) + '</b></span>' : '') +
     (c.coins ? '<span class="fact">coins <b>' + esc(c.coins) + '</b></span>' : '') +
-    (!c.pathA || !c.pathB ? '<span class="fact warn">signals <b>' + (c.pathA ? 'A' : '') + (c.pathB ? 'B' : '') + ' only</b></span>' : '');
+    (!c.pathA || !c.pathB ? '<span class="fact warn">signals <b>' + (c.pathA ? 'A' : '') + (c.pathB ? 'B' : '') + ' only</b></span>' : '') +
+    blWalletFact(BLIND.wallet, c);
   // banner: the one thing that needs him
   const ban = $('bl_banner'), stop = BLIND.liveStop;
   let bt = '';
@@ -1785,7 +1791,33 @@ async function refreshBlind(loadForm) {
     '<button class="bl-coin' + (BLF.coin === r.coin ? ' on' : '') + '" onclick="blindCoin(\'' + esc(r.coin) + '\')"><b>' + esc(String(r.coin).toUpperCase()) + '</b> ' + r.n
     + (r.liveN ? ' · <span class="' + (r.livePnl >= 0 ? 'pos' : 'neg') + '">' + (r.livePnl >= 0 ? '+' : '') + inr(r.livePnl) + '</span>' : '') + (BLF.coin === r.coin ? ' ✕' : '') + '</button>').join('');
   $('blMore').style.display = (S.rows || 0) > (BLIND.rows || []).length ? '' : 'none';
+  drawBlindNoCoin();
   drawBlindLedger();
+}
+function blWalletFact(w, c) {
+  if (!w) return '';
+  if (w.ageMs == null) return c.live ? '<span class="fact warn">wallet <b>not read yet</b>' + (w.error ? ' · ' + esc(w.error) : '') + '</span>' : '';
+  const age = w.ageMs < 90e3 ? Math.round(w.ageMs / 1000) + 's' : Math.round(w.ageMs / 60e3) + 'm';
+  return '<span class="fact' + (w.ageMs > 300e3 ? ' warn' : '') + '">wallet <b>' + age + '</b> ago · USDT <b>' + blN(w.usdt, 2) + '</b> · INR <b>' + inr(w.inr) + '</b></span>';
+}
+function drawBlindNoCoin() {
+  const P = $('blNoCoinPanel'), nc = BLIND && BLIND.noCoin;
+  const list = (nc && nc.coins) || [];
+  if (!list.length && !(nc && nc.usdtShort)) { P.style.display = 'none'; return; }
+  P.style.display = '';
+  const c = BLIND.config || {}, need = c.liveCapInrB || c.liveCapInr;
+  $('blNoCoinHint').textContent = (BLF.range === 'today' ? 'today' : 'all') + ' · paper says what each would have made' + (nc.usdtShort ? ' · ' + nc.usdtShort + ' skipped for low USDT' : '');
+  const th = (h, r) => '<th style="text-align:' + (r ? 'right' : 'left') + ';padding:5px 8px;border-bottom:1px solid var(--gray-200);font-size:10.5px;color:var(--gray-500);font-weight:700;white-space:nowrap;">' + h + '</th>';
+  const td = (v, r, x) => '<td style="padding:6px 8px;white-space:nowrap;text-align:' + (r ? 'right' : 'left') + ';' + (x || '') + '">' + v + '</td>';
+  $('blNoCoin').innerHTML = !list.length ? '<div class="hint">Only USDT shortfalls — keep a USDT float for path B.</div>' :
+    '<div style="overflow-x:auto;"><table class="num" style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>'
+    + th('coin') + th('signals', 1) + th('best %', 1) + th('paper P&amp;L', 1) + th('you hold', 1) + '</tr></thead><tbody>'
+    + list.map((r) => '<tr style="cursor:pointer;" onclick="blindCoin(\'' + esc(r.coin) + '\')">'
+      + td('<b>' + esc(String(r.coin).toUpperCase()) + '</b>') + td(r.n, 1) + td(Number(r.maxPct).toFixed(2) + '%', 1, 'color:var(--success);font-weight:700;')
+      + td(inr(r.pnlWorst) + '–' + inr(r.pnlBest), 1)
+      + td(r.held == null ? '—' : r.held > 0 ? blN(r.held, 4) + (r.heldInr != null ? ' <span class="mut">(' + inr(r.heldInr) + ')</span>' : '') : '<span class="neg">none</span>', 1)
+      + '</tr>').join('') + '</tbody></table></div>'
+    + '<div class="hint" style="margin-top:8px;">Holding about ' + inr(need) + ' of a coin (your path B size) plus a USDT float lets its path B signals go live.</div>';
 }
 function blindRowView(r) {
   const L = r.live, placed = !!(L && L.leg1);
@@ -1875,6 +1907,7 @@ function blindTimeline(r) {
     if (L.usdtGot) facts.push('USDT kept <b>' + n(L.usdtGot) + '</b>');
     if (L.usdtSpent) facts.push('USDT spent <b>' + n(L.usdtSpent) + '</b>');
     facts.push('P&amp;L <b>' + inr2(L.pnl) + '</b>' + (L.priceSrc === 'limit' ? ' (limit prices)' : ''));
+    if (L.sizedBy) facts.push('sized to your <b>' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' ? 'USDT float' : 'INR') + '</b>');
   }
   if (r.fillWorst != null) facts.push('paper ' + n(r.size) + ' (' + inr(r.sizeInr) + ') · fill <b>' + n(r.fillWorst) + '–' + n(r.fillBest) + '</b> · P&amp;L <b>' + inr2(r.pnlWorst) + '–' + inr2(r.pnlBest) + '</b>');
   return lines + (facts.length ? '<div class="facts num" style="margin-top:8px;">' + facts.map((f) => '<span class="fact">' + f + '</span>').join('') + '</div>' : '');
