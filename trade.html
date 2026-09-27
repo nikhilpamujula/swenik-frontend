@@ -714,6 +714,11 @@
   .bl-sw { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   .bl-swi { display:flex; align-items:center; gap:10px; flex:1 1 180px; padding:9px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:#fbfcfe; font-size:12.5px; line-height:1.3; }
   .switch.live input:checked + .slider { background:var(--danger); }
+  #blCard { margin-top:0; }
+  #blCard.bl-folded #blCtl { display:none; }
+  .bl-sub { display:flex; flex-wrap:wrap; gap:3px 12px; padding:0 14px 10px 16px; font-size:11px; color:var(--gray-500); }
+  .bl-sub b { color:var(--gray-800); font-weight:700; }
+  .bl-sub .neg { color:var(--danger); }
   .bl-sep { width:1px; align-self:stretch; background:var(--gray-200); margin:2px 4px; }
   .bl-coins { display:flex; gap:6px; overflow-x:auto; padding:0 0 10px; margin-bottom:2px; scrollbar-width:thin; }
   .bl-coin { flex:none; font:inherit; font-size:11.5px; color:var(--gray-700); background:#fff; border:1px solid var(--border); border-radius:999px; padding:5px 11px; cursor:pointer; white-space:nowrap; }
@@ -733,6 +738,9 @@
   #tab-blind .fbtn { flex:none; }
   #tab-blind .tiles { margin-bottom:10px; }
   @media (max-width:430px){
+    #tab-blind .filters { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:thin; padding-bottom:2px; }
+    #tab-blind .filters .fbtn { flex:none; }
+    .bl-sub { padding:0 10px 9px 12px; gap:2px 10px; }
     .bl-sw { flex-wrap:nowrap; gap:5px; }
     .bl-swi { flex:1 1 0; min-width:0; flex-direction:column; align-items:flex-start; gap:5px; padding:8px 6px; font-size:11.5px; }
     .bl-swi .hint { display:none; }
@@ -759,7 +767,7 @@
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
     <button class="backlink" id="installBtn" style="display:none;border-style:dashed;cursor:pointer;font:inherit;background:transparent;" onclick="installApp()">📲 Install app</button>
-    <a class="backlink" href="./index.html">← Scanner</a>
+    <a class="backlink" href="./track.html">← Track Live</a>
   </div>
 </div>
 
@@ -867,15 +875,16 @@
 <!-- TABS -->
 <div class="tabbar-wrap">
   <div class="tabbar">
-    <button class="tabbtn active" id="tb-overview" onclick="setTab('overview')">Overview</button>
+    <!-- Order, his call 27 Sep: Rules, Activity, Blind, Track Live, Overview,
+         Positions. The Missed tab is gone. -->
     <button class="tabbtn" id="tb-rules" onclick="setTab('rules')">Rules<span class="cnt" id="cntRules">0</span></button>
     <button class="tabbtn" id="tb-activity" onclick="setTab('activity')">Activity<span class="cnt" id="cntOrders">0</span></button>
+    <button class="tabbtn" id="tb-blind" onclick="setTab('blind')">Blind<span class="cnt" id="cntBlind">0</span></button>
     <!-- Track Live is its own page now: a full clone of the scanner's WazirX
          page (track.html) with Execute wired to this trader. -->
     <button class="tabbtn" id="tb-manual" onclick="window.location.href='./track.html'">Track Live ↗</button>
+    <button class="tabbtn active" id="tb-overview" onclick="setTab('overview')">Overview</button>
     <button class="tabbtn" id="tb-positions" onclick="setTab('positions')">Positions<span class="cnt" id="cntPos">0</span></button>
-    <button class="tabbtn" id="tb-missed" onclick="setTab('missed')">Missed<span class="cnt" id="cntMissed">0</span></button>
-    <button class="tabbtn" id="tb-blind" onclick="setTab('blind')">Blind<span class="cnt" id="cntBlind">0</span></button>
   </div>
 </div>
 
@@ -997,27 +1006,6 @@
 
   <!-- POSITIONS -->
   <!-- ============================================================
-       MISSED WHILE TRIPPED
-       Arbitrages that cleared a rule's OWN bar while that rule's breaker
-       was tripped. Nothing here was ever an order and nothing here sent an
-       alert — it exists to answer one question: what did being stuck cost.
-       ============================================================ -->
-  <div class="tabpane" id="tab-missed">
-    <div class="panel">
-      <div class="panel-h">
-        <h2>Missed while tripped</h2>
-        <span class="hint">plans that cleared the rule's own % and ₹ bars while its breaker was tripped — never traded, never alerted</span>
-      </div>
-      <div class="panel-b">
-        <div class="tiles" id="missedTiles"></div>
-        <div id="missedBody" style="margin-top:10px;">
-          <div class="jrow">loading…</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============================================================
        BLIND — 05dp
        Trades the tape's picture before the depth frame. Two separate
        switches: Paper (scores every signal) and Live (real orders; also needs
@@ -1025,13 +1013,19 @@
        its own config, ledger and orders.
        ============================================================ -->
   <div class="tabpane" id="tab-blind">
+    <!-- 27 Sep layout: the one thing that needs him, then today's numbers,
+         then the controls (folded on a phone), then the trades. -->
+    <div id="bl_banner" class="notice" style="display:none;"></div>
+    <div class="tiles" id="blindTiles"></div>
     <div class="rule" id="blCard">
       <div class="rule-top">
         <span class="rule-name">Blind trades</span>
         <span class="chip strat">tape → before depth</span>
         <span id="blChips" style="display:contents;"></span>
         <span class="hint" id="blindHint" style="margin-left:auto;"></span>
+        <button class="btn sm" id="blCtlBtn" onclick="blCtlToggle()">Controls ▾</button>
       </div>
+      <div id="blCtl">
       <div class="bl-sw">
         <div class="bl-swi"><label class="switch"><input type="checkbox" id="blSwPaper" onchange="blindSwitch('paper', this)"><span class="slider"></span></label><span><b>Paper</b><br><span class="hint">scores every signal · no orders</span></span></div>
         <div class="bl-swi"><label class="switch live"><input type="checkbox" id="blSwLive" onchange="blindSwitch('live', this)"><span class="slider"></span></label><span><b>Live</b><br><span class="hint" id="blLiveSub">real orders</span></span></div>
@@ -1040,18 +1034,11 @@
         <div class="bl-swi"><label class="switch"><input type="checkbox" id="blSwPri" onchange="blindSwitch('pri', this)"><span class="slider"></span></label><span><b>Priority</b><br><span class="hint" id="blPriSub">auto trader looks at blind's coin first</span></span></div>
       </div>
       <div class="facts num" id="blFacts"></div>
-      <div id="bl_banner" class="notice" style="display:none;margin:10px 0 0;"></div>
       <div class="rule-actions">
         <button class="btn" onclick="openBlindSettings()">Settings</button>
         <button class="btn" onclick="resetBlind()">Reset ledger</button>
       </div>
-    </div>
-
-    <div class="tiles" id="blindTiles"></div>
-
-    <div class="panel" id="blNoCoinPanel" style="display:none;">
-      <div class="panel-h"><h2>Path B — missed for no coin</h2><span class="hint" id="blNoCoinHint"></span></div>
-      <div class="panel-b" style="padding-top:10px;"><div id="blNoCoin"></div></div>
+      </div>
     </div>
 
     <div class="filters" id="bfRange">
@@ -1076,6 +1063,11 @@
     <div class="bl-coins" id="blindCoins"></div>
     <div id="blindBody"><div class="empty">Loading…</div></div>
     <div style="display:flex;justify-content:center;margin-top:4px;"><button class="btn sm" id="blMore" style="display:none;" onclick="blindMore()">Show more</button></div>
+
+    <div class="panel" id="blNoCoinPanel" style="display:none;margin-top:14px;">
+      <div class="panel-h"><h2>Path B — missed for no coin</h2><span class="hint" id="blNoCoinHint"></span></div>
+      <div class="panel-b" style="padding-top:10px;"><div id="blNoCoin"></div></div>
+    </div>
   </div>
 
   <div class="tabpane" id="tab-positions">
@@ -1370,10 +1362,16 @@ function traderBase() { return currentBox().url; }
 // Switching reloads deliberately. Half this page is cached in module-level
 // state (ST, orders, rules, wallet); repainting it in place would leave one
 // box's numbers on screen under the other box's name.
+// His call, 27 Sep: tapping Trader 1 / Trader 2 (or the other-box strip)
+// always lands on Activity. Same box -> just switch tab; other box -> the
+// reload carries the wish across in sessionStorage.
+const OPEN_TAB_KEY = 'swenik_open_tab';
 function selectBox(id) {
   const box = allBoxes().find(b => b.id === id);
-  if (!box || box.id === currentBox().id) return;
+  if (!box) return;
+  if (box.id === currentBox().id) { setTab('activity'); return; }
   try { localStorage.setItem(BOX_KEY, box.id); } catch (e) {}
+  try { sessionStorage.setItem(OPEN_TAB_KEY, 'activity'); } catch (e) {}
   location.reload();
 }
 function switchToOther() { const b = otherBox(); if (b) selectBox(b.id); }
@@ -1575,11 +1573,10 @@ const openTimelines = new Set();
 function setTab(name) {
   // 'manual' (Track Live) is not a pane anymore — its tab button navigates
   // straight to track.html, the scanner-page clone.
-  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind']) {
+  for (const t of ['overview', 'rules', 'activity', 'positions', 'blind']) {
     $('tab-' + t).classList.toggle('active', t === name);
     $('tb-' + t).classList.toggle('active', t === name);
   }
-  if (name === 'missed') refreshMissed();
   if (name === 'blind') refreshBlind(true);
 }
 
@@ -1744,6 +1741,79 @@ async function resetBlind() {
   if (!confirm('Clear the blind ledger and counters?\n(settings stay; today\'s live totals and the loss stop are kept)')) return;
   try { await blindPost({ reset: true }, 'Blind ledger cleared'); } catch (e) { toast(e.message || 'Could not reset'); }
 }
+// ---- 27 Sep: fill rate, speed and the auto-trader link on every blind row,
+// and the controls card folds on a phone so the trades start higher up.
+const BL_CTL_KEY = 'swenik_bl_ctl';
+function blCtlApply() {
+  let st = null; try { st = localStorage.getItem(BL_CTL_KEY); } catch (e) {}
+  const folded = st ? st === 'closed' : window.innerWidth < 700;
+  const card = $('blCard'); if (card) card.classList.toggle('bl-folded', folded);
+  const b = $('blCtlBtn'); if (b) b.textContent = folded ? 'Controls ▸' : 'Controls ▾';
+}
+function blCtlToggle() {
+  const folded = !($('blCard') && $('blCard').classList.contains('bl-folded'));
+  try { localStorage.setItem(BL_CTL_KEY, folded ? 'closed' : 'open'); } catch (e) {}
+  blCtlApply();
+}
+function blEvAt(L, name) { const e = (L.ev || []).find((x) => x.e === name); return e ? e.at : null; }
+// Milliseconds from the tape print (r.at) to: leg 1 sent, first leg-1 fill, done.
+function blSpeed(r) {
+  const L = r.live; if (!L || !L.leg1) return null;
+  const rel = (t) => (t == null || !isFinite(t) ? null : Math.max(0, Math.round(t - r.at)));
+  const sent = blEvAt(L, 'leg1_sent') ?? L.t0 ?? null;
+  const f1 = (L.fills || []).filter((f) => f.leg === 1).map((f) => f.at);
+  const fe = blEvAt(L, 'leg1_filled'); if (fe != null) f1.push(fe);
+  const first = f1.length ? Math.min(...f1) : (L.firstFillMs != null && L.t0 != null ? L.t0 + L.firstFillMs : null);
+  const done = (L.ms != null && L.t0 != null) ? L.t0 + L.ms : ((L.ev && L.ev.length) ? Math.max(...L.ev.map((e) => e.at)) : null);
+  return { sent: rel(sent), first: rel(first), done: rel(done) };
+}
+// What leg 1 asked for vs what it got, in coin and in rupees.
+function blFill(r) {
+  const L = r.live; if (!L || !L.leg1) return null;
+  const sent = Number(L.leg1.qty) || 0, got = Number(L.filled) || 0;
+  const px0 = Number(L.leg1.price) || 0, px = Number(L.leg1Px) || px0;
+  return { sent, got, pct: sent > 0 ? got / sent * 100 : null, inrSent: sent * px0, inrGot: got * px };
+}
+const BL_WHY = { 'nothing left': 'nothing left', inr: 'not enough INR', usdt: 'not enough USDT', coin: 'no coin' };
+// The link's own log (BLIND.link.recent) matched to this row by coin and time,
+// falling back to the counts the row carries.
+function blLinkNote(r) {
+  const L = r.live || {}, LK = (BLIND && BLIND.link) || {};
+  const win = Math.max(3000, (Number(LK.holdMs) || 300) + 1000);
+  const out = [];
+  for (const x of (LK.recent || [])) {
+    if (x.coin !== r.coin || Math.abs(Number(x.at) - r.at) > win) continue;
+    const what = x.kind === 'skip' ? 'skipped' : x.kind === 'smaller' ? 'fired smaller' : String(x.kind || '');
+    const who = x.who === 'auto' ? 'auto trader' + (x.order ? ' #' + x.order : '') + ' ' + what : 'blind gave way (' + what + ')';
+    out.push(who + (x.why ? ' — ' + (BL_WHY[x.why] || x.why) : ''));
+  }
+  if (!out.length && L.link && L.link.caught) {
+    if (L.link.skipped) out.push('auto trader skipped ×' + L.link.skipped);
+    if (L.link.smaller) out.push('auto trader fired smaller ×' + L.link.smaller);
+  }
+  if (L.autoQ) out.push('auto trader had ' + blN(L.autoQ) + ' first → blind sent less');
+  return out;
+}
+function blSubLine(r, v) {
+  const parts = [];
+  if (v.placed) {
+    const F = blFill(r);
+    if (F) parts.push('filled <b>' + blN(F.got) + ' / ' + blN(F.sent) + '</b>' + (F.pct != null ? ' (' + Math.round(F.pct) + '%)' : ''));
+    const P = blSpeed(r);
+    if (P) {
+      const seg = [];
+      if (P.sent != null) seg.push('sent +' + P.sent);
+      if (P.first != null && F && F.got > 0) seg.push('1st fill +' + P.first);
+      if (P.done != null) seg.push('done +' + P.done);
+      if (seg.length) parts.push('⚡ ' + seg.join(' · ') + ' ms');
+    }
+  } else if (r.fillWorst != null && r.size) {
+    parts.push('paper fill <b>' + blN(r.fillWorst) + '–' + blN(r.fillBest) + '</b> of ' + blN(r.size));
+  }
+  blLinkNote(r).forEach((t) => parts.push('🔗 ' + esc(t)));
+  return parts.length ? '<div class="bl-sub num">' + parts.map((p) => '<span>' + p + '</span>').join('') + '</div>' : '';
+}
+function blMedian(a) { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; }
 // 05dt: what the priority lane did since the last restart
 function blPriFact(PR, c) {
   if (!PR || c.pri === undefined) return '';
@@ -1765,6 +1835,7 @@ async function refreshBlind(loadForm) {
   catch (e) { body.innerHTML = '<div class="empty">Could not load — ' + esc(e.message) + '</div>'; return; }
   if (resp && resp.unchanged) return;              // nothing new on the server - keep what is on screen
   BLIND = resp; BL_VER = (resp && resp.v) || null; BL_LASTQ = bq;
+  blCtlApply();
   const c = BLIND.config || {}, s = BLIND.stats || {}, LV = BLIND.live || null;
   const capA = c.liveCapInrA || c.liveCapInr, capB = c.liveCapInrB || c.liveCapInr;
   // switches (never fight a finger that is on them)
@@ -1819,8 +1890,22 @@ async function refreshBlind(loadForm) {
   const T = BLIND.liveToday || { trades: 0, pnl: 0 };
   const S = BLIND.summary || { live: {} }, SL = S.live || {}, R = BLF.range === 'today' ? 'today' : 'all';
   const U = BLIND.usdtinr && BLIND.usdtinr.now;
+  const LVR = (BLIND.rows || []).filter((r) => r.live && r.live.leg1 && r.live.state !== 'waiting_fill' && r.live.state !== 'placing');
+  let fS = 0, fG = 0; const firsts = [], dones = [];
+  for (const r of LVR) {
+    const F = blFill(r), P = blSpeed(r);
+    if (F) { fS += F.inrSent; fG += F.inrGot; }
+    if (P && P.first != null && F && F.got > 0) firsts.push(P.first);
+    if (P && P.done != null) dones.push(P.done);
+  }
+  const mF = blMedian(firsts), mD = blMedian(dones);
+  const fillTile = tile('Fill · ' + LVR.length + ' live shown', fS > 0 ? Math.round(fG / fS * 100) + '%' : '—',
+    fS > 0 ? inr(fG) + ' filled of ' + inr(fS) + ' sent' : 'no live trades in this view', '');
+  const speedTile = tile('Speed · median', mF != null ? '+' + mF + ' ms' : '—',
+    'print → 1st fill' + (mD != null ? ' · done +' + mD + ' ms' : ''), '');
   $('blindTiles').innerHTML =
     tile('Live today', '<span class="' + (T.pnl >= 0 ? 'pos' : 'neg') + '">' + (T.pnl >= 0 ? '+' : '') + inr2(T.pnl) + '</span>', T.trades + ' trades' + (c.maxLivePerDay ? ' of ' + c.maxLivePerDay : '') + (Number(c.liveLossStopInr) > 0 ? ' · stop −' + inr(c.liveLossStopInr) : ''), '', true) +
+    fillTile + speedTile +
     tile('Live · ' + R, String(SL.trades || 0), 'full ' + (SL.full || 0) + ' · part ' + (SL.partial || 0) + ' · none ' + (SL.none || 0) + ((SL.resting || SL.unhedged) ? ' · ⚠ ' + (SL.resting || 0) + ' resting, ' + (SL.unhedged || 0) + ' unhedged' : ''), '') +
     tile('Paper · ' + R, '<span class="' + ((S.pnlWorst || 0) >= 0 ? 'pos' : 'neg') + '">' + inr(S.pnlWorst) + ' – ' + inr(S.pnlBest) + '</span>', (S.rows || 0) + ' signals · fill ' + (S.fillWorst || 0) + '–' + (S.fillBest || 0), '') +
     (BLIND.usdtinr ? tile('USDT/INR', U ? U[1] + ' / ' + U[2] : '—', U && U[3] != null ? 'bid / ask · book ' + (U[3] / 1000).toFixed(1) + 's old' : 'recorded every 5s', '') : '');
@@ -1900,6 +1985,7 @@ function drawBlindLedger() {
         money +
         '<span class="o-time num">' + blClock(r.at) + '</span>' +
       '</div>' +
+      blSubLine(r, v) +
       (v.note ? '<div class="o-err' + (v.placed ? '' : ' o-note') + ' selectable">' + esc(v.note) + '</div>' : '') +
       (open ? '<div class="timeline" style="display:block;">' + blindTimeline(r) + '</div>' : '') +
     '</div>';
@@ -3227,6 +3313,8 @@ if (SANDBOX) {
 // the markup's hardcoded "All money" highlight contradicts the list underneath.
 document.querySelectorAll('#actModes .fbtn').forEach(b => b.classList.toggle('active', b.dataset.m === actMode));
 renderBoxSwitch();
+// A box switch reloads the page; open the tab it asked for (Activity).
+try { const t = sessionStorage.getItem(OPEN_TAB_KEY); if (t) { sessionStorage.removeItem(OPEN_TAB_KEY); if ($('tab-' + t)) setTab(t); } } catch (e) {}
 refreshOther();
 // 20s, against the main panel's 4s. The strip reads five fields out of a
 // ~30KB status object on the OTHER box; there is no reason to pull it hard.
