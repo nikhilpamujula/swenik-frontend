@@ -1757,7 +1757,20 @@ function blRestFact(LK, c) {
   const sync = ' · re-fires blocked <b>' + n(LK.autoRefireSkipped) + '</b> · other-side blocked <b>' + n(LK.oppositeSkipped) + '</b>'
     + ' · no double-subtract: REST <b>' + n(LK.restNoSubtract) + '</b>, fill <b>' + n(LK.fillNoSubtract) + '</b>';
   if (!c.restAuto) return '<span class="fact">REST→Auto <b>off</b>' + sync + '</span>';
-  return '<span class="fact">REST→Auto <b>on</b> · REST books sent <b>' + n(R.ticks) + '</b> · auto fired <b>' + n(R.fired) + '</b>' + sync + '</span>';
+  return '<span class="fact">REST→Auto <b>on</b> · REST books sent <b>' + n(R.ticks) + '</b> · auto fired <b>' + n(R.fired) + '</b>' + sync + '</span>' + blRestRecent(R);
+}
+// 05ea: the last REST books sent to the auto trader, and what it did with each
+const BL_GATE = { barMiss: 'below the bar', profitFloor: 'profit under the minimum', noPlan: 'no plan', holding: 'hold not met',
+  implausible: 'too good to be true', minOrderValue: 'order too small', alreadyFired: 'already traded', none: 'no reason recorded' };
+function blRestRecent(R) {
+  const rows = (R && R.recent || []).slice(0, 5);
+  return rows.map((r) => {
+    const head = 'REST ' + esc(String(r.coin || '').toUpperCase()) + ' ' + blClock(r.at) + ' · ' + (r.pct != null ? r.pct + '% · ' : '');
+    if (r.fired != null) return '<span class="fact">' + head + '<b>fired</b>' + (r.fired === true ? '' : ' #' + esc(String(r.fired))) + '</span>';
+    const w = r.why;
+    if (!w) return '<span class="fact">' + head + 'not taken</span>';
+    return '<span class="fact">' + head + 'not taken: <b>' + esc(BL_GATE[w.gate] || w.gate || '?') + '</b>' + (w.detail ? ' — ' + esc(String(w.detail).slice(0, 140)) : '') + '</span>';
+  }).join('');
 }
 function blPriFact(PR, c) {
   if (!PR || c.pri === undefined) return '';
