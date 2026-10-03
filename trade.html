@@ -733,7 +733,7 @@
   #tab-blind .fbtn { flex:none; }
   #tab-blind .tiles { margin-bottom:10px; }
   @media (max-width:430px){
-    .bl-sw { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:5px; }
+    .bl-sw { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:5px; }
     .bl-swi { min-width:0; flex-direction:column; align-items:flex-start; gap:5px; padding:8px 6px; font-size:11.5px; }
     .bl-swi .hint { display:none; }
     #tab-blind .o-path { flex-basis:100%; order:9; }
@@ -1039,6 +1039,8 @@
         <div class="bl-swi"><label class="switch"><input type="checkbox" id="blSwLink" onchange="blindSwitch('link', this)"><span class="slider"></span></label><span><b>Link</b><br><span class="hint" id="blLinkSub">auto trader sees blind orders</span></span></div>
         <div class="bl-swi"><label class="switch"><input type="checkbox" id="blSwPri" onchange="blindSwitch('pri', this)"><span class="slider"></span></label><span><b>Priority</b><br><span class="hint" id="blPriSub">auto trader looks at blind's coin first</span></span></div>
         <div class="bl-swi"><label class="switch live"><input type="checkbox" id="blSwRest" onchange="blindSwitch('restAuto', this)"><span class="slider"></span></label><span><b>REST→Auto</b><br><span class="hint" id="blRestSub">confirmed REST book triggers the auto trader</span></span></div>
+        <div class="bl-swi"><label class="switch live"><input type="checkbox" id="blSwSf" onchange="blindSwitch('sellFirst', this)"><span class="slider"></span></label><span><b>Sell-first</b><br><span class="hint" id="blSfSub">auto path B: sell held coin first</span></span></div>
+        <div class="bl-swi"><label class="switch live"><input type="checkbox" id="blSwTu" onchange="blindSwitch('usdtTopUp', this)"><span class="slider"></span></label><span><b>USDT top-up</b><br><span class="hint" id="blTuSub">buy USDT back after a path B trade (auto and blind)</span></span></div>
       </div>
       <div class="facts num" id="blFacts"></div>
       <div id="bl_banner" class="notice" style="display:none;margin:10px 0 0;"></div>
@@ -1717,6 +1719,14 @@ async function blindSwitch(which, el) {
       if (on && !confirm('Turn REST → Auto ON?\n\nWhen a REST read confirms a tape signal, that book goes straight to the auto trader (about 100 ms before the websocket). Every auto-trader rule still applies. Sync rules stop double trades.')) { el.checked = false; return; }
       await blindPost({ restAuto: on }, on ? 'REST → Auto ON' : 'REST → Auto off');
     }
+    else if (which === 'sellFirst') {
+      if (on && !confirm('Turn Sell-first ON?\n\nAuto trader, path B only: when the coin is already held it is SOLD on INR first, and bought back on USDT only for what really sold. The part not held is bought first and sold when it arrives. Real orders. Off = today\'s flow.')) { el.checked = false; return; }
+      await blindPost({ sellFirst: on }, on ? 'Sell-first ON' : 'Sell-first off');
+    }
+    else if (which === 'usdtTopUp') {
+      if (on && !confirm('Turn USDT top-up ON?\n\nAfter an auto path B trade is complete, the USDT it spent is bought back on USDT/INR (only while the ask is within 0.3% of the rate the trade used). Real orders.')) { el.checked = false; return; }
+      await blindPost({ usdtTopUp: on }, on ? 'USDT top-up ON' : 'USDT top-up off');
+    }
     else if (which === 'tg') await blindPost({ liveNotify: on }, on ? 'Telegram on' : 'Telegram off');
     else if (which === 'live') {
       const c = (BLIND && BLIND.config) || {};
@@ -1758,6 +1768,26 @@ function blRestFact(LK, c) {
     + ' · no double-subtract: REST <b>' + n(LK.restNoSubtract) + '</b>, fill <b>' + n(LK.fillNoSubtract) + '</b>';
   if (!c.restAuto) return '<span class="fact">REST→Auto <b>off</b>' + sync + '</span>';
   return '<span class="fact">REST→Auto <b>on</b> · REST books sent <b>' + n(R.ticks) + '</b> · auto fired <b>' + n(R.fired) + '</b>' + sync + '</span>' + blRestRecent(R);
+}
+// 05eb: what sell-first and the USDT top-up did since the last restart
+function blSfFact(SF, c) {
+  if (!SF || c.sellFirst === undefined) return '';
+  const n = (v) => Number(v || 0).toLocaleString('en-IN'), T = SF.topUp || {};
+  let h = '';
+  if (c.sellFirst) {
+    h += SF.ready ? '<span class="fact warn">sell-first on · <b>not ready</b>: ' + esc(String(SF.ready)) + '</span>'
+      : '<span class="fact">sell-first <b>on</b> · asked <b>' + n(SF.asked) + '</b> · taken <b>' + n(SF.taken) + '</b> (all held ' + n((SF.full || 0) + (SF.heldOnly || 0)) + ', split ' + n(SF.split) + ') · coin not held ' + n(SF.notHeld) +
+        ' · done <b>' + n(SF.done) + '</b> · bid gone <b>' + n(SF.missed) + '</b> · needs you <b>' + n(SF.stuck) + '</b>' + (SF.balFallback ? ' · cache wrong ' + n(SF.balFallback) : '') + (SF.lateFills ? ' · <b>late fills ' + n(SF.lateFills) + '</b>' : '') + (SF.running ? ' · running ' + n(SF.running) : '') + '</span>';
+    h += (SF.recent || []).slice(0, 4).map((r) => '<span class="fact' + (r.state === 'stuck' || r.state === 'error' ? ' warn' : '') + '">SF ' + esc(String(r.coin || '').toUpperCase()) + ' ' + blClock(r.at) + ' · #' + esc(String(r.orderId)) +
+      ' · held ' + n(r.held) + (r.missing > 0 ? ' + bought ' + n(r.missing) : '') + ' · sold <b>' + n(r.sold) + '</b> · bought <b>' + n(r.bought) + '</b>' +
+      (r.sellAckAfterMs != null ? ' · sell on exchange +' + r.sellAckAfterMs + 'ms' : '') + ' · <b>' + esc(r.state === 'missed' ? 'bid gone' : r.state === 'stuck' ? 'needs you' : r.state) + '</b>' + (r.profit != null ? ' ' + inr2(r.profit) : '') + '</span>').join('');
+  } else h += '<span class="fact">sell-first <b>off</b></span>';
+  if (c.usdtTopUp) {
+    const L = T.last;
+    h += '<span class="fact' + (T.failed || T.unconfirmedUsdt > 0 ? ' warn' : '') + '">USDT top-up <b>on</b> · bought <b>' + n(T.boughtUsdt) + '</b> USDT (' + inr(T.boughtInr || 0) + ') · waiting <b>' + n(T.pendingUsdt) + '</b>' + (T.fromBlind ? ' · from blind ' + n(T.fromBlindUsdt) : '') + (T.waitingForEngine ? ' · <b>starts with the next auto path B trade</b>' : '') + ' · rate too high ' + n(T.skippedRate) + ' · failed ' + n(T.failed) +
+ (T.unconfirmedUsdt > 0 ? ' · <b>check WazirX: ' + n(T.unconfirmedUsdt) + ' USDT order unconfirmed</b>' : '') +      (L ? ' · last ' + blClock(L.at) + ' ' + esc(String(L.state)) : '') + '</span>';
+  } else h += '<span class="fact">USDT top-up <b>off</b></span>';
+  return h;
 }
 // 05ea: the last REST books sent to the auto trader, and what it did with each
 const BL_GATE = { barMiss: 'below the bar', profitFloor: 'profit under the minimum', noPlan: 'no plan', holding: 'hold not met',
@@ -1805,6 +1835,12 @@ async function refreshBlind(loadForm) {
   const PR = LK && LK.pri;
   setSw('blSwPri', c.pri !== undefined && c.pri !== false);
   setSw('blSwRest', c.restAuto === true);
+  // 05eb: sell-first + USDT top-up
+  { const SF = BLIND.sellFirst || null, has = c.sellFirst !== undefined, T = (SF && SF.topUp) || {};
+    setSw('blSwSf', c.sellFirst === true); setSw('blSwTu', c.usdtTopUp === true);
+    if ($('blSwSf')) $('blSwSf').disabled = !has; if ($('blSwTu')) $('blSwTu').disabled = !has;
+    if ($('blSfSub')) $('blSfSub').textContent = !has ? 'needs server 05eb' : (c.sellFirst ? 'on · ' + ((SF && SF.taken) || 0) + ' taken · ' + ((SF && SF.done) || 0) + ' done' : 'off · auto path B: sell held coin first');
+    if ($('blTuSub')) $('blTuSub').textContent = !has ? 'needs server 05eb' : (c.usdtTopUp ? 'on · bought ' + Number(T.boughtUsdt || 0).toLocaleString('en-IN') + ' USDT' : 'off · buy USDT back after a path B trade (auto and blind)'); }
   if ($('blSwRest')) $('blSwRest').disabled = c.restAuto === undefined;
   if ($('blRestSub')) { const R = (LK && LK.rest) || {}; $('blRestSub').textContent = c.restAuto === undefined ? 'needs server 05dy' : (c.restAuto ? 'on · ' + (R.ticks || 0) + ' sent · ' + (R.fired || 0) + ' fired' : 'off · confirmed REST book triggers the auto trader'); }
   if ($('blSwPri')) $('blSwPri').disabled = c.pri === undefined;
@@ -1838,6 +1874,7 @@ async function refreshBlind(loadForm) {
     blWalletFact(BLIND.wallet, c) +
     blPriFact(BLIND.link && BLIND.link.pri, c) +
     blRestFact(BLIND.link, c) +
+    blSfFact(BLIND.sellFirst, c) +
     (BLIND.link && c.link !== false ? '<span class="fact">link <b>' + (BLIND.link.holdMs || c.holdMs) + ' ms</b> · auto smaller <b>' + (BLIND.link.autoSmaller || 0) + '</b> · skipped <b>' + (BLIND.link.autoSkipped || 0) + '</b> · blind gave way <b>' + ((BLIND.link.blindSmaller || 0) + (BLIND.link.blindSkipped || 0)) + '</b></span>' : '');
   // banner: the one thing that needs him
   const ban = $('bl_banner'), stop = BLIND.liveStop;
