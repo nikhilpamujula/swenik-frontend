@@ -3177,6 +3177,7 @@ function renderOrders() {
         '<span class="o-coin">' + esc((o.coin || '').toUpperCase()) + '</span>' +
         '<span class="o-path">' + esc(o.path_label || o.strategy) + '</span>' +
         (profit != null ? '<span class="o-profit num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (profit >= 0 ? '+' : '') + inr2(profit) + '</span>'
+          : SM && SM.expected != null ? '<span class="o-profit o-part ' + (SM.expected >= 0 ? '' : 'neg') + '" title="profit when the to-do is done at the plan price; ' + inr2(SM.made) + ' of it is already locked in">' + (SM.expected >= 0 ? '+' : '') + inr2(SM.expected) + ' at plan price</span>'
           : SM && SM.both > 0 ? '<span class="o-profit o-part ' + (SM.made >= 0 ? '' : 'neg') + '" title="made on the part that went both ways">' + (SM.made >= 0 ? '+' : '') + inr2(SM.made) + ' partial</span>' : '') +
         (o.result && o.result.latency && o.result.latency.totalMs != null ? '<span class="fact num" style="padding:2px 7px;">⏱ ' + o.result.latency.totalMs + 'ms</span>' : '') +
         '<span class="o-time">' + ago(o.created_at) + '</span>' +
@@ -4237,7 +4238,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       }
     }
     var expected = open != null ? made + open : null;
-    return { sold: sold, bought: bought, both: both, made: made, open: open, expected: expected, todo: todo, S: S, coin: coin, sp: sp, bp: bp, rate: rate, inrB: rate ? Number(S.boughtUsdt) * rate : null };
+    return { sold: sold, bought: bought, both: both, made: made, open: open, expected: expected, buyRef: buyRef, sellRef: sellRef, todo: todo, S: S, coin: coin, sp: sp, bp: bp, rate: rate, inrB: rate ? Number(S.boughtUsdt) * rate : null };
   }
   function tradeCardHtml(o, evs, det){
     var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
@@ -4292,6 +4293,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (M) res += '<div><i>Sold</i> <b class="num">' + esc2(sfN(M.sold)) + '</b> ' + esc2(coin) + ' for <b class="num">' + esc2(sfR(M.S.soldInr)) + '</b>' +
       ' &nbsp;·&nbsp; <i>Bought</i> <b class="num">' + esc2(sfN(M.bought)) + '</b> ' + esc2(coin) + ' for <b class="num">' + esc2(sfN(+Number(M.S.boughtUsdt || 0).toFixed(2))) + '</b> USDT' + (M.inrB != null ? ' (' + esc2(sfR(Math.round(M.inrB * 100) / 100)) + ')' : '') + '</div>';
     if (pr != null) res += '<span class="sf-pp ' + (pr >= 0 ? 'good' : 'bad') + '">' + (pr >= 0 ? 'Profit +' : 'Loss −') + esc2(sfR(Math.abs(pr))) + '</span>';
+    else if (M && M.expected != null) res += '<span class="sf-pp ' + (M.expected >= 0 ? 'part' : 'bad') + '">' + (M.expected >= 0 ? 'Profit at plan price +' : 'Loss at plan price \u2212') + esc2(sfR(Math.abs(Math.round(M.expected * 100) / 100))) +
+      ' <span class="sf-dim">' + esc2(sfR(Math.round(M.made * 100) / 100)) + ' locked in \u00b7 ' + esc2(sfR(Math.round(M.open * 100) / 100)) + ' when the to-do is done at ' + esc2(sfP(M.todo && M.todo.kind === 'buy' ? M.buyRef : M.sellRef)) + '</span></span>';
     else if (M && M.both > 0) res += '<span class="sf-pp ' + (M.made >= 0 ? 'part' : 'bad') + '">Partial ' + (M.made >= 0 ? 'profit +' : 'loss −') + esc2(sfR(Math.abs(Math.round(M.made * 100) / 100))) + ' <span class="sf-dim">on the ' + esc2(sfN(M.both)) + ' ' + esc2(coin) + ' done both ways</span></span>';
     var dl = M ? Number(M.S.delta) || 0 : (stuck ? +coinNet.toPrecision(8) : 0), vc = stuck ? 'bad' : 'part';
     if (M && M.todo) res += '<span class="sf-out ' + vc + '">To do: ' + esc2(M.todo.text) + (M.todo.sub ? ' <span class="sf-dim">' + esc2(M.todo.sub) + '</span>' : '') + '</span>';
@@ -4322,8 +4325,11 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   }
   function eventsHtml(o, evs, det){
     var t0 = o && o.created_at ? new Date(o.created_at).getTime() : (evs[0] ? new Date(evs[0].ts).getTime() : 0);
-    return '<div class="sf-card"><div class="sf-hd"><b>All events</b><span class="sf-dim">time from the start of the trade · tap a row for its raw data</span></div>' + evs.map(function (e, i) {
-      var d = det[i], x = evText(e, d), ts = new Date(e.ts), rel = d.atMs != null ? Number(d.atMs) - t0 : ts.getTime() - t0;
+    /* in time order, and the plan ("validated") always first: it is written to the log after the first orders are already out */
+    var relOf = function (i) { var d = det[i]; return d.atMs != null ? Number(d.atMs) - t0 : new Date(evs[i].ts).getTime() - t0; };
+    var ord = evs.map(function (e, i) { return i; }).sort(function (x, y) { var vx = evs[x].stage === 'validated' ? 0 : 1, vy = evs[y].stage === 'validated' ? 0 : 1; return (vx - vy) || (relOf(x) - relOf(y)) || (x - y); });
+    return '<div class="sf-card"><div class="sf-hd"><b>All events</b><span class="sf-dim">time from the start of the trade · tap a row for its raw data</span></div>' + ord.map(function (i) {
+      var e = evs[i], d = det[i], x = evText(e, d), ts = new Date(e.ts), rel = relOf(i);
       var cls = e.ok === false || x.cls === 'bad' ? 'bad' : (x.cls || '');
       var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; }).map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' · ');
       return '<div class="sf-step cmp sf-ev tl-ev ' + cls + '"><span class="sf-when">' + (rel >= 0 ? '+' : '') + sfN(Math.round(rel)) + ' ms</span><div class="sf-b">' +
