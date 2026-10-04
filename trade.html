@@ -3147,6 +3147,7 @@ function renderOrders() {
       (o.error ? '<div class="o-err' + (o.status === 'skipped' ? ' o-note' : '') + ' selectable">' +
         (o.status === 'skipped' ? 'not taken — re-checked at <b>' + esc(o.stage || '?') + '</b>, '
          : o.status === 'missed' ? 'missed at <b>' + esc(o.stage || '?') + '</b> — '
+         : o.stage === 'sf_sell' || o.stage === 'sf_buy_back' ? ''
          : 'stuck at <b>' + esc(o.stage || '?') + '</b> — ') + esc(o.error) + '</div>' : '') +
       '<div class="timeline" id="tl' + o.id + '"></div>' +
     '</div>';
@@ -3438,6 +3439,25 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .swk-kv b{ font-size:12.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
 
   .swk-lg-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  /* 05eb: sell-first summary */
+  .sf-card{ margin:4px 0 16px; padding:12px 14px; border:1px solid var(--line, rgba(0,0,0,.1)); border-radius:12px; background:var(--card, #fff); }
+  .sf-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; font-size:14px; }
+  .sf-dim{ color:var(--ink-3); font-size:12px; font-weight:500; }
+  .sf-step{ display:flex; gap:10px; padding:9px 0; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
+  .sf-n{ flex:0 0 24px; height:24px; border-radius:50%; background:var(--ink-3); color:#fff; font-weight:800; font-size:12.5px; display:flex; align-items:center; justify-content:center; }
+  .sf-step.good .sf-n{ background:var(--success); } .sf-step.bad .sf-n{ background:var(--danger); } .sf-step.part .sf-n{ background:#d98a00; }
+  .sf-b{ flex:1; min-width:0; }
+  .sf-what{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13.5px; }
+  .sf-what .swk-side{ margin-left:0; }
+  .sf-num{ margin-top:3px; font-size:13px; color:var(--ink); } .sf-num .num{ font-weight:700; }
+  .sf-t{ display:block; margin-top:2px; }
+  .sf-nw{ white-space:nowrap; }
+  .sf-out{ margin-top:3px; font-size:12.5px; font-weight:800; color:var(--ink-3); }
+  .sf-out.good{ color:var(--success); } .sf-out.bad{ color:var(--danger); } .sf-out.part{ color:#d98a00; }
+  .sf-res{ border-top:1px solid var(--line, rgba(0,0,0,.08)); padding-top:10px; margin-top:2px; font-size:13px; }
+  .sf-res i{ font-style:normal; color:var(--ink-3); } .sf-res .sf-out{ display:block; margin-top:5px; font-size:13.5px; }
+  .sf-foot{ margin-top:8px; }
+  .sf-act{ font-size:11px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em; }
   .swk-outcome{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:9px;
                 font-size:16.5px; font-weight:700; letter-spacing:-.01em; }
   .swk-outcome .swk-fill{ color:var(--ink); font-variant-numeric:tabular-nums; }
@@ -4077,8 +4097,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   function outcomeHtml(d){
     if (d.filledQty == null) return '';
     var f = Number(d.filledQty) || 0;
-    var w = Number(d.requestedQty != null ? d.requestedQty : d.qty) || 0;
-    var ok = w > 0 && f >= w;
+    var w = Number(d.requestedQty != null ? d.requestedQty : (d.ofQty != null ? d.ofQty : d.qty)) || 0;
+    var ok = w > 0 && f >= w * 0.999999;
     return '<div class="swk-outcome">' +
       '<span class="' + (ok ? 'swk-tl-good' : 'swk-tl-bad') + '">' + esc2(String(d.status || '').toUpperCase()) + '</span>' +
       '<span class="swk-fill">' + esc2(nfmt(f)) + (w ? ' / ' + esc2(nfmt(w)) : '') + '</span>' +
@@ -4109,12 +4129,81 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (d.error) return 'swk-fail';
     if (d.filledQty != null){
       var f = Number(d.filledQty) || 0;
-      var w = Number(d.requestedQty != null ? d.requestedQty : d.qty) || 0;
-      if (w > 0 && f < w) return 'swk-fail';
+      var w = Number(d.requestedQty != null ? d.requestedQty : (d.ofQty != null ? d.ofQty : d.qty)) || 0;
+      if (w > 0 && f < w * 0.999999) return 'swk-fail';
       if (w > 0 && f >= w) return 'swk-ok';
     }
     return '';
   }
+  /* ---- 05eb: SELL-FIRST trades, said plainly ------------------------------
+     The raw stage names (sf_missing_buy_chequsdt ...) and the order the events
+     happen to be saved in told him nothing: the buy showed above the sell though
+     the sell was sent first. So a sell-first trade gets a numbered summary on
+     top - one line per order, in the order they were SENT, each saying what it
+     was for, when it went and how it ended - and plain names in the list below. */
+  var SF_ROLE = { held_sell: 'SELL the coins you held', missing_buy: 'BUY the missing part', missing_sell: 'SELL the coins just bought',
+    held_buy: 'BUY BACK the coins sold in step 1', fallback_buy: 'BUY first (the held sell was refused)', fallback_sell: 'SELL the coins just bought', topup_buy: 'BUY USDT back (top-up)' };
+  function sfParse(stage){ var m = /^sf_(held|missing|fallback|topup)_(buy|sell)_(.+)$/.exec(String(stage || '')); return m ? { tag: m[1], side: m[2], sym: m[3], role: SF_ROLE[m[1] + '_' + m[2]] || (m[2] + ' ' + m[3]) } : null; }
+  function sfN(v){ var n = Number(v); return Number.isFinite(n) ? n.toLocaleString('en-IN', { maximumFractionDigits: 4 }) : String(v); }
+  function sfPair(sym){ var x = String(sym || '').toUpperCase(); return /USDT$/.test(x) ? x.slice(0, -4) + '/USDT' : /INR$/.test(x) ? x.slice(0, -3) + '/INR' : x; }
+  function stageLabel(stage){
+    var p = sfParse(stage);
+    if (p) return p.role + ' · ' + sfPair(p.sym);
+    if (stage === 'sell_first') return 'Sell-first';
+    if (stage === 'usdt_topup') return 'USDT top-up';
+    return stage;
+  }
+  function sfSummaryHtml(o, evs, det){
+    var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, endNote = null;
+    evs.forEach(function (e, i) {
+      var d = det[i], p = sfParse(e.stage);
+      if (e.stage === 'sell_first' && d.action === 'plan') plan = d;
+      if (e.stage === 'sell_first' && (d.action === 'stuck' || d.action === 'done' || d.action === 'missed')) endNote = d;
+      if (!p || p.tag === 'topup') return;
+      var ts = new Date(e.ts).getTime();
+      if (d.action === 'placed') {
+        var r = { p: p, qty: d.qty, price: d.price, sent: d.sentAfterMs, ack: d.ackAfterMs, seq: d.sendSeq, ts: ts, end: null,
+          approx: d.sentAfterMs == null && t0 != null ? Math.max(0, ts - t0 - (Number(d.placeMs) || 0)) : null };
+        list.push(r); if (d.orderId != null) byId[String(d.orderId)] = r;
+      } else if (d.action === 'cancelled' || d.action === 'filled') {
+        var x = byId[String(d.orderId)]; if (x) { x.end = d.action; x.filled = Number(d.filledQty) || 0; x.of = Number(d.ofQty) || Number(x.qty) || 0; x.status = d.status; x.fillMs = d.fillAfterMs; }
+      } else if (d.action === 'place' && e.ok === false) {
+        list.push({ p: p, qty: d.qty, price: d.price, ts: ts, end: 'refused', error: d.error, unconfirmed: d.unconfirmed, approx: t0 != null ? Math.max(0, ts - t0) : null });
+      }
+    });
+    if (!list.length) return '';
+    var when = function (r) { return r.sent != null ? Number(r.sent) : (r.approx != null ? r.approx : 1e12); };
+    list.sort(function (a, b) { return (when(a) - when(b)) || ((a.seq || 0) - (b.seq || 0)) || ((a.p.tag === 'held' && a.p.side === 'sell' ? 0 : 1) - (b.p.tag === 'held' && b.p.side === 'sell' ? 0 : 1)) || (a.ts - b.ts); });
+    var running = o && (o.status === 'running' || o.status === 'placing' || o.status === 'open');
+    var rows = list.map(function (r, i) {
+      var q = Number(r.qty) || 0, out, cls;
+      if (r.end === 'refused') { out = (r.unconfirmed ? 'NO ANSWER from WazirX — it may be live' : 'REFUSED by WazirX') + (r.error ? ' — ' + r.error : ''); cls = 'bad'; }
+      else if (r.end === 'cancelled' && r.status === 'stuck') { out = 'CANCEL NOT CONFIRMED — check open orders'; cls = 'bad'; }
+      else if (r.end === 'cancelled' && !(r.filled > 0)) { out = 'NOT FILLED — cancelled, 0 of ' + sfN(r.of || q); cls = 'bad'; }
+      else if (r.end === 'cancelled' && r.filled < (r.of || q) * 0.999999) { out = 'PART FILLED — ' + sfN(r.filled) + ' of ' + sfN(r.of || q) + ', rest cancelled'; cls = 'part'; }
+      else if (r.end === 'filled' || r.end === 'cancelled') { out = 'FILLED ' + sfN(r.filled != null ? r.filled : q) + (r.fillMs != null ? ' · first fill +' + r.fillMs + ' ms' : ''); cls = 'good'; }
+      else if (running) { out = 'waiting…'; cls = ''; }
+      else { out = 'FILLED ' + sfN(q); cls = 'good'; }
+      var t = r.sent != null ? 'sent +' + r.sent + ' ms' + (r.ack != null ? ' · on exchange +' + r.ack + ' ms' : '') : (r.approx != null ? 'sent about +' + sfN(Math.round(r.approx)) + ' ms' : '');
+      return '<div class="sf-step ' + cls + '"><span class="sf-n">' + (i + 1) + '</span><div class="sf-b">' +
+        '<div class="sf-what"><span class="swk-side ' + esc2(r.p.side) + '">' + esc2((/^(SELL|BUY BACK|BUY)/.exec(r.p.role) || [r.p.side])[0]) + '</span><b>' + esc2(r.p.role.replace(/^(SELL|BUY BACK|BUY) /, '')) + '</b></div>' +
+        '<div class="sf-num"><span class="sf-nw"><span class="num">' + esc2(sfN(q)) + '</span> ' + esc2(sfPair(r.p.sym)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc2(r.price) + '</span></span>' + (t ? '<span class="sf-dim sf-t">' + esc2(t) + '</span>' : '') + '</div>' +
+        '<div class="sf-out ' + cls + '">' + esc2(out) + '</div></div></div>';
+    }).join('');
+    var S = (o && o.result && o.result.sellFirst) || endNote || null, res = '';
+    if (S && S.sold != null) {
+      var coin = String((o && o.coin) || '').toUpperCase(), dl = Number(S.delta) || 0, inrB = S.boughtUsdt != null && S.usdtRate ? Number(S.boughtUsdt) * Number(S.usdtRate) : null;
+      var verdict = Math.abs(dl) < 1e-9 ? '<span class="sf-out good">Level — you hold the same ' + esc2(coin) + ' as before.</span>'
+        : dl > 0 ? '<span class="sf-out ' + (o.status === 'stuck' ? 'bad' : 'part') + '">' + esc2(sfN(dl)) + ' ' + esc2(coin) + ' bought and NOT sold — you hold them now.</span>'
+        : '<span class="sf-out ' + (o.status === 'stuck' ? 'bad' : 'part') + '">' + esc2(sfN(-dl)) + ' ' + esc2(coin) + ' sold and NOT bought back.</span>';
+      res = '<div class="sf-res"><div><i>Sold</i> <b class="num">' + esc2(sfN(S.sold)) + '</b> ' + esc2(coin) + (S.soldInr != null ? ' for <b class="num">₹' + esc2(sfN(S.soldInr)) + '</b>' : '') +
+        ' &nbsp;·&nbsp; <i>Bought</i> <b class="num">' + esc2(sfN(S.bought)) + '</b> ' + esc2(coin) + (S.boughtUsdt != null ? ' for <b class="num">' + esc2(sfN(+Number(S.boughtUsdt).toFixed(2))) + '</b> USDT' + (inrB != null ? ' (₹' + esc2(sfN(Math.round(inrB * 100) / 100)) + ')' : '') : '') + '</div>' + verdict + '</div>';
+    }
+    var head = plan ? 'Plan ' + sfN(plan.qty) + ' · you held ' + sfN(plan.held) + (Number(plan.missing) > 0 ? ' · missing ' + sfN(plan.missing) : '') : '';
+    return '<div class="sf-card"><div class="sf-hd"><b>Sell-first</b><span class="sf-dim">' + esc2(head) + '</span></div>' + rows + res +
+      '<div class="sf-dim sf-foot">Orders are listed in the order they were sent. The full event list is below.</div></div>';
+  }
+
   /* Tap anywhere on a leg to reveal its raw dump. The old [raw] button cost a
      whole row of height under every single event. */
   document.addEventListener('click', function (e) {
@@ -4132,9 +4221,10 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
         var o = await apiJson('/api/trader/orders/' + id);
         var evs = o.events || [];
         if (!evs.length) { el.innerHTML = '<div class="empty">No events recorded.</div>'; return; }
-        el.innerHTML = evs.map(function (e, i) {
-          var d = {};
-          try { d = !e.detail ? {} : (typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail); } catch (x) { d = {}; }
+        var det = evs.map(function (e) { var d = {}; try { d = !e.detail ? {} : (typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail); } catch (x) { d = {}; } return d || {}; });
+        var sfTop = ''; try { sfTop = evs.some(function (e) { return /^sf_/.test(String(e.stage)); }) ? sfSummaryHtml((function () { var b = o.order || o; if (b && !b.result && typeof orders !== 'undefined') { var m = (orders || []).find(function (x) { return x.id === id; }); if (m) b = Object.assign({}, m, b, { result: m.result }); } return b; })(), evs, det) : ''; } catch (x) { sfTop = ''; }
+        el.innerHTML = sfTop + evs.map(function (e, i) {
+          var d = det[i];
           var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; })
             .map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' \u00b7 ');
           var depthLine = '';
@@ -4147,7 +4237,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
             '<div class="tl-rail"><span class="tl-dot ' + (e.ok ? '' : 'bad') + '"></span>' +
               (i < evs.length - 1 ? '<span class="tl-line"></span>' : '') + '</div>' +
             '<div class="tl-body">' +
-              '<div class="swk-lg-hd"><span class="tl-stage">' + esc2(e.stage) + '</span>' +
+              '<div class="swk-lg-hd"><span class="tl-stage">' + esc2(stageLabel(e.stage)) + '</span>' +
+                (sfParse(e.stage) && d.action ? '<span class="sf-act">' + esc2(d.action === 'place' ? 'refused' : d.action) + '</span>' : '') +
                 '<span class="tl-t num">' + t.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
               heroHtml(d) + outcomeHtml(d) + kvHtml(d) +
               (d.error ? '<div class="swk-errline" style="margin-top:9px">' + esc2(d.error) + '</div>' : '') +
