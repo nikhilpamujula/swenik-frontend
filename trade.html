@@ -3177,8 +3177,7 @@ function renderOrders() {
         '<span class="o-coin">' + esc((o.coin || '').toUpperCase()) + '</span>' +
         '<span class="o-path">' + esc(o.path_label || o.strategy) + '</span>' +
         (profit != null ? '<span class="o-profit num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (profit >= 0 ? '+' : '') + inr2(profit) + '</span>'
-          : SM && SM.expected != null ? '<span class="o-profit num ' + (SM.expected >= 0 ? 'pos' : 'neg') + '" title="profit if the to-do is done at the trade\'s own price; ' + inr2(SM.made) + ' is already locked in">' + (SM.expected >= 0 ? '+' : '') + inr2(SM.expected) + ' if finished</span>'
-          : SM && SM.both > 0 ? '<span class="o-profit num ' + (SM.made >= 0 ? 'pos' : 'neg') + '" title="made on the part that went both ways">' + (SM.made >= 0 ? '+' : '') + inr2(SM.made) + ' locked in</span>' : '') +
+          : SM && SM.both > 0 ? '<span class="o-profit o-part ' + (SM.made >= 0 ? '' : 'neg') + '" title="made on the part that went both ways">' + (SM.made >= 0 ? '+' : '') + inr2(SM.made) + ' partial</span>' : '') +
         (o.result && o.result.latency && o.result.latency.totalMs != null ? '<span class="fact num" style="padding:2px 7px;">⏱ ' + o.result.latency.totalMs + 'ms</span>' : '') +
         '<span class="o-time">' + ago(o.created_at) + '</span>' +
       '</div>' +
@@ -3489,52 +3488,33 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .tc-card{ margin:4px 0 12px; font-size:13px; line-height:1.35; }
   .tc-dim{ color:var(--ink-3); font-size:12px; font-weight:500; }
   .tnum{ font-variant-numeric:tabular-nums; }
-  .tc-kpis{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin-bottom:10px; }
-  .tc-kpi{ padding:11px 14px; border:1px solid var(--line, rgba(0,0,0,.1)); border-radius:12px; background:var(--card, #fff); display:flex; flex-direction:column; gap:2px; min-width:0; }
-  .tc-kpi .tc-k{ font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); }
-  .tc-kpi b{ font-size:19px; font-weight:800; color:var(--ink); line-height:1.2; }
-  .tc-kpi .tc-s{ font-size:12px; color:var(--ink-3); }
-  .tc-kpi.good{ background:var(--success-soft); border-color:transparent; } .tc-kpi.good b{ color:var(--success); }
-  .tc-kpi.bad{ background:var(--danger-soft); border-color:transparent; } .tc-kpi.bad b{ color:var(--danger); }
-  .tc-box{ margin-bottom:10px; padding:10px 14px; border-radius:12px; background:var(--bg-2, rgba(0,0,0,.04)); display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
-  .tc-box b{ font-size:14.5px; } .tc-box span{ font-size:12.5px; color:var(--ink-2, var(--ink-3)); }
-  .tc-box .tc-tag{ font-size:10px; font-weight:800; letter-spacing:.07em; padding:3px 8px; border-radius:999px; background:rgba(0,0,0,.08); color:var(--ink); }
-  .tc-box.good{ background:var(--success-soft); } .tc-box.good b{ color:var(--success); } .tc-box.good .tc-tag{ background:var(--success); color:#fff; }
-  .tc-box.bad{ background:var(--danger-soft); } .tc-box.bad b{ color:var(--danger); } .tc-box.bad .tc-tag{ background:var(--danger); color:#fff; }
-  .tc-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:14px 2px 8px; font-size:13.5px; }
-  .tc-grid, .ev-grid{ border:1px solid var(--line, rgba(0,0,0,.1)); border-radius:12px; background:var(--card, #fff); overflow:hidden; }
-  .tc-row{ display:grid; grid-template-columns:minmax(210px,2.1fr) minmax(80px,.9fr) minmax(80px,.9fr) minmax(130px,1.2fr) minmax(150px,1.4fr); column-gap:14px; padding:10px 14px; align-items:center; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
-  .tc-head, .ev-head{ border-top:0 !important; padding-top:8px !important; padding-bottom:8px !important; background:var(--bg-2, rgba(0,0,0,.035)); font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); }
-  .tc-ord{ display:flex; align-items:center; gap:10px; min-width:0; }
-  .tc-n{ flex:0 0 22px; width:22px; height:22px; border-radius:50%; background:var(--ink-3); color:#fff; font-weight:800; font-size:12px; display:flex; align-items:center; justify-content:center; }
-  .tc-row.good .tc-n{ background:var(--success); } .tc-row.bad .tc-n{ background:var(--danger); } .tc-row.part .tc-n{ background:#d98a00; }
-  .tc-l1{ display:flex; align-items:center; gap:8px; font-weight:700; color:var(--ink); white-space:nowrap; }
-  .tc-l1 .swk-side{ margin-left:0; padding:2px 8px; }
-  .tc-l2{ font-size:11.5px; color:var(--ink-3); margin-top:2px; }
-  .tc-num{ text-align:right; font-variant-numeric:tabular-nums; } .tc-num b{ font-weight:700; color:var(--ink); }
-  .tc-out .tc-l1{ color:var(--ink-3); font-weight:800; font-size:12.5px; } .tc-out.good .tc-l1{ color:var(--success); } .tc-out.bad .tc-l1{ color:var(--danger); } .tc-out.part .tc-l1{ color:#d98a00; }
-  .tc-note{ margin:8px 2px 0; }
   .tc-evbtn{ margin:0 0 10px; font-size:12px; padding:6px 12px; }
-  .ev-row{ display:grid; grid-template-columns:110px minmax(170px,1.2fr) minmax(0,2.6fr); column-gap:14px; padding:8px 14px; border-top:1px solid var(--line, rgba(0,0,0,.08)); align-items:baseline; font-size:12.5px; cursor:pointer; }
-  .ev-when b{ display:block; font-weight:700; color:var(--ink); } .ev-when span{ font-size:11px; color:var(--ink-3); }
-  .ev-step{ font-weight:600; color:var(--ink); }
-  .ev-what b{ font-weight:600; color:var(--ink); } .ev-what span{ display:block; font-size:11.5px; color:var(--ink-3); margin-top:1px; }
-  .ev-row.good .ev-what b{ color:var(--success); } .ev-row.bad .ev-what b{ color:var(--danger); } .ev-row.part .ev-what b{ color:#d98a00; }
-  .ev-row.bad{ background:var(--danger-soft); }
-  .ev-row .swk-raw{ margin-top:6px; }
-  @media (max-width: 720px){
-    .tc-kpis{ grid-template-columns:1fr 1fr; } .tc-kpis .tc-kpi:nth-child(3){ grid-column:1 / -1; }
-    .tc-head{ display:none; }
-    .tc-row{ grid-template-columns:1fr 1fr; row-gap:6px; padding:11px 12px; }
-    .tc-row > .tc-ord{ grid-column:1 / -1; }
-    .tc-num{ text-align:left; }
-    .tc-row > .tc-c[data-h]::before{ content:attr(data-h); display:block; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:1px; }
-    .ev-head{ display:none; }
-    .ev-row{ grid-template-columns:86px minmax(0,1fr); row-gap:2px; padding:8px 12px; }
-    .ev-row > .ev-when{ grid-row:1 / span 2; }
-    .ev-row > .ev-step{ grid-column:2; font-size:11.5px; color:var(--ink-3); font-weight:600; }
-    .ev-row > .ev-what{ grid-column:2; }
-  }
+  .sf-ev{ cursor:pointer; } .sf-when{ flex:0 0 78px; font-size:13.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .sf-out.ink{ color:var(--ink); } .sf-ev .swk-raw{ margin-top:6px; }
+  @media (max-width: 720px){ .sf-when{ flex-basis:66px; font-size:12.5px; } }
+  .sf-card{ margin:4px 0 16px; padding:12px 14px; border:1px solid var(--line, rgba(0,0,0,.1)); border-radius:12px; background:var(--card, #fff); }
+  .sf-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; font-size:14px; }
+  .sf-dim{ color:var(--ink-3); font-size:12px; font-weight:500; }
+  .sf-step{ display:flex; gap:10px; padding:9px 0; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
+  .sf-n{ flex:0 0 24px; height:24px; border-radius:50%; background:var(--ink-3); color:#fff; font-weight:800; font-size:12.5px; display:flex; align-items:center; justify-content:center; }
+  .sf-step.good .sf-n{ background:var(--success); } .sf-step.bad .sf-n{ background:var(--danger); } .sf-step.part .sf-n{ background:#d98a00; }
+  .sf-b{ flex:1; min-width:0; }
+  .sf-what{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13.5px; }
+  .sf-what .swk-side{ margin-left:0; }
+  .sf-num{ margin-top:3px; font-size:13px; color:var(--ink); } .sf-num .num{ font-weight:700; }
+  .sf-t{ display:block; margin-top:2px; }
+  .sf-nw{ white-space:nowrap; }
+  .sf-out{ margin-top:3px; font-size:12.5px; font-weight:800; color:var(--ink-3); }
+  .sf-out.good{ color:var(--success); } .sf-out.bad{ color:var(--danger); } .sf-out.part{ color:#d98a00; }
+  .sf-res{ border-top:1px solid var(--line, rgba(0,0,0,.08)); padding-top:10px; margin-top:2px; font-size:13px; }
+  .sf-res i{ font-style:normal; color:var(--ink-3); } .sf-res .sf-out{ display:block; margin-top:5px; font-size:13.5px; }
+  .sf-foot{ margin-top:8px; }
+  .sf-res.top{ border-top:0; padding:0 0 10px; margin:0 0 2px; }
+  .sf-pp{ display:block; margin-top:5px; font-size:13.5px; font-weight:800; } .sf-pp.part{ color:#d98a00; } .sf-pp.bad{ color:var(--danger); } .sf-pp.good{ color:var(--success); }
+  .sf-pp span{ font-weight:500; }
+  .sf-step.cmp{ padding:8px 0; align-items:flex-start; } .sf-step.cmp .sf-what{ font-size:13.5px; gap:6px 10px; } .sf-step.cmp .sf-num{ margin:0; } .sf-step.cmp .sf-l2{ margin-top:3px; display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; }
+  .sf-step.cmp .sf-out{ margin-top:0; }
+  .o-part{ font-weight:800; color:#d98a00; } .o-part.neg{ color:var(--danger); }
   .sf-act{ font-size:11px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em; }
   .swk-outcome{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:9px;
                 font-size:16.5px; font-weight:700; letter-spacing:-.01em; }
@@ -4236,9 +4216,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     return String(stage || '').replace(/_/g, ' ');
   }
   /* What a sell-first trade made and what it still owes, from its own totals.
-     locked   = profit on the quantity that already went both ways
-     open     = profit still to come if the missing order is done at the trade's own price
-     expected = locked + open  (the number he means by "what this trade made") */
+     made = profit on the quantity that already went both ways (shown as the partial profit) */
   function sfMoney(o){
     var S = o && o.result && o.result.sellFirst; if (!S || S.sold == null) return null;
     var sold = Number(S.sold) || 0, bought = Number(S.bought) || 0, dl = Number(S.delta) || 0, rate = Number(S.usdtRate) || 0;
@@ -4251,17 +4229,16 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       if (dl < -1e-9) {
         if (buyRef > 0 && rate > 0 && sp > 0) open = -dl * (sp - buyRef * rate);
         todo = { kind: 'buy', text: 'BUY BACK ' + sfN(-dl) + ' ' + coin + ' on ' + coin + '/USDT',
-          sub: buyRef > 0 ? 'at ' + sfP(buyRef) + ' that is ' + sfN(+(-dl * buyRef).toFixed(2)) + ' USDT' + (open != null ? ' and locks in ' + sfR(Math.round(open * 100) / 100) : '') : 'sold at ' + sfP(sp) };
+          sub: buyRef > 0 ? 'at ' + sfP(buyRef) + ' that is ' + sfN(+(-dl * buyRef).toFixed(2)) + ' USDT' : 'sold at ' + sfP(sp) };
       } else if (dl > 1e-9) {
         if (sellRef > 0 && rate > 0 && bp > 0) open = dl * (sellRef - bp * rate);
         todo = { kind: 'sell', text: 'SELL ' + sfN(dl) + ' ' + coin + ' on ' + coin + '/INR',
-          sub: (sellRef > 0 ? 'at ' + sfP(sellRef) + ' that is ' + sfR(Math.round(dl * sellRef * 100) / 100) + (open != null ? ' and locks in ' + sfR(Math.round(open * 100) / 100) : '') + ' · ' : '') + (bp > 0 ? 'they cost ' + sfR(Math.round(dl * bp * rate * 100) / 100) : '') };
+          sub: (sellRef > 0 ? 'at ' + sfP(sellRef) + ' that is ' + sfR(Math.round(dl * sellRef * 100) / 100) + ' · ' : '') + (bp > 0 ? 'they cost ' + sfR(Math.round(dl * bp * rate * 100) / 100) : '') };
       }
     }
     var expected = open != null ? made + open : null;
     return { sold: sold, bought: bought, both: both, made: made, open: open, expected: expected, todo: todo, S: S, coin: coin, sp: sp, bp: bp, rate: rate, inrB: rate ? Number(S.boughtUsdt) * rate : null };
   }
-  function tcKpi(label, value, sub, cls){ return '<div class="tc-kpi ' + (cls || '') + '"><span class="tc-k">' + esc2(label) + '</span><b class="tnum">' + value + '</b>' + (sub ? '<span class="tc-s">' + sub + '</span>' : '') + '</div>'; }
   function tradeCardHtml(o, evs, det){
     var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
     var coinLc = String((o && o.coin) || '').toLowerCase();
@@ -4293,53 +4270,41 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     list.sort(function (a, b) { return (when(a) - when(b)) || ((a.seq || 0) - (b.seq || 0)) || ((a.p.tag === 'held' && a.p.side === 'sell' ? 0 : 1) - (b.p.tag === 'held' && b.p.side === 'sell' ? 0 : 1)) || (a.ts - b.ts); });
     var running = o && (o.status === 'running' || o.status === 'placing' || o.status === 'open');
     var coinNet = 0;
-    var rows = list.map(function (r, i) {
-      var q = Number(r.qty) || 0, out, cls, got = 0, sub = '';
-      if (r.end === 'refused') { out = r.unconfirmed ? 'NO ANSWER' : 'REFUSED'; sub = r.unconfirmed ? 'it may be live — check open orders' : String(r.error || '').replace(/^WazirX \d+:\s*/, ''); cls = 'bad'; }
-      else if (r.end === 'cancelled' && r.status === 'stuck') { out = 'NOT CONFIRMED'; sub = 'cancel not confirmed — check open orders'; cls = 'bad'; }
-      else if (r.end === 'cancelled' && !(r.filled > 0)) { out = 'NOT FILLED'; sub = '0 of ' + sfN(r.of || q) + ', cancelled'; cls = 'bad'; }
-      else if (r.end === 'cancelled') { out = 'PART FILLED'; sub = sfN(r.filled) + ' of ' + sfN(r.of || q); cls = 'part'; got = r.filled; }
-      else if (r.end === 'filled') { got = r.filled != null ? r.filled : q; out = 'FILLED'; sub = r.fillMs != null ? 'first fill +' + r.fillMs + ' ms' : 'in full'; cls = 'good'; }
-      else if (running) { out = 'WAITING'; cls = ''; }
-      else { got = q; out = 'FILLED'; sub = 'in full'; cls = 'good'; }
-      if (String(r.p.sym).indexOf(coinLc) === 0 && coinLc) coinNet += r.p.side === 'buy' ? got : -got;
-      var t = r.sent != null ? '+' + r.sent + ' ms' : (r.approx != null ? '~+' + sfN(Math.round(r.approx)) + ' ms' : '—');
-      var t2 = r.ack != null ? 'on exchange +' + r.ack + ' ms' : (r.sent == null && r.approx != null ? 'time from the event log' : '');
-      var verb = (/^(SELL|BUY BACK|BUY)/.exec(r.p.role) || [String(r.p.side).toUpperCase()])[0];
-      return '<div class="tc-row ' + cls + '">' +
-        '<div class="tc-c tc-ord"><span class="tc-n">' + (i + 1) + '</span><div><div class="tc-l1"><span class="swk-side ' + esc2(r.p.side) + '">' + esc2(verb) + '</span><b>' + esc2(sfPair(r.p.sym)) + '</b></div><div class="tc-l2">' + esc2(r.p.role.replace(/^(SELL|BUY BACK|BUY) /, '')) + '</div></div></div>' +
-        '<div class="tc-c tc-num" data-h="Qty"><b class="tnum">' + esc2(sfN(q)) + '</b></div>' +
-        '<div class="tc-c tc-num" data-h="Price"><b class="tnum">' + esc2(r.price) + '</b></div>' +
-        '<div class="tc-c" data-h="Sent"><div class="tc-l1 tnum">' + esc2(t) + '</div>' + (t2 ? '<div class="tc-l2">' + esc2(t2) + '</div>' : '') + '</div>' +
-        '<div class="tc-c tc-out ' + cls + '" data-h="Result"><div class="tc-l1">' + esc2(out) + (got > 0 && out !== 'PART FILLED' ? ' <span class="tnum">' + esc2(sfN(got)) + '</span>' : '') + '</div>' + (sub ? '<div class="tc-l2">' + esc2(sub) + '</div>' : '') + '</div></div>';
+    var steps = list.map(function (r, i) {
+      var q = Number(r.qty) || 0, out, cls, got = 0;
+      if (r.end === 'refused') { out = (r.unconfirmed ? 'NO ANSWER from WazirX — it may be live' : 'REFUSED by WazirX') + (r.error ? ' — ' + String(r.error).replace(/^WazirX \d+:\s*/, '') : ''); cls = 'bad'; }
+      else if (r.end === 'cancelled' && r.status === 'stuck') { out = 'CANCEL NOT CONFIRMED — check open orders'; cls = 'bad'; }
+      else if (r.end === 'cancelled' && !(r.filled > 0)) { out = 'NOT FILLED — cancelled, 0 of ' + sfN(r.of || q); cls = 'bad'; }
+      else if (r.end === 'cancelled' && r.filled < (r.of || q) * 0.999999) { got = r.filled; out = 'PART FILLED — ' + sfN(r.filled) + ' of ' + sfN(r.of || q) + ', rest cancelled'; cls = 'part'; }
+      else if (r.end === 'filled' || r.end === 'cancelled') { got = r.filled != null ? r.filled : q; out = 'FILLED ' + sfN(got) + (r.fillMs != null ? ' · first fill +' + r.fillMs + ' ms' : ''); cls = 'good'; }
+      else if (running) { out = 'waiting…'; cls = ''; }
+      else { got = q; out = 'FILLED ' + sfN(q); cls = 'good'; }
+      if (coinLc && String(r.p.sym).indexOf(coinLc) === 0) coinNet += r.p.side === 'buy' ? got : -got;
+      var t = r.sent != null ? 'sent +' + r.sent + ' ms' + (r.ack != null ? ' · on exchange +' + r.ack + ' ms' : '') : (r.approx != null ? 'sent about +' + sfN(Math.round(r.approx)) + ' ms' : '');
+      return '<div class="sf-step cmp ' + cls + '"><span class="sf-n">' + (i + 1) + '</span><div class="sf-b">' +
+        '<div class="sf-what"><span class="swk-side ' + esc2(r.p.side) + '">' + esc2((/^(SELL|BUY BACK|BUY)/.exec(r.p.role) || [String(r.p.side).toUpperCase()])[0]) + '</span><b>' + esc2(r.p.role.replace(/^(SELL|BUY BACK|BUY) /, '')) + '</b>' +
+        '<span class="sf-num"><span class="sf-nw"><span class="num">' + esc2(sfN(q)) + '</span> ' + esc2(sfPair(r.p.sym)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc2(r.price) + '</span></span></span></div>' +
+        '<div class="sf-l2"><span class="sf-out ' + cls + '">' + esc2(out) + '</span>' + (t ? '<span class="sf-dim">' + esc2(t) + '</span>' : '') + '</div></div></div>';
     }).join('');
-    /* ---- the money first */
-    var M = sfMoney(o), coin = String((o && o.coin) || '').toUpperCase(), kpi = '', act = '';
-    var pr = o && o.profit_inr != null ? Number(o.profit_inr) : null;
-    if (M) {
-      kpi += tcKpi('Sold', esc2(sfR(M.S.soldInr)), esc2(sfN(M.sold)) + ' ' + esc2(coin) + (M.sp ? ' at ' + esc2(sfP(M.sp)) : ''));
-      kpi += tcKpi('Bought', M.inrB != null ? esc2(sfR(Math.round(M.inrB * 100) / 100)) : esc2(sfN(M.S.boughtUsdt)) + ' USDT', esc2(sfN(M.bought)) + ' ' + esc2(coin) + (M.bp ? ' at ' + esc2(sfP(M.bp)) : '') + ' · ' + esc2(sfN(+Number(M.S.boughtUsdt || 0).toFixed(2))) + ' USDT');
-      if (pr != null) kpi += tcKpi(pr >= 0 ? 'Profit' : 'Loss', (pr >= 0 ? '+' : '−') + esc2(sfR(Math.abs(pr))), 'trade complete', pr >= 0 ? 'good' : 'bad');
-      else if (M.expected != null) kpi += tcKpi('Profit if finished at plan price', (M.expected >= 0 ? '+' : '−') + esc2(sfR(Math.abs(Math.round(M.expected * 100) / 100))), esc2(sfR(Math.round(M.made * 100) / 100)) + ' already locked in', M.expected >= 0 ? 'good' : 'bad');
-      else if (M.both > 0) kpi += tcKpi('Locked in so far', (M.made >= 0 ? '+' : '−') + esc2(sfR(Math.abs(Math.round(M.made * 100) / 100))), 'on the ' + esc2(sfN(M.both)) + ' ' + esc2(coin) + ' done both ways', M.made >= 0 ? 'good' : 'bad');
-      if (M.todo) act += '<div class="tc-box bad"><span class="tc-tag">TO DO</span><b>' + esc2(M.todo.text) + '</b>' + (M.todo.sub ? '<span>' + esc2(M.todo.sub) + '</span>' : '') + '</div>';
-      else if (o.status === 'done') act += '<div class="tc-box good"><span class="tc-tag">DONE</span><b>Nothing left to do</b><span>you hold the same ' + esc2(coin) + ' as before</span></div>';
-    } else {
-      if (pr != null) kpi += tcKpi(pr >= 0 ? 'Profit' : 'Loss', (pr >= 0 ? '+' : '−') + esc2(sfR(Math.abs(pr))), 'trade complete', pr >= 0 ? 'good' : 'bad');
-      if (o && o.spent_inr != null && Number(o.spent_inr) > 0) kpi += tcKpi('Spent', esc2(sfR(o.spent_inr)), '');
-      if (o && (o.status === 'stuck' || o.status === 'failed')) {
-        if (coinNet > 1e-9) act += '<div class="tc-box bad"><span class="tc-tag">TO DO</span><b>SELL ' + esc2(sfN(+coinNet.toPrecision(8))) + ' ' + esc2(coin) + '</b><span>bought and not sold — you hold them now</span></div>';
-        else if (coinNet < -1e-9) act += '<div class="tc-box bad"><span class="tc-tag">TO DO</span><b>BUY ' + esc2(sfN(+(-coinNet).toPrecision(8))) + ' ' + esc2(coin) + '</b><span>sold from your own balance and not bought</span></div>';
-        else act += '<div class="tc-box"><span class="tc-tag">NOTHING TO DO</span><b>No coins were bought or sold</b></div>';
-      }
-    }
-    if (tu.bought > 0) act += '<div class="tc-box good"><span class="tc-tag">USDT TOP-UP</span><b>Bought ' + esc2(sfN(+tu.bought.toFixed(2))) + ' USDT</b><span>for ' + esc2(sfR(Math.round(tu.inr * 100) / 100)) + '</span></div>';
-    if (tu.miss > 0) act += '<div class="tc-box bad"><span class="tc-tag">USDT TOP-UP</span><b>' + esc2(sfN(tu.miss)) + ' USDT not bought</b><span>' + esc2(String(tu.why || '').replace(/_/g, ' ')) + '</span></div>';
-    var head = plan ? 'plan ' + sfN(plan.qty) + ' ' + coin + ' · you held ' + sfN(plan.held) + (Number(plan.missing) > 0 ? ' · missing ' + sfN(plan.missing) : '') : '';
-    return '<div class="tc-card">' + (kpi ? '<div class="tc-kpis">' + kpi + '</div>' : '') + act +
-      '<div class="tc-hd"><b>' + (isSf ? 'Orders · sell-first' : 'Orders') + '</b><span class="tc-dim">' + esc2(head) + '</span></div>' +
-      '<div class="tc-grid"><div class="tc-row tc-head"><div>Order</div><div class="tc-num">Qty</div><div class="tc-num">Price</div><div>Sent</div><div>Result</div></div>' + rows + '</div>' +
-      (notes.length ? '<div class="tc-dim tc-note">' + esc2(notes.join(' · ')) + '</div>' : '') + '</div>';
+    /* ---- totals first: sold / bought, the profit made (partial in orange), what is missing, the top-up */
+    var M = sfMoney(o), coin = String((o && o.coin) || '').toUpperCase(), res = '';
+    var pr = o && o.profit_inr != null ? Number(o.profit_inr) : null, stuck = o && (o.status === 'stuck' || o.status === 'failed');
+    if (M) res += '<div><i>Sold</i> <b class="num">' + esc2(sfN(M.sold)) + '</b> ' + esc2(coin) + ' for <b class="num">' + esc2(sfR(M.S.soldInr)) + '</b>' +
+      ' &nbsp;·&nbsp; <i>Bought</i> <b class="num">' + esc2(sfN(M.bought)) + '</b> ' + esc2(coin) + ' for <b class="num">' + esc2(sfN(+Number(M.S.boughtUsdt || 0).toFixed(2))) + '</b> USDT' + (M.inrB != null ? ' (' + esc2(sfR(Math.round(M.inrB * 100) / 100)) + ')' : '') + '</div>';
+    if (pr != null) res += '<span class="sf-pp ' + (pr >= 0 ? 'good' : 'bad') + '">' + (pr >= 0 ? 'Profit +' : 'Loss −') + esc2(sfR(Math.abs(pr))) + '</span>';
+    else if (M && M.both > 0) res += '<span class="sf-pp ' + (M.made >= 0 ? 'part' : 'bad') + '">Partial ' + (M.made >= 0 ? 'profit +' : 'loss −') + esc2(sfR(Math.abs(Math.round(M.made * 100) / 100))) + ' <span class="sf-dim">on the ' + esc2(sfN(M.both)) + ' ' + esc2(coin) + ' done both ways</span></span>';
+    var dl = M ? Number(M.S.delta) || 0 : (stuck ? +coinNet.toPrecision(8) : 0), vc = stuck ? 'bad' : 'part';
+    if (M && M.todo) res += '<span class="sf-out ' + vc + '">To do: ' + esc2(M.todo.text) + (M.todo.sub ? ' <span class="sf-dim">' + esc2(M.todo.sub) + '</span>' : '') + '</span>';
+    else if (dl > 1e-9) res += '<span class="sf-out ' + vc + '">To do: SELL ' + esc2(sfN(dl)) + ' ' + esc2(coin) + ' <span class="sf-dim">bought and not sold — you hold them now</span></span>';
+    else if (dl < -1e-9) res += '<span class="sf-out ' + vc + '">To do: BUY ' + esc2(sfN(-dl)) + ' ' + esc2(coin) + ' <span class="sf-dim">sold from your own balance and not bought</span></span>';
+    else if (M) res += '<span class="sf-out good">Level — you hold the same ' + esc2(coin) + ' as before.</span>';
+    else if (stuck) res += '<span class="sf-out">Nothing to do — no coins were bought or sold.</span>';
+    if (tu.bought > 0) res += '<span class="sf-out good">USDT top-up: bought ' + esc2(sfN(+tu.bought.toFixed(2))) + ' USDT for ' + esc2(sfR(Math.round(tu.inr * 100) / 100)) + '</span>';
+    if (tu.miss > 0) res += '<span class="sf-out bad">USDT top-up: ' + esc2(sfN(tu.miss)) + ' USDT not bought <span class="sf-dim">' + esc2(String(tu.why || '').replace(/_/g, ' ')) + '</span></span>';
+    var head = plan ? 'Plan ' + sfN(plan.qty) + ' ' + coin + ' · you held ' + sfN(plan.held) + (Number(plan.missing) > 0 ? ' · missing ' + sfN(plan.missing) : '') : '';
+    return '<div class="sf-card"><div class="sf-hd"><b>' + (isSf ? 'Sell-first' : 'Orders') + '</b><span class="sf-dim">' + esc2(head) + '</span></div>' +
+      (res ? '<div class="sf-res top">' + res + '</div>' : '') + steps +
+      (notes.length ? '<div class="sf-dim sf-foot">' + esc2(notes.join(' · ')) + '</div>' : '') + '</div>';
   }
   /* ---- the event list as a compact table: when, which step, what happened */
   function evText(e, d){
@@ -4357,14 +4322,15 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   }
   function eventsHtml(o, evs, det){
     var t0 = o && o.created_at ? new Date(o.created_at).getTime() : (evs[0] ? new Date(evs[0].ts).getTime() : 0);
-    return '<div class="ev-grid"><div class="ev-row ev-head"><div>When</div><div>Step</div><div>What happened</div></div>' + evs.map(function (e, i) {
+    return '<div class="sf-card"><div class="sf-hd"><b>All events</b><span class="sf-dim">time from the start of the trade · tap a row for its raw data</span></div>' + evs.map(function (e, i) {
       var d = det[i], x = evText(e, d), ts = new Date(e.ts), rel = d.atMs != null ? Number(d.atMs) - t0 : ts.getTime() - t0;
+      var cls = e.ok === false || x.cls === 'bad' ? 'bad' : (x.cls || '');
       var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; }).map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' · ');
-      return '<div class="ev-row tl-ev ' + (e.ok === false || x.cls === 'bad' ? 'bad' : (x.cls || '')) + '">' +
-        '<div class="ev-when tnum"><b>' + (rel >= 0 ? '+' : '') + sfN(Math.round(rel)) + ' ms</b><span>' + ts.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
-        '<div class="ev-step">' + esc2(stageLabel(e.stage)) + '</div>' +
-        '<div class="ev-what"><b>' + esc2(x.t) + '</b>' + (x.s ? '<span>' + esc2(x.s) + '</span>' : '') + (raw ? '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') + '</div></div>';
-    }).join('') + '</div><div class="tc-dim" style="margin:6px 2px 0">Tap a row for its raw data.</div>';
+      return '<div class="sf-step cmp sf-ev tl-ev ' + cls + '"><span class="sf-when">' + (rel >= 0 ? '+' : '') + sfN(Math.round(rel)) + ' ms</span><div class="sf-b">' +
+        '<div class="sf-what"><b>' + esc2(stageLabel(e.stage)) + '</b><span class="sf-dim">' + ts.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
+        '<div class="sf-l2"><span class="sf-out ' + (cls || 'ink') + '">' + esc2(x.t) + '</span>' + (x.s ? '<span class="sf-dim">' + esc2(x.s) + '</span>' : '') + '</div>' +
+        (raw ? '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') + '</div></div>';
+    }).join('') + '</div>';
   }
   window.swkSfMoney = sfMoney; window.swkR = sfR;
   var EV_OPEN = {};
