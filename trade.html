@@ -1031,7 +1031,10 @@
         <span class="chip strat">tape → before depth</span>
         <span id="blChips" style="display:contents;"></span>
         <span class="hint" id="blindHint" style="margin-left:auto;"></span>
+        <button class="btn" id="blMoreBtn" onclick="blindMoreToggle()" style="padding:6px 12px;font-size:12px;">Show controls &amp; details</button>
       </div>
+      <div class="facts num" id="blMini"></div>
+      <div id="blMore" style="display:none;">
       <div class="bl-sw">
         <div class="bl-swi"><label class="switch"><input type="checkbox" id="blSwPaper" onchange="blindSwitch('paper', this)"><span class="slider"></span></label><span><b>Paper</b><br><span class="hint">scores every signal · no orders</span></span></div>
         <div class="bl-swi"><label class="switch live"><input type="checkbox" id="blSwLive" onchange="blindSwitch('live', this)"><span class="slider"></span></label><span><b>Live</b><br><span class="hint" id="blLiveSub">real orders</span></span></div>
@@ -1043,11 +1046,12 @@
         <div class="bl-swi"><label class="switch live"><input type="checkbox" id="blSwTu" onchange="blindSwitch('usdtTopUp', this)"><span class="slider"></span></label><span><b>USDT top-up</b><br><span class="hint" id="blTuSub">buy USDT back after a path B trade (auto and blind)</span></span></div>
       </div>
       <div class="facts num" id="blFacts"></div>
-      <div id="bl_banner" class="notice" style="display:none;margin:10px 0 0;"></div>
       <div class="rule-actions">
         <button class="btn" onclick="openBlindSettings()">Settings</button>
         <button class="btn" onclick="resetBlind()">Reset ledger</button>
       </div>
+      </div>
+      <div id="bl_banner" class="notice" style="display:none;margin:10px 0 0;"></div>
     </div>
 
     <div class="tiles" id="blindTiles"></div>
@@ -1131,6 +1135,7 @@
           <div class="f"><label>Cancel leg 1 after (ms)</label><input id="bl_windowMs" type="number" step="50"></div>
           <div class="f"><label>Max USDT book age (ms)</label><input id="bl_maxUsdtAgeMs" type="number" step="1000"></div>
           <div class="f"><label>Priority window (ms)</label><input id="bl_priMs" type="number" step="100" min="100" max="2000"><div class="sub">after a signal, the auto trader evaluates that coin's depth frame ahead of frames still waiting, for this long (100–2000)</div></div>
+          <div class="f"><label>Sell-first buy-back: extra %</label><input id="bl_sfExtraPct" type="number" step="0.05" min="0" max="0.5"><div class="sub">the buy-back of the coins sold may pay up to this much above the plan's coin/USDT price (0–0.5). 0 = the plan price exactly</div></div>
           <div class="f"><label>Min INR leg ₹</label><input id="bl_minInr" type="number" step="10"></div>
           <div class="f"><label>Min USDT leg $</label><input id="bl_minUsdt" type="number" step="0.5"></div>
           <div class="f"><label>Same price blocked (sec)</label><input id="bl_dedupeSec" type="number" step="10"></div>
@@ -1687,7 +1692,7 @@ let BL_VER = null, BL_LASTQ = '';
 const BLF = { range: 'today', kind: '', result: '', path: '', coin: '' };
 const BLIND_OPEN = new Set();
 const BL_LIVE_FIELDS = ['holdMs', 'liveCapInrA', 'liveCapInrB', 'liveMinPct', 'liveLossStopInr', 'maxLivePerDay', 'feePct', 'graceMs', 'noInvMin'];
-const BL_PAPER_FIELDS = ['capInr', 'bAllocInr', 'minPct', 'maxPct', 'windowMs', 'minInr', 'minUsdt', 'dedupeSec', 'coinCooldownSec', 'maxPerCoinHour', 'maxUsdtAgeMs', 'priMs'];
+const BL_PAPER_FIELDS = ['capInr', 'bAllocInr', 'minPct', 'maxPct', 'windowMs', 'minInr', 'minUsdt', 'dedupeSec', 'coinCooldownSec', 'maxPerCoinHour', 'maxUsdtAgeMs', 'priMs', 'sfExtraPct'];
 const blN = (v, d) => (v == null ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 6 : d }));
 const blClock = (t, ms) => { const d = new Date(t); return d.toLocaleTimeString('en-IN', { hour12: false }) + (ms ? '.' + String(d.getMilliseconds()).padStart(3, '0') : ''); };
 function blindQuery() {
@@ -1735,6 +1740,24 @@ async function blindSwitch(which, el) {
     }
   } catch (e) { el.checked = !on; toast(e.message || 'Could not switch'); }
 }
+// 05eb: the controls and the detail lines are closed by default so the trades are what you see; one tap opens them
+let BL_MORE = false; try { BL_MORE = localStorage.getItem('swenik.blMore') === '1'; } catch (e) { BL_MORE = false; }
+function blindMoreApply() {
+  const m = $('blMore'), b = $('blMoreBtn'), mini = $('blMini');
+  if (m) m.style.display = BL_MORE ? '' : 'none';
+  if (mini) mini.style.display = BL_MORE ? 'none' : '';
+  if (b) b.textContent = BL_MORE ? 'Hide controls & details' : 'Show controls & details';
+}
+function blindMoreToggle() { BL_MORE = !BL_MORE; try { localStorage.setItem('swenik.blMore', BL_MORE ? '1' : '0'); } catch (e) {} blindMoreApply(); }
+function blindMiniHtml(c, D) {
+  const on = (v) => (v ? '<b style="color:var(--success)">on</b>' : '<b>off</b>');
+  const SF = (D && D.sellFirst) || {}, T = SF.topUp || {}, W = (D && D.live && D.live.wallet) || {};
+  let h = '<span class="fact">Live ' + on(c.live) + '</span><span class="fact">Sell-first ' + on(c.sellFirst) + (c.sellFirst ? ' · done <b>' + (SF.done || 0) + '</b>' : '') + '</span>';
+  if (c.sellFirst && SF.stuck > 0) h += '<span class="fact warn">to do <b>' + SF.stuck + '</b></span>';
+  h += '<span class="fact' + (T.failed || T.unconfirmedUsdt > 0 ? ' warn' : '') + '">USDT top-up ' + on(c.usdtTopUp) + (c.usdtTopUp && T.notBoughtUsdt > 0 ? ' · not bought <b>' + Number(T.notBoughtUsdt).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + '</b>' : '') + '</span>';
+  if (W.usdt != null) h += '<span class="fact">USDT <b>' + Number(W.usdt).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + '</b> · INR <b>' + inr(W.inr || 0) + '</b></span>';
+  return h;
+}
 function openBlindSettings() {
   const c = (BLIND && BLIND.config) || {};
   $('bl_pathA').checked = !!c.pathA; $('bl_pathB').checked = !!c.pathB;
@@ -1776,7 +1799,7 @@ function blSfFact(SF, c) {
   let h = '';
   if (c.sellFirst) {
     h += SF.ready ? '<span class="fact warn">sell-first on · <b>not ready</b>: ' + esc(String(SF.ready)) + '</span>'
-      : '<span class="fact">sell-first <b>on</b> · asked <b>' + n(SF.asked) + '</b> · taken <b>' + n(SF.taken) + '</b> (all held ' + n((SF.full || 0) + (SF.heldOnly || 0)) + ', split ' + n(SF.split) + ') · coin not held ' + n(SF.notHeld) +
+      : '<span class="fact">sell-first <b>on</b>' + (SF.buyBackExtraPct != null ? ' · buy-back may pay +' + SF.buyBackExtraPct + '%' : '') + ' · asked <b>' + n(SF.asked) + '</b> · taken <b>' + n(SF.taken) + '</b> (all held ' + n((SF.full || 0) + (SF.heldOnly || 0)) + ', split ' + n(SF.split) + ') · coin not held ' + n(SF.notHeld) +
         ' · done <b>' + n(SF.done) + '</b> · bid gone <b>' + n(SF.missed) + '</b> · needs you <b>' + n(SF.stuck) + '</b>' + (SF.balFallback ? ' · cache wrong ' + n(SF.balFallback) : '') + (SF.lateFills ? ' · <b>late fills ' + n(SF.lateFills) + '</b>' : '') + (SF.running ? ' · running ' + n(SF.running) : '') + '</span>';
     h += (SF.recent || []).slice(0, 4).map((r) => '<span class="fact' + (r.state === 'stuck' || r.state === 'error' ? ' warn' : '') + '">SF ' + esc(String(r.coin || '').toUpperCase()) + ' ' + blClock(r.at) + ' · #' + esc(String(r.orderId)) +
       ' · held ' + n(r.held) + (r.missing > 0 ? ' + bought ' + n(r.missing) : '') + ' · sold <b>' + n(r.sold) + '</b> · bought <b>' + n(r.bought) + '</b>' +
@@ -1784,8 +1807,8 @@ function blSfFact(SF, c) {
   } else h += '<span class="fact">sell-first <b>off</b></span>';
   if (c.usdtTopUp) {
     const L = T.last;
-    h += '<span class="fact' + (T.failed || T.unconfirmedUsdt > 0 ? ' warn' : '') + '">USDT top-up <b>on</b> · bought <b>' + n(T.boughtUsdt) + '</b> USDT (' + inr(T.boughtInr || 0) + ') · waiting <b>' + n(T.pendingUsdt) + '</b>' + (T.fromBlind ? ' · from blind ' + n(T.fromBlindUsdt) : '') + (T.waitingForEngine ? ' · <b>starts with the next auto path B trade</b>' : '') + ' · rate too high ' + n(T.skippedRate) + ' · failed ' + n(T.failed) +
- (T.unconfirmedUsdt > 0 ? ' · <b>check WazirX: ' + n(T.unconfirmedUsdt) + ' USDT order unconfirmed</b>' : '') +      (L ? ' · last ' + blClock(L.at) + ' ' + esc(String(L.state)) : '') + '</span>';
+    h += '<span class="fact' + (T.failed || T.unconfirmedUsdt > 0 ? ' warn' : '') + '">USDT top-up <b>on</b> · bought <b>' + n(T.boughtUsdt) + '</b> USDT (' + inr(T.boughtInr || 0) + ') · waiting <b>' + n(T.pendingUsdt) + '</b>' + (T.fromBlind ? ' · from blind ' + n(T.fromBlindUsdt) : '') + (T.waitingForEngine ? ' · <b>starts with the next auto path B trade</b>' : '') + (T.perTrade ? ' · each trade separately' : '') + ' · rate too high ' + n(T.skippedRate) + (T.notBoughtUsdt > 0 ? ' · not bought <b>' + n(T.notBoughtUsdt) + '</b> USDT' : '') + ' · failed ' + n(T.failed) +
+ (T.unconfirmedUsdt > 0 ? ' · <b>check WazirX: ' + n(T.unconfirmedUsdt) + ' USDT order unconfirmed</b>' : '') +      (L ? ' · last ' + blClock(L.at) + ' ' + esc(String(L.state).replace(/_/g, ' ')) + (L.ofUsdt != null ? ' ' + n(L.usdt) + ' of ' + n(L.ofUsdt) + ' USDT' + (L.orderId != null ? ' (#' + esc(String(L.orderId)) + ')' : L.src === 'blind' ? ' (blind)' : '') : '') : '') + '</span>';
   } else h += '<span class="fact">USDT top-up <b>off</b></span>';
   return h;
 }
@@ -1859,6 +1882,7 @@ async function refreshBlind(loadForm) {
   $('blindHint').textContent = 'watching ' + (BLIND.watchingNow || 0) + ' · ' + (s.signals || 0) + ' signals since restart';
   const cnt = $('cntBlind'); if (cnt) cnt.textContent = (BLIND.liveToday && BLIND.liveToday.trades) || 0;
   // facts
+  try { $('blMini').innerHTML = blindMiniHtml(c, BLIND); blindMoreApply(); } catch (e) {}
   const liveMin = Math.max(Number(c.minPct) || 0, Number(c.liveMinPct) || 0);
   $('blFacts').innerHTML =
     '<span class="fact">signal ≥ <b>' + c.minPct + '%</b></span>' +
@@ -3124,8 +3148,26 @@ function renderOrders() {
   const list = orders.filter(passFilter);
   if (!list.length) { box.innerHTML = '<div class="empty">' + (orders.length ? 'Nothing matches this filter.' : 'No activity yet. Arm the engine with a paper rule and watch it work.') + '</div>'; return; }
   box.innerHTML = list.map(o => {
-    const [cls, label, side] = stClass(o);
+    let [cls, label, side] = stClass(o);
     const profit = o.profit_inr != null ? Number(o.profit_inr) : null;
+    // 05eb: a sell-first trade that is only partly finished is not just "STUCK": say what it made and what is left to do
+    let SM = null; try { SM = window.swkSfMoney ? window.swkSfMoney(o) : null; } catch (e) { SM = null; }
+    if (SM && o.status === 'stuck' && SM.both > 0) { cls = 'missed'; label = 'PART DONE'; }
+    else if (SM && o.status === 'stuck') label = 'TO DO';
+    // an engine trade whose legs did not all fill: read the fills out of its own message and say what is left to do
+    let TD = null;
+    if (!SM && o.status === 'stuck' && /BLIND MISMATCH/.test(String(o.error || ''))) {
+      try {
+        const c = String(o.coin || '').toLowerCase(); let net = 0, any = false;
+        String(o.error).replace(/leg\d_(buy|sell)_([a-z0-9]+):\s*([\d.]+)\/([\d.]+)/g, (m, side, sym, f) => { if (sym.indexOf(c) === 0) { any = true; net += (side === 'buy' ? 1 : -1) * Number(f); } return m; });
+        const q = (v) => Number(+Math.abs(v).toPrecision(8)).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+        if (any) TD = net > 1e-9 ? { text: 'SELL ' + q(net) + ' ' + c.toUpperCase(), sub: 'bought and not sold — you hold them now', bad: true }
+          : net < -1e-9 ? { text: 'BUY ' + q(net) + ' ' + c.toUpperCase(), sub: 'sold from your own balance and not bought', bad: true }
+          : { text: 'nothing', sub: 'no coins were bought or sold', bad: false };
+      } catch (e) { TD = null; }
+      if (TD) label = TD.bad ? 'TO DO' : 'NOT FILLED';
+      if (TD && !TD.bad) cls = 'missed';
+    }
     const open = openTimelines.has(o.id);
     return '<div class="order ' + side + (open ? ' open' : '') + '" id="ord' + o.id + '">' +
       '<div class="order-row" onclick="toggleTimeline(' + o.id + ')">' +
@@ -3134,7 +3176,8 @@ function renderOrders() {
         '<span class="chip ' + o.mode + '">' + o.mode + '</span>' +
         '<span class="o-coin">' + esc((o.coin || '').toUpperCase()) + '</span>' +
         '<span class="o-path">' + esc(o.path_label || o.strategy) + '</span>' +
-        (profit != null ? '<span class="o-profit num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (profit >= 0 ? '+' : '') + inr2(profit) + '</span>' : '') +
+        (profit != null ? '<span class="o-profit num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (profit >= 0 ? '+' : '') + inr2(profit) + '</span>'
+          : SM && SM.both > 0 ? '<span class="o-profit num ' + (SM.made >= 0 ? 'pos' : 'neg') + '" title="made on the part that went both ways">' + (SM.made >= 0 ? '+' : '') + inr2(SM.made) + ' so far</span>' : '') +
         (o.result && o.result.latency && o.result.latency.totalMs != null ? '<span class="fact num" style="padding:2px 7px;">⏱ ' + o.result.latency.totalMs + 'ms</span>' : '') +
         '<span class="o-time">' + ago(o.created_at) + '</span>' +
       '</div>' +
@@ -3144,7 +3187,9 @@ function renderOrders() {
       // "stuck", which is the word this UI uses for a half-finished trade that
       // is holding real coins. A skip is the opposite: it looked again and
       // declined, before any money moved. Say which of the two it is.
-      (o.error ? '<div class="o-err' + (o.status === 'skipped' ? ' o-note' : '') + ' selectable">' +
+      (TD ? '<div class="o-err' + (TD.bad ? '' : ' o-note') + ' selectable"><b>To do: ' + esc(TD.text) + '</b> <span style="font-weight:500;opacity:.85">— ' + esc(TD.sub) + '</span></div>' :
+       SM && SM.todo ? '<div class="o-err selectable"><b>To do: ' + esc(SM.todo.text) + '</b>' + (SM.todo.sub ? ' <span style="font-weight:500;opacity:.85">— ' + esc(SM.todo.sub) + '</span>' : '') + '</div>' :
+       o.error ? '<div class="o-err' + (o.status === 'skipped' ? ' o-note' : '') + ' selectable">' +
         (o.status === 'skipped' ? 'not taken — re-checked at <b>' + esc(o.stage || '?') + '</b>, '
          : o.status === 'missed' ? 'missed at <b>' + esc(o.stage || '?') + '</b> — '
          : o.stage === 'sf_sell' || o.stage === 'sf_buy_back' ? ''
@@ -3439,24 +3484,37 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .swk-kv b{ font-size:12.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
 
   .swk-lg-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
-  /* 05eb: sell-first summary */
-  .sf-card{ margin:4px 0 16px; padding:12px 14px; border:1px solid var(--line, rgba(0,0,0,.1)); border-radius:12px; background:var(--card, #fff); }
-  .sf-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; font-size:14px; }
-  .sf-dim{ color:var(--ink-3); font-size:12px; font-weight:500; }
-  .sf-step{ display:flex; gap:10px; padding:9px 0; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
-  .sf-n{ flex:0 0 24px; height:24px; border-radius:50%; background:var(--ink-3); color:#fff; font-weight:800; font-size:12.5px; display:flex; align-items:center; justify-content:center; }
-  .sf-step.good .sf-n{ background:var(--success); } .sf-step.bad .sf-n{ background:var(--danger); } .sf-step.part .sf-n{ background:#d98a00; }
-  .sf-b{ flex:1; min-width:0; }
-  .sf-what{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13.5px; }
-  .sf-what .swk-side{ margin-left:0; }
-  .sf-num{ margin-top:3px; font-size:13px; color:var(--ink); } .sf-num .num{ font-weight:700; }
-  .sf-t{ display:block; margin-top:2px; }
-  .sf-nw{ white-space:nowrap; }
-  .sf-out{ margin-top:3px; font-size:12.5px; font-weight:800; color:var(--ink-3); }
-  .sf-out.good{ color:var(--success); } .sf-out.bad{ color:var(--danger); } .sf-out.part{ color:#d98a00; }
-  .sf-res{ border-top:1px solid var(--line, rgba(0,0,0,.08)); padding-top:10px; margin-top:2px; font-size:13px; }
-  .sf-res i{ font-style:normal; color:var(--ink-3); } .sf-res .sf-out{ display:block; margin-top:5px; font-size:13.5px; }
-  .sf-foot{ margin-top:8px; }
+  /* 05eb: one trade as a short table */
+  .tc-card{ margin:4px 0 14px; padding:12px 14px; border:1px solid var(--line, rgba(0,0,0,.1)); border-radius:12px; background:var(--card, #fff); font-size:13px; line-height:1.35; }
+  .tc-hd{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; font-size:14px; }
+  .tc-dim{ color:var(--ink-3); font-size:12px; font-weight:500; }
+  .tc-grid{ display:grid; grid-template-columns:26px minmax(150px,1.5fr) minmax(170px,1.5fr) minmax(110px,1fr) minmax(150px,1.3fr); column-gap:12px; }
+  .tc-row{ display:contents; }
+  .tc-row > *{ padding:8px 0; border-top:1px solid var(--line, rgba(0,0,0,.08)); min-width:0; }
+  .tc-head > *{ border-top:0; padding:2px 0 6px; font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-3); }
+  .tc-n{ width:22px; height:22px; margin-top:6px; padding:0 !important; border-radius:50%; background:var(--ink-3); color:#fff; font-weight:800; font-size:12px; display:flex; align-items:center; justify-content:center; border-top:0 !important; align-self:start; }
+  .tc-row.good .tc-n{ background:var(--success); } .tc-row.bad .tc-n{ background:var(--danger); } .tc-row.part .tc-n{ background:#d98a00; }
+  .tc-what{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .tc-what .swk-side{ margin-left:0; padding:2px 8px; } .tc-role{ font-weight:600; color:var(--ink); }
+  .tc-qty b, .tc-when b{ font-weight:700; color:var(--ink); }
+  .tc-when .tc-dim, .tc-out .tc-dim{ display:block; }
+  .tc-out{ font-weight:800; color:var(--ink-3); } .tc-out.good{ color:var(--success); } .tc-out.bad{ color:var(--danger); } .tc-out.part{ color:#d98a00; }
+  .tc-note{ margin-top:8px; }
+  .tc-line{ margin-top:10px; padding-top:10px; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
+  .tc-box{ margin-top:8px; padding:9px 12px; border-radius:10px; background:var(--bg-2, rgba(0,0,0,.04)); display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .tc-box b{ font-size:14px; } .tc-box span{ font-size:12px; color:var(--ink-3); }
+  .tc-box.good{ background:var(--success-soft); } .tc-box.good b{ color:var(--success); }
+  .tc-box.bad{ background:var(--danger-soft); } .tc-box.bad b{ color:var(--danger); }
+  .tc-evbtn{ margin:0 0 12px; font-size:12px; padding:6px 12px; }
+  @media (max-width: 720px){
+    .tc-grid{ grid-template-columns:26px 1fr; }
+    .tc-head{ display:none; }
+    .tc-row > .tc-c{ grid-column:2; border-top:0; padding:1px 0; }
+    .tc-row > .tc-what{ border-top:1px solid var(--line, rgba(0,0,0,.08)); padding-top:9px; }
+    .tc-row > .tc-out{ padding-bottom:9px; }
+    .tc-n{ grid-row:span 4; margin-top:10px; }
+    .tc-when .tc-dim, .tc-out .tc-dim{ display:inline; margin-left:8px; }
+  }
   .sf-act{ font-size:11px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em; }
   .swk-outcome{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:9px;
                 font-size:16.5px; font-weight:700; letter-spacing:-.01em; }
@@ -4135,74 +4193,118 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     }
     return '';
   }
-  /* ---- 05eb: SELL-FIRST trades, said plainly ------------------------------
-     The raw stage names (sf_missing_buy_chequsdt ...) and the order the events
-     happen to be saved in told him nothing: the buy showed above the sell though
-     the sell was sent first. So a sell-first trade gets a numbered summary on
-     top - one line per order, in the order they were SENT, each saying what it
-     was for, when it went and how it ended - and plain names in the list below. */
+  /* ---- 05eb: EVERY TRADE AS A SHORT TABLE ---------------------------------
+     One row per order, in the order they were SENT: what it was for, quantity and
+     price, when it went, how it ended. Under it: the money made (green) and what
+     is still to do (red). The raw event list is one tap away, closed by default. */
   var SF_ROLE = { held_sell: 'SELL the coins you held', missing_buy: 'BUY the missing part', missing_sell: 'SELL the coins just bought',
     held_buy: 'BUY BACK the coins sold in step 1', fallback_buy: 'BUY first (the held sell was refused)', fallback_sell: 'SELL the coins just bought', topup_buy: 'BUY USDT back (top-up)' };
   function sfParse(stage){ var m = /^sf_(held|missing|fallback|topup)_(buy|sell)_(.+)$/.exec(String(stage || '')); return m ? { tag: m[1], side: m[2], sym: m[3], role: SF_ROLE[m[1] + '_' + m[2]] || (m[2] + ' ' + m[3]) } : null; }
+  function legParse(stage){ var m = /^leg(\d)_(buy|sell)_(.+)$/.exec(String(stage || '')); if (!m) return null;
+    var sym = m[3], usdtinr = sym === 'usdtinr';
+    return { tag: 'leg' + m[1], side: m[2], sym: sym, role: (m[2] === 'buy' ? 'BUY ' : 'SELL ') + (usdtinr ? 'USDT' : 'the coin') }; }
   function sfN(v){ var n = Number(v); return Number.isFinite(n) ? n.toLocaleString('en-IN', { maximumFractionDigits: 4 }) : String(v); }
+  function sfP(v){ var n = Number(v); return Number.isFinite(n) ? String(+n.toPrecision(6)) : String(v); }
+  function sfR(v){ var n = Number(v); return Number.isFinite(n) ? '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : ''; }
   function sfPair(sym){ var x = String(sym || '').toUpperCase(); return /USDT$/.test(x) ? x.slice(0, -4) + '/USDT' : /INR$/.test(x) ? x.slice(0, -3) + '/INR' : x; }
   function stageLabel(stage){
-    var p = sfParse(stage);
+    var p = sfParse(stage) || legParse(stage);
     if (p) return p.role + ' · ' + sfPair(p.sym);
     if (stage === 'sell_first') return 'Sell-first';
     if (stage === 'usdt_topup') return 'USDT top-up';
-    return stage;
+    if (stage === 'leg1_skipped_usdt_held') return 'USDT taken from your float';
+    return String(stage || '').replace(/_/g, ' ');
   }
-  function sfSummaryHtml(o, evs, det){
-    var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, endNote = null;
+  /* what a sell-first trade made, and what it still owes - from its own totals */
+  function sfMoney(o){
+    var S = o && o.result && o.result.sellFirst; if (!S || S.sold == null) return null;
+    var sold = Number(S.sold) || 0, bought = Number(S.bought) || 0, dl = Number(S.delta) || 0, rate = Number(S.usdtRate) || 0;
+    var sp = sold > 0 ? Number(S.soldInr) / sold : 0, bp = bought > 0 ? Number(S.boughtUsdt) / bought : 0;
+    var both = Math.min(sold, bought), made = both > 0 && rate > 0 ? both * (sp - bp * rate) : 0;
+    var coin = String(o.coin || '').toUpperCase(), todo = null;
+    if (o.status === 'stuck' || Math.abs(dl) * (sp || 1) >= 1) {
+      if (dl < -1e-9) todo = { kind: 'buy', text: 'BUY BACK ' + sfN(-dl) + ' ' + coin + ' on ' + coin + '/USDT', sub: bp > 0 || sp > 0 ? 'sold at ' + sfP(sp) + (bp > 0 ? ' · the others were bought at ' + sfP(bp) + ' (about ' + sfN(-dl * bp) + ' USDT)' : '') : '' };
+      else if (dl > 1e-9) todo = { kind: 'sell', text: 'SELL ' + sfN(dl) + ' ' + coin + ' on ' + coin + '/INR', sub: bp > 0 ? 'bought at ' + sfP(bp) + ' USDT (cost about ' + sfR(dl * bp * rate) + ')' : '' };
+    }
+    return { sold: sold, bought: bought, both: both, made: made, todo: todo, S: S, coin: coin, inrB: rate ? Number(S.boughtUsdt) * rate : null };
+  }
+  function tradeCardHtml(o, evs, det){
+    var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
+    var coinLc = String((o && o.coin) || '').toLowerCase();
     evs.forEach(function (e, i) {
-      var d = det[i], p = sfParse(e.stage);
+      var d = det[i], p = sfParse(e.stage), ts = new Date(e.ts).getTime();
+      if (p) isSf = true;
       if (e.stage === 'sell_first' && d.action === 'plan') plan = d;
-      if (e.stage === 'sell_first' && (d.action === 'stuck' || d.action === 'done' || d.action === 'missed')) endNote = d;
+      if (e.stage === 'usdt_topup') { if (d.action === 'bought') { tu.bought += Number(d.usdt) || 0; tu.inr += (Number(d.usdt) || 0) * (Number(d.rate) || 0); } else if (d.action === 'not_bought' || d.action === 'skipped_rate' || d.action === 'too_small') { tu.miss = Number(d.usdt) || tu.miss; tu.why = d.why || d.action; } return; }
+      if (e.stage === 'leg1_skipped_usdt_held') { notes.push('USDT came from your float' + (d.usdtNeeded != null ? ' (' + sfN(d.usdtNeeded) + ' USDT at ' + sfN(d.valuedAt) + ')' : '')); return; }
+      if (!p) p = legParse(e.stage);
       if (!p || p.tag === 'topup') return;
-      var ts = new Date(e.ts).getTime();
-      if (d.action === 'placed') {
-        var r = { p: p, qty: d.qty, price: d.price, sent: d.sentAfterMs, ack: d.ackAfterMs, seq: d.sendSeq, ts: ts, end: null,
-          approx: d.sentAfterMs == null && t0 != null ? Math.max(0, ts - t0 - (Number(d.placeMs) || 0)) : null };
-        list.push(r); if (d.orderId != null) byId[String(d.orderId)] = r;
-      } else if (d.action === 'cancelled' || d.action === 'filled') {
-        var x = byId[String(d.orderId)]; if (x) { x.end = d.action; x.filled = Number(d.filledQty) || 0; x.of = Number(d.ofQty) || Number(x.qty) || 0; x.status = d.status; x.fillMs = d.fillAfterMs; }
-      } else if (d.action === 'place' && e.ok === false) {
-        list.push({ p: p, qty: d.qty, price: d.price, ts: ts, end: 'refused', error: d.error, unconfirmed: d.unconfirmed, approx: t0 != null ? Math.max(0, ts - t0) : null });
+      var isLeg = /^leg/.test(p.tag);
+      if (d.error && d.orderId == null) { list.push({ p: p, qty: d.qty, price: d.price, ts: ts, end: 'refused', error: d.error, unconfirmed: d.unconfirmed, approx: t0 != null ? Math.max(0, ts - t0) : null }); return; }
+      if ((d.action === 'placed' || d.action === 'placed_blind' || (isLeg && d.qty != null && d.price != null && d.orderId != null && d.filledQty == null))) {
+        var sent = d.sentAfterMs != null ? d.sentAfterMs : (isLeg && d.sinceValidatedMs != null ? d.sinceValidatedMs : null);
+        var r = { p: p, qty: d.qty, price: d.price, sent: sent, ack: d.ackAfterMs != null ? d.ackAfterMs : (sent != null && d.placeMs != null ? sent + Number(d.placeMs) : null), seq: d.sendSeq, ts: ts, end: null,
+          approx: sent == null && t0 != null ? Math.max(0, ts - t0 - (Number(d.placeMs) || 0)) : null };
+        list.push(r); if (d.orderId != null) byId[String(d.orderId)] = r; return;
+      }
+      if (d.orderId != null && d.filledQty != null) {
+        var x = byId[String(d.orderId)]; if (!x) return;
+        var of = Number(d.ofQty != null ? d.ofQty : d.requestedQty) || Number(x.qty) || 0, f = Number(d.filledQty) || 0, st = String(d.status || '').toLowerCase();
+        x.filled = f; x.of = of; x.status = st; x.fillMs = d.fillAfterMs; x.avg = d.avgPrice;
+        x.end = d.action === 'filled' || st === 'done' || st === 'filled' || (of > 0 && f >= of * 0.999999) ? 'filled' : 'cancelled';
       }
     });
     if (!list.length) return '';
     var when = function (r) { return r.sent != null ? Number(r.sent) : (r.approx != null ? r.approx : 1e12); };
     list.sort(function (a, b) { return (when(a) - when(b)) || ((a.seq || 0) - (b.seq || 0)) || ((a.p.tag === 'held' && a.p.side === 'sell' ? 0 : 1) - (b.p.tag === 'held' && b.p.side === 'sell' ? 0 : 1)) || (a.ts - b.ts); });
     var running = o && (o.status === 'running' || o.status === 'placing' || o.status === 'open');
+    var coinNet = 0;
     var rows = list.map(function (r, i) {
-      var q = Number(r.qty) || 0, out, cls;
-      if (r.end === 'refused') { out = (r.unconfirmed ? 'NO ANSWER from WazirX — it may be live' : 'REFUSED by WazirX') + (r.error ? ' — ' + r.error : ''); cls = 'bad'; }
+      var q = Number(r.qty) || 0, out, cls, got = 0;
+      if (r.end === 'refused') { out = (r.unconfirmed ? 'NO ANSWER — may be live' : 'REFUSED') + (r.error ? ' — ' + String(r.error).replace(/^WazirX \d+:\s*/, '') : ''); cls = 'bad'; }
       else if (r.end === 'cancelled' && r.status === 'stuck') { out = 'CANCEL NOT CONFIRMED — check open orders'; cls = 'bad'; }
-      else if (r.end === 'cancelled' && !(r.filled > 0)) { out = 'NOT FILLED — cancelled, 0 of ' + sfN(r.of || q); cls = 'bad'; }
-      else if (r.end === 'cancelled' && r.filled < (r.of || q) * 0.999999) { out = 'PART FILLED — ' + sfN(r.filled) + ' of ' + sfN(r.of || q) + ', rest cancelled'; cls = 'part'; }
-      else if (r.end === 'filled' || r.end === 'cancelled') { out = 'FILLED ' + sfN(r.filled != null ? r.filled : q) + (r.fillMs != null ? ' · first fill +' + r.fillMs + ' ms' : ''); cls = 'good'; }
+      else if (r.end === 'cancelled' && !(r.filled > 0)) { out = 'NOT FILLED · 0 of ' + sfN(r.of || q); cls = 'bad'; }
+      else if (r.end === 'cancelled') { out = 'PART · ' + sfN(r.filled) + ' of ' + sfN(r.of || q); cls = 'part'; got = r.filled; }
+      else if (r.end === 'filled') { got = r.filled != null ? r.filled : q; out = 'FILLED ' + sfN(got); cls = 'good'; }
       else if (running) { out = 'waiting…'; cls = ''; }
-      else { out = 'FILLED ' + sfN(q); cls = 'good'; }
-      var t = r.sent != null ? 'sent +' + r.sent + ' ms' + (r.ack != null ? ' · on exchange +' + r.ack + ' ms' : '') : (r.approx != null ? 'sent about +' + sfN(Math.round(r.approx)) + ' ms' : '');
-      return '<div class="sf-step ' + cls + '"><span class="sf-n">' + (i + 1) + '</span><div class="sf-b">' +
-        '<div class="sf-what"><span class="swk-side ' + esc2(r.p.side) + '">' + esc2((/^(SELL|BUY BACK|BUY)/.exec(r.p.role) || [r.p.side])[0]) + '</span><b>' + esc2(r.p.role.replace(/^(SELL|BUY BACK|BUY) /, '')) + '</b></div>' +
-        '<div class="sf-num"><span class="sf-nw"><span class="num">' + esc2(sfN(q)) + '</span> ' + esc2(sfPair(r.p.sym)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc2(r.price) + '</span></span>' + (t ? '<span class="sf-dim sf-t">' + esc2(t) + '</span>' : '') + '</div>' +
-        '<div class="sf-out ' + cls + '">' + esc2(out) + '</div></div></div>';
+      else { got = q; out = 'FILLED ' + sfN(q); cls = 'good'; }
+      if (String(r.p.sym).indexOf(coinLc) === 0 && coinLc) coinNet += r.p.side === 'buy' ? got : -got;
+      var t = r.sent != null ? '+' + r.sent + ' ms' : (r.approx != null ? '~+' + sfN(Math.round(r.approx)) + ' ms' : '—');
+      var t2 = r.ack != null ? 'on exchange +' + r.ack + ' ms' : '';
+      var verb = (/^(SELL|BUY BACK|BUY)/.exec(r.p.role) || [String(r.p.side).toUpperCase()])[0];
+      return '<div class="tc-row ' + cls + '"><span class="tc-n">' + (i + 1) + '</span>' +
+        '<div class="tc-c tc-what"><span class="swk-side ' + esc2(r.p.side) + '">' + esc2(verb) + '</span><span class="tc-role">' + esc2(r.p.role.replace(/^(SELL|BUY BACK|BUY) /, '')) + '</span></div>' +
+        '<div class="tc-c tc-qty"><b class="num">' + esc2(sfN(q)) + '</b> <span class="tc-dim">' + esc2(sfPair(r.p.sym)) + ' @</span> <b class="num">' + esc2(r.price) + '</b></div>' +
+        '<div class="tc-c tc-when num"><b>' + esc2(t) + '</b>' + (t2 ? '<span class="tc-dim">' + esc2(t2) + '</span>' : '') + '</div>' +
+        '<div class="tc-c tc-out ' + cls + '">' + esc2(out) + (r.fillMs != null ? '<span class="tc-dim">first fill +' + esc2(r.fillMs) + ' ms</span>' : '') + '</div></div>';
     }).join('');
-    var S = (o && o.result && o.result.sellFirst) || endNote || null, res = '';
-    if (S && S.sold != null) {
-      var coin = String((o && o.coin) || '').toUpperCase(), dl = Number(S.delta) || 0, inrB = S.boughtUsdt != null && S.usdtRate ? Number(S.boughtUsdt) * Number(S.usdtRate) : null;
-      var verdict = Math.abs(dl) < 1e-9 ? '<span class="sf-out good">Level — you hold the same ' + esc2(coin) + ' as before.</span>'
-        : dl > 0 ? '<span class="sf-out ' + (o.status === 'stuck' ? 'bad' : 'part') + '">' + esc2(sfN(dl)) + ' ' + esc2(coin) + ' bought and NOT sold — you hold them now.</span>'
-        : '<span class="sf-out ' + (o.status === 'stuck' ? 'bad' : 'part') + '">' + esc2(sfN(-dl)) + ' ' + esc2(coin) + ' sold and NOT bought back.</span>';
-      res = '<div class="sf-res"><div><i>Sold</i> <b class="num">' + esc2(sfN(S.sold)) + '</b> ' + esc2(coin) + (S.soldInr != null ? ' for <b class="num">₹' + esc2(sfN(S.soldInr)) + '</b>' : '') +
-        ' &nbsp;·&nbsp; <i>Bought</i> <b class="num">' + esc2(sfN(S.bought)) + '</b> ' + esc2(coin) + (S.boughtUsdt != null ? ' for <b class="num">' + esc2(sfN(+Number(S.boughtUsdt).toFixed(2))) + '</b> USDT' + (inrB != null ? ' (₹' + esc2(sfN(Math.round(inrB * 100) / 100)) + ')' : '') : '') + '</div>' + verdict + '</div>';
+    /* ---- the result: money made in green, what is still to do in red */
+    var res = '', M = sfMoney(o), coin = String((o && o.coin) || '').toUpperCase();
+    if (M) {
+      res += '<div class="tc-line"><span class="tc-dim">Sold</span> <b class="num">' + esc2(sfN(M.sold)) + '</b> ' + esc2(coin) + (M.S.soldInr != null ? ' for <b class="num">' + esc2(sfR(M.S.soldInr)) + '</b>' : '') +
+        ' <span class="tc-dim">· Bought</span> <b class="num">' + esc2(sfN(M.bought)) + '</b> ' + esc2(coin) + (M.S.boughtUsdt != null ? ' for <b class="num">' + esc2(sfN(+Number(M.S.boughtUsdt).toFixed(2))) + '</b> USDT' + (M.inrB != null ? ' (' + esc2(sfR(Math.round(M.inrB * 100) / 100)) + ')' : '') : '') + '</div>';
+      if (o.profit_inr != null) res += '<div class="tc-box ' + (Number(o.profit_inr) >= 0 ? 'good' : 'bad') + '"><b>' + (Number(o.profit_inr) >= 0 ? 'Profit ' : 'Loss ') + esc2(sfR(Math.abs(Number(o.profit_inr)))) + '</b><span>trade complete</span></div>';
+      else if (M.both > 0) res += '<div class="tc-box ' + (M.made >= 0 ? 'good' : 'bad') + '"><b>' + (M.made >= 0 ? 'Made ' : 'Lost ') + esc2(sfR(Math.abs(Math.round(M.made * 100) / 100))) + '</b><span>on the ' + esc2(sfN(M.both)) + ' ' + esc2(coin) + ' that went both ways</span></div>';
+      if (M.todo) res += '<div class="tc-box bad"><b>To do: ' + esc2(M.todo.text) + '</b>' + (M.todo.sub ? '<span>' + esc2(M.todo.sub) + '</span>' : '') + '</div>';
+      else if (o.status === 'done') res += '<div class="tc-box good"><b>Nothing left to do</b><span>you hold the same ' + esc2(coin) + ' as before</span></div>';
+    } else {
+      if (o && o.profit_inr != null) res += '<div class="tc-box ' + (Number(o.profit_inr) >= 0 ? 'good' : 'bad') + '"><b>' + (Number(o.profit_inr) >= 0 ? 'Profit ' : 'Loss ') + esc2(sfR(Math.abs(Number(o.profit_inr)))) + '</b><span>trade complete</span></div>';
+      if (o && (o.status === 'stuck' || o.status === 'failed')) {
+        if (coinNet > 1e-9) res += '<div class="tc-box bad"><b>To do: SELL ' + esc2(sfN(+coinNet.toPrecision(8))) + ' ' + esc2(coin) + '</b><span>bought and not sold — you hold them now</span></div>';
+        else if (coinNet < -1e-9) res += '<div class="tc-box bad"><b>To do: BUY ' + esc2(sfN(+(-coinNet).toPrecision(8))) + ' ' + esc2(coin) + '</b><span>sold from your own balance and not bought</span></div>';
+        else res += '<div class="tc-box"><b>Nothing was bought or sold</b><span>no coins to act on</span></div>';
+      }
     }
-    var head = plan ? 'Plan ' + sfN(plan.qty) + ' · you held ' + sfN(plan.held) + (Number(plan.missing) > 0 ? ' · missing ' + sfN(plan.missing) : '') : '';
-    return '<div class="sf-card"><div class="sf-hd"><b>Sell-first</b><span class="sf-dim">' + esc2(head) + '</span></div>' + rows + res +
-      '<div class="sf-dim sf-foot">Orders are listed in the order they were sent. The full event list is below.</div></div>';
+    if (tu.bought > 0) res += '<div class="tc-box good"><b>USDT top-up: bought ' + esc2(sfN(+tu.bought.toFixed(2))) + ' USDT</b><span>for ' + esc2(sfR(Math.round(tu.inr * 100) / 100)) + '</span></div>';
+    if (tu.miss > 0) res += '<div class="tc-box bad"><b>USDT top-up: ' + esc2(sfN(tu.miss)) + ' USDT not bought</b><span>' + esc2(String(tu.why || '').replace(/_/g, ' ')) + '</span></div>';
+    var head = plan ? 'plan ' + sfN(plan.qty) + ' · held ' + sfN(plan.held) + (Number(plan.missing) > 0 ? ' · missing ' + sfN(plan.missing) : '') : '';
+    return '<div class="tc-card"><div class="tc-hd"><b>' + (isSf ? 'Sell-first' : 'Orders') + '</b><span class="tc-dim">' + esc2(head) + '</span></div>' +
+      '<div class="tc-grid"><div class="tc-row tc-head"><span></span><span>Order</span><span>Quantity @ price</span><span>Sent</span><span>Result</span></div>' + rows + '</div>' +
+      (notes.length ? '<div class="tc-dim tc-note">' + esc2(notes.join(' · ')) + '</div>' : '') + res + '</div>';
   }
+  window.swkSfMoney = sfMoney; window.swkR = sfR;
+  var EV_OPEN = {};
+  window.swkToggleEvents = function (id) { EV_OPEN[id] = !EV_OPEN[id]; var b = document.getElementById('evs' + id), t = document.getElementById('evb' + id); if (b) b.style.display = EV_OPEN[id] ? '' : 'none'; if (t) t.textContent = (EV_OPEN[id] ? 'Hide' : 'Show') + ' all events (' + t.getAttribute('data-n') + ')'; };
 
   /* Tap anywhere on a leg to reveal its raw dump. The old [raw] button cost a
      whole row of height under every single event. */
@@ -4222,8 +4324,9 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
         var evs = o.events || [];
         if (!evs.length) { el.innerHTML = '<div class="empty">No events recorded.</div>'; return; }
         var det = evs.map(function (e) { var d = {}; try { d = !e.detail ? {} : (typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail); } catch (x) { d = {}; } return d || {}; });
-        var sfTop = ''; try { sfTop = evs.some(function (e) { return /^sf_/.test(String(e.stage)); }) ? sfSummaryHtml((function () { var b = o.order || o; if (b && !b.result && typeof orders !== 'undefined') { var m = (orders || []).find(function (x) { return x.id === id; }); if (m) b = Object.assign({}, m, b, { result: m.result }); } return b; })(), evs, det) : ''; } catch (x) { sfTop = ''; }
-        el.innerHTML = sfTop + evs.map(function (e, i) {
+        var sfTop = ''; try { sfTop = tradeCardHtml((function () { var b = o.order || o; if (b && typeof orders !== 'undefined') { var m = (orders || []).find(function (x) { return x.id === id; }); if (m) b = Object.assign({}, m, b, { result: b.result || m.result }); } return b; })(), evs, det); } catch (x) { sfTop = ''; }
+        var evHead = sfTop ? '<button class="btn tc-evbtn" id="evb' + id + '" data-n="' + evs.length + '" onclick="event.stopPropagation();swkToggleEvents(' + id + ')">' + (EV_OPEN[id] ? 'Hide' : 'Show') + ' all events (' + evs.length + ')</button><div id="evs' + id + '"' + (EV_OPEN[id] ? '' : ' style="display:none"') + '>' : '';
+        el.innerHTML = sfTop + evHead + evs.map(function (e, i) {
           var d = det[i];
           var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; })
             .map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' \u00b7 ');
@@ -4238,7 +4341,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
               (i < evs.length - 1 ? '<span class="tl-line"></span>' : '') + '</div>' +
             '<div class="tl-body">' +
               '<div class="swk-lg-hd"><span class="tl-stage">' + esc2(stageLabel(e.stage)) + '</span>' +
-                (sfParse(e.stage) && d.action ? '<span class="sf-act">' + esc2(d.action === 'place' ? 'refused' : d.action) + '</span>' : '') +
+                ((sfParse(e.stage) || legParse(e.stage)) && d.action ? '<span class="sf-act">' + esc2(d.action === 'place' ? 'refused' : String(d.action).replace(/_/g, ' ')) + '</span>' : '') +
                 '<span class="tl-t num">' + t.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
               heroHtml(d) + outcomeHtml(d) + kvHtml(d) +
               (d.error ? '<div class="swk-errline" style="margin-top:9px">' + esc2(d.error) + '</div>' : '') +
@@ -4246,7 +4349,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
               depthLine +
               (raw ? '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') +
             '</div></div>';
-        }).join('');
+        }).join('') + (sfTop ? '</div>' : '');
       } catch (e) {
         el.innerHTML = '<div class="empty">Could not load timeline (' + esc2(e.message) + ')</div>';
       }
