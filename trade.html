@@ -3510,6 +3510,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .sf-res{ border-top:1px solid var(--line, rgba(0,0,0,.08)); padding-top:10px; margin-top:2px; font-size:13px; }
   .sf-res i{ font-style:normal; color:var(--ink-3); } .sf-res .sf-out{ display:block; margin-top:5px; font-size:13.5px; }
   .sf-foot{ margin-top:8px; }
+  .sf-plan{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; font-size:14px; padding-bottom:9px; margin-bottom:9px; border-bottom:1px solid var(--line, rgba(0,0,0,.08)); } .sf-plan b{ font-weight:700; color:var(--ink); }
   .sf-res.top{ border-top:0; padding:0 0 10px; margin:0 0 2px; }
   .sf-pp{ display:block; margin-top:5px; font-size:13.5px; font-weight:800; } .sf-pp.part{ color:#d98a00; } .sf-pp.bad{ color:var(--danger); } .sf-pp.good{ color:var(--success); }
   .sf-pp span{ font-weight:500; }
@@ -4241,12 +4242,13 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     return { sold: sold, bought: bought, both: both, made: made, open: open, expected: expected, buyRef: buyRef, sellRef: sellRef, todo: todo, S: S, coin: coin, sp: sp, bp: bp, rate: rate, inrB: rate ? Number(S.boughtUsdt) * rate : null };
   }
   function tradeCardHtml(o, evs, det){
-    var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
+    var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, val = null, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
     var coinLc = String((o && o.coin) || '').toLowerCase();
     evs.forEach(function (e, i) {
       var d = det[i], p = sfParse(e.stage), ts = new Date(e.ts).getTime();
       if (p) isSf = true;
       if (e.stage === 'sell_first' && d.action === 'plan') plan = d;
+      if (e.stage === 'validated' && !val) val = evText(e, d);
       if (e.stage === 'usdt_topup') { if (d.action === 'bought') { tu.bought += Number(d.usdt) || 0; tu.inr += (Number(d.usdt) || 0) * (Number(d.rate) || 0); } else if (d.action === 'not_bought' || d.action === 'skipped_rate' || d.action === 'too_small') { tu.miss = Number(d.usdt) || tu.miss; tu.why = d.why || d.action; } return; }
       if (e.stage === 'leg1_skipped_usdt_held') { notes.push('USDT came from your float' + (d.usdtNeeded != null ? ' (' + sfN(d.usdtNeeded) + ' USDT, valued at ' + sfN(d.valuedAt) + ')' : '')); return; }
       if (!p) p = legParse(e.stage);
@@ -4305,7 +4307,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (tu.bought > 0) res += '<span class="sf-out good">USDT top-up: bought ' + esc2(sfN(+tu.bought.toFixed(2))) + ' USDT for ' + esc2(sfR(Math.round(tu.inr * 100) / 100)) + '</span>';
     if (tu.miss > 0) res += '<span class="sf-out bad">USDT top-up: ' + esc2(sfN(tu.miss)) + ' USDT not bought <span class="sf-dim">' + esc2(String(tu.why || '').replace(/_/g, ' ')) + '</span></span>';
     var head = plan ? 'Plan ' + sfN(plan.qty) + ' ' + coin + ' · you held ' + sfN(plan.held) + (Number(plan.missing) > 0 ? ' · missing ' + sfN(plan.missing) : '') : '';
-    return '<div class="sf-card"><div class="sf-hd"><b>' + (isSf ? 'Sell-first' : 'Orders') + '</b><span class="sf-dim">' + esc2(head) + '</span></div>' +
+    var top = val && val.t ? '<div class="sf-plan"><b>' + esc2(val.t.replace(/^plan/, 'Plan')) + '</b>' + (val.s ? '<span class="sf-dim">' + esc2(val.s) + '</span>' : '') + '</div>' : '';
+    return '<div class="sf-card">' + top + '<div class="sf-hd"><b>' + (isSf ? 'Sell-first' : 'Orders') + '</b><span class="sf-dim">' + esc2(head) + '</span></div>' +
       (res ? '<div class="sf-res top">' + res + '</div>' : '') + steps +
       (notes.length ? '<div class="sf-dim sf-foot">' + esc2(notes.join(' · ')) + '</div>' : '') + '</div>';
   }
