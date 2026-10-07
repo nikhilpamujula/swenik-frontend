@@ -883,6 +883,15 @@
 
   <!-- OVERVIEW -->
   <div class="tabpane active" id="tab-overview">
+    <!-- 05ej: today at a glance (live trades of the selected trader, since midnight on this device) -->
+    <div class="panel" id="todayPanel" style="margin-bottom:14px;">
+      <div class="panel-h"><h2>Today</h2><span class="hint" id="todayHint">live trades since midnight</span></div>
+      <div class="panel-b">
+        <div class="tiles" id="todayTiles" style="margin-bottom:0;"><div class="tile"><div class="k">Today</div><div class="d">loading…</div></div></div>
+        <div id="todayTodo"></div>
+      </div>
+    </div>
+    <div class="td-7d">Last 7 days</div>
     <div class="tiles" id="tilesRow"></div>
     <div class="panel">
       <div class="panel-h"><h2>Profit curve</h2><span class="hint" id="eqHint">cumulative ₹, paper + live, last 7 days</span></div>
@@ -2116,6 +2125,74 @@ function renderTiles() {
     tile('Missed', (p.missed || 0) + (l.missed || 0), 'competitor took it first — cancelled instantly, nothing rested', '') +
     tile('Failed', failed, failed ? 'check Activity for the stage each stuck at' : 'no failures in 7 days', failed ? 'neg' : '');
 }
+// ---- 05ej: TODAY on the Overview page. Read-only: one orders GET a minute (and the blind summary), nothing else.
+const TODAY = { at: 0, box: null, rows: [], blind: null, busy: false, err: null };
+function swkTodo(o) {
+  // what a stuck trade still owes: net > 0 = coins bought and not sold, net < 0 = coins sold and not bought back
+  let SM = null; try { SM = window.swkSfMoney ? window.swkSfMoney(o) : null; } catch (e) { SM = null; }
+  const coin = String(o.coin || '').toUpperCase();
+  if (SM) {
+    const net = Number(SM.S.delta) || 0, px = net > 0 ? (SM.bp * SM.rate || SM.sellRef || SM.sp) : (SM.sp || SM.buyRef * SM.rate);
+    return { coin, net, inr: Math.abs(net) * (px || 0), part: SM.both > 0, made: SM.both > 0 ? SM.made : null, open: Math.abs(net) * (px || 1) >= 1 };
+  }
+  if (!/BLIND MISMATCH/.test(String(o.error || ''))) return null;
+  const c = coin.toLowerCase(); let bq = 0, sq = 0;
+  String(o.error).replace(/leg\d_(buy|sell)_([a-z0-9]+):\s*([\d.]+)\/([\d.]+)/g, (m, side, sym, f) => { if (sym.indexOf(c) === 0) { if (side === 'buy') bq += Number(f); else sq += Number(f); } return m; });
+  const net = bq - sq; let inrPx = 0, usdtPx = 0, rate = 0;
+  for (const f of ((o.result && o.result.fills) || [])) { const sy = String(f.symbol || ''), p = Number(f.avgPrice) || 0;
+    if (sy === 'usdtinr') rate = p; else if (sy === c + 'inr') inrPx = p; else if (sy === c + 'usdt') usdtPx = p; }
+  const px = inrPx || usdtPx * rate;
+  let made = null; if (bq > 0 && sq > 0 && window.swkMadeOf) { const m = window.swkMadeOf(o.id); made = m && m.made != null ? m.made : null; }
+  return { coin, net, inr: Math.abs(net) * px, part: bq > 0 && sq > 0, made, open: Math.abs(net) > 1e-9, loading: bq > 0 && sq > 0 && made == null };
+}
+async function refreshToday(force) {
+  const box = (typeof currentBox === 'function' && currentBox() || {}).id || '';
+  if (TODAY.busy || (!force && TODAY.box === box && Date.now() - TODAY.at < 55000)) return;
+  TODAY.busy = true;
+  if (TODAY.box !== box) { TODAY.rows = []; TODAY.blind = null; }
+  try { const rows = await apiJson('/api/trader/orders?limit=250'); TODAY.rows = Array.isArray(rows) ? rows : []; TODAY.err = null; TODAY.at = Date.now(); TODAY.box = box; }
+  catch (e) { TODAY.err = e.message; }
+  try { const b = await apiJson('/api/trader/blind?limit=1&range=today'); TODAY.blind = b && b.summary && b.summary.live ? b.summary.live : null; } catch (e) { TODAY.blind = null; }
+  TODAY.busy = false; renderToday();
+}
+function renderToday() {
+  const el = $('todayTiles'); if (!el) return;
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0); const t0 = d0.getTime();
+  const rows = TODAY.rows.filter(o => o.mode === 'live' && new Date(o.created_at).getTime() >= t0);
+  let doneN = 0, doneP = 0, partN = 0, partP = 0, partWait = 0, sellN = 0, sellInr = 0, buyN = 0, buyInr = 0, failN = 0, missN = 0, skipN = 0; const coins = {};
+  for (const o of rows) {
+    if (o.status === 'skipped') { skipN++; continue; }
+    if (o.status === 'missed') { missN++; continue; }
+    if (o.status === 'done' || o.status === 'hedged_open') { if (o.profit_inr != null) { doneN++; doneP += Number(o.profit_inr) || 0; } continue; }
+    if (o.status === 'stuck') {
+      const T = swkTodo(o);
+      if (!T || !T.open) { failN++; continue; }                 // nothing was left open: it simply did not trade
+      if (T.part) { partN++; if (T.made != null) partP += T.made; else if (T.loading) partWait++; }
+      if (T.net > 0) { sellN++; sellInr += T.inr; } else { buyN++; buyInr += T.inr; }
+      coins[T.coin] = (coins[T.coin] || 0) + T.net; continue;
+    }
+    if (o.ok === false) failN++;
+  }
+  const B = TODAY.blind, bP = B && Number.isFinite(Number(B.pnl)) ? Number(B.pnl) : null, sg = (v) => (v >= 0 ? '+' : '−') + inr2(Math.abs(v));
+  const total = doneP + partP + (bP || 0), stuckN = sellN + buyN;
+  el.innerHTML =
+    tile('Made today', '<span class="' + (total >= 0 ? 'pos' : 'neg') + '">' + sg(total) + '</span>', 'done + partly made' + (bP != null ? ' + blind' : ''), '', true) +
+    tile('Done trades', '<span class="' + (doneP >= 0 ? 'pos' : 'neg') + '">' + sg(doneP) + '</span>', doneN + ' trade' + (doneN === 1 ? '' : 's') + ' complete', '') +
+    tile('Partly made', '<span class="td-part">' + sg(partP) + '</span>', partN + ' part-done trade' + (partN === 1 ? '' : 's') + (partWait ? ' · ' + partWait + ' still loading' : ' · locked in so far'), '') +
+    (bP != null ? tile('Blind', '<span class="' + (bP >= 0 ? 'pos' : 'neg') + '">' + sg(bP) + '</span>', (B.trades || 0) + ' orders · ' + (B.full || 0) + ' full, ' + (B.partial || 0) + ' part' + (B.unhedged ? ' · ' + B.unhedged + ' unhedged' : ''), '') : '') +
+    tile('Stuck — to do', '<span class="' + (stuckN ? 'neg' : '') + '">' + inr2(sellInr + buyInr) + '</span>', stuckN ? 'to sell ' + inr2(sellInr) + ' (' + sellN + ') · to buy back ' + inr2(buyInr) + ' (' + buyN + ')' : 'nothing open', '') +
+    tile('Failed · missed', '<span class="' + (failN ? 'neg' : '') + '">' + failN + '</span> · ' + missN, 'failed = nothing traded · ' + skipN + ' skipped before placing', '');
+  const list = Object.keys(coins).map(c => ({ c, n: +coins[c].toPrecision(8) })).filter(x => Math.abs(x.n) > 1e-9).sort((a, b) => a.c < b.c ? -1 : 1);
+  const q = (v) => Number(Math.abs(v)).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+  $('todayTodo').innerHTML = list.length
+    ? '<div class="td-todo"><b>To do by coin</b><span class="td-dim">today\'s trades netted per coin</span><div class="td-chips">' +
+      list.map(x => '<span class="td-chip ' + (x.n > 0 ? 'sell' : 'buy') + '" onclick="setTab(\'activity\')">' + (x.n > 0 ? 'SELL ' : 'BUY BACK ') + esc(q(x.n)) + ' ' + esc(x.c) + '</span>').join('') + '</div></div>'
+    : (rows.length ? '<div class="td-todo"><b>To do by coin</b><span class="td-dim">nothing open from today\'s trades</span></div>' : '');
+  const h = $('todayHint'); if (h) h.textContent = TODAY.err ? 'could not load (' + TODAY.err + ')' : 'live trades since midnight · ' + rows.length + ' rows · updated ' + new Date(TODAY.at || Date.now()).toLocaleTimeString('en-IN', { hour12: false });
+}
+window.swkTodayPaint = () => { try { renderToday(); } catch (e) {} };
+setTimeout(() => refreshToday(true), 1200);
+setInterval(() => { if (!document.hidden && $('tab-overview') && $('tab-overview').classList.contains('active')) refreshToday(false); }, 10000);
 function renderJudgment() {
   const sk = ((ST && ST.lastTick && ST.lastTick.skipped) || []).slice();
   const locks = (ST && ST.coinLocks) || {};
@@ -3518,6 +3595,11 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .sf-pp span{ font-weight:500; }
   .sf-step.cmp{ padding:8px 0; align-items:flex-start; } .sf-step.cmp .sf-what{ font-size:13.5px; gap:6px 10px; } .sf-step.cmp .sf-num{ margin:0; } .sf-step.cmp .sf-l2{ margin-top:3px; display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; }
   .sf-step.cmp .sf-out{ margin-top:0; }
+  .td-part{ color:#d98a00; } .td-7d{ font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:2px 2px 8px; }
+  .td-todo{ margin-top:12px; padding-top:12px; border-top:1px solid var(--line, rgba(0,0,0,.08)); font-size:13px; } .td-todo b{ margin-right:10px; } .td-dim{ color:var(--ink-3); font-size:12px; }
+  .td-chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
+  .td-chip{ font-size:12.5px; font-weight:800; padding:6px 11px; border-radius:999px; cursor:pointer; background:var(--danger-soft); color:var(--danger); }
+  .td-chip.sell{ background:#fdf1dc; color:#b26b00; }
   .o-part{ font-weight:800; color:#d98a00; } .o-part.neg{ color:var(--danger); } .o-profit:empty{ display:none; }
   .sf-act{ font-size:11px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em; }
   .swk-outcome{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:9px;
@@ -4223,8 +4305,9 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       try { var o = await apiJson('/api/trader/orders/' + id); var evs = o.events || []; MADE[id] = null; tradeCardHtml(mergeOrder(o, id), evs, detOf(evs)); } catch (e) { MADE[id] = null; }
       var el = document.getElementById('opm' + id); if (el && MADE[id]) { el.textContent = madeText(MADE[id]); el.classList.toggle('neg', MADE[id].made < 0); el.classList.toggle('pos', !(MADE[id].made < 0)); }
       await new Promise(function (r) { setTimeout(r, 120); }); } }
-    finally { MBUSY = false; }
+    finally { MBUSY = false; try { if (window.swkTodayPaint) window.swkTodayPaint(); } catch (e) {} }
   }
+  window.swkMadeOf = function (id) { var m = MADE[id]; if (m === undefined && MQ.indexOf(id) < 0 && MQ.length < 40) { MQ.push(id); setTimeout(madePump, 0); } return m; };
   window.swkMadeChip = function (id) { var m = MADE[id]; if (m === undefined && MQ.indexOf(id) < 0 && MQ.length < 40) { MQ.push(id); setTimeout(madePump, 0); }
     return '<span id="opm' + id + '" class="o-profit ' + (m && m.made < 0 ? 'neg' : 'pos') + '" title="profit already made on the quantity that was bought and sold">' + esc2(m ? madeText(m) : '') + '</span>'; };
   function sfPair(sym){ var x = String(sym || '').toUpperCase(); return /USDT$/.test(x) ? x.slice(0, -4) + '/USDT' : /INR$/.test(x) ? x.slice(0, -3) + '/INR' : x; }
