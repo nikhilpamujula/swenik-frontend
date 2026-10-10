@@ -1553,7 +1553,18 @@ async function apiJson(path, opts) {
     try { const j = await r.json(); if (j && j.error) msg += ' — ' + j.error; } catch (e) {}
     throw new Error(msg);
   }
-  return r.json();
+  const j = await r.json();
+  if (/^\/api\/trader\/orders/.test(String(path))) { try { (Array.isArray(j) ? j : [j]).forEach(swkAuditFix); } catch (e) {} }
+  return j;
+}
+// SOL 9402: the blind audit set the order to stuck and cleared the profit, then
+// the loop's own final write (2 s later, after the balance recovery) put back
+// "done" and a profit made from fills that never happened. The server is fixed
+// in 05em; this shows such a row honestly - stuck, no profit - old rows included.
+function swkAuditFix(o) {
+  if (!o || o.status !== 'done' || !/^BLIND MISMATCH/.test(String(o.error || ''))) return;
+  o.status = 'stuck'; o.profit_inr = null; o.swkAudited = true;
+  if (o.stage === 'done') o.stage = 'blind audit';
 }
 
 // ---------------- utils ----------------
@@ -2002,9 +2013,73 @@ function drawBlindLedger() {
         '<span class="o-time num">' + blClock(r.at) + '</span>' +
       '</div>' +
       (v.note ? '<div class="o-err' + (v.placed ? '' : ' o-note') + ' selectable">' + esc(v.note) + '</div>' : '') +
-      (open ? '<div class="timeline" style="display:block;">' + blindTimeline(r) + '</div>' : '') +
+      (open ? '<div class="timeline" style="display:block;">' + blindCardHtml(r) + '</div>' : '') +
     '</div>';
   }).join('');
+}
+// Blind trade opened: the same card as an auto trade (plan chips, numbered
+// orders with a coloured result, to-do), then the stepped timeline below it.
+const BL_EV_OPEN = new Set();
+function blindEvToggle(id, ev) { if (ev) ev.stopPropagation(); if (BL_EV_OPEN.has(id)) BL_EV_OPEN.delete(id); else BL_EV_OPEN.add(id); drawBlindLedger(); }
+function blindCardHtml(r) {
+  const L = r.live, n = (v) => blN(v, 8), C = String(r.coin || '').toUpperCase(), t0 = r.at;
+  const evs = (L && L.ev) || [], first = (k) => evs.find((e) => e.e === k), all = (k) => evs.filter((e) => e.e === k);
+  const ms = (e) => (e && e.at != null ? Math.max(0, Math.round(e.at - t0)) : null);
+  const kv = (k, v, cls) => '<span class="swk-kv' + (cls ? ' ' + cls : '') + '"><i>' + k + '</i><b>' + v + '</b></span>';
+  const when = (s, a) => (s != null ? 'sent +' + s + ' ms' + (a != null ? ' · on exchange +' + a + ' ms' : '') : '');
+  const step = (i, side, pair, q, px, out, cls, t) => '<div class="sf-step cmp ' + cls + '"><span class="sf-n">' + i + '</span><div class="sf-b">' +
+    '<div class="sf-what"><span class="swk-side ' + side + '">' + side.toUpperCase() + '</span><b>the coin</b><span class="sf-num"><span class="sf-nw"><span class="num">' + esc(n(q)) + '</span> ' + esc(pair) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc(n(px)) + '</span></span></span></div>' +
+    '<div class="sf-l2"><span class="sf-out ' + cls + '">' + esc(out) + '</span>' + (t ? '<span class="sf-dim">' + esc(t) + '</span>' : '') + '</div></div></div>';
+  const done = (f, q) => q > 0 && f >= q * 0.999999;
+  let chips = kv('Path', esc(r.path || '?')) + kv('Edge', Number(r.pct || 0).toFixed(2) + '%');
+  let steps = '', res = '';
+  if (L && L.leg1) {
+    const p = Number(L.pnl) || 0;
+    const unX = Math.abs(Number(L.unhedged) || 0), open1 = unX > 0.005 * Math.abs(Number(L.filled) || 0) && unX * (L.leg1Px || 0) >= 10;
+    chips += kv('Size', esc(n(L.leg1.qty))) + (open1 ? kv('P&amp;L so far', (p >= 0 ? '' : '−') + inr2(Math.abs(p))) : kv(p >= 0 ? 'Profit' : 'Loss', (p >= 0 ? '' : '−') + inr2(Math.abs(p)), p >= 0 ? 'good' : 'bad'));
+    const s1 = String(L.leg1.side || (r.path === 'A' ? 'buy' : 'sell')).toLowerCase(), q1 = Number(L.leg1.qty) || 0, f1 = Number(L.filled) || 0, rj1 = first('leg1_rejected');
+    const running = L.state === 'waiting_fill' || L.state === 'placing';
+    let o1, c1;
+    if (rj1) { o1 = 'REFUSED by WazirX — ' + rj1.why; c1 = 'bad'; }
+    else if (running) { o1 = 'waiting…'; c1 = ''; }
+    else if (f1 <= 0) { o1 = 'NOT FILLED — cancelled, 0 of ' + n(q1); c1 = 'bad'; }
+    else if (done(f1, q1)) { o1 = 'FILLED ' + n(f1); c1 = 'good'; }
+    else { o1 = 'PART FILLED — ' + n(f1) + ' of ' + n(q1) + ', rest cancelled'; c1 = 'part'; }
+    steps += step(1, s1, C + '/INR', q1, L.leg1Px || L.leg1.price, o1, c1, when(ms(first('leg1_sent')), ms(first('leg1_ack'))));
+    const s2s = all('leg2_sent');
+    if (s2s.length) {
+      const s2 = s1 === 'sell' ? 'buy' : 'sell', q2 = s2s.reduce((a, e) => a + (Number(e.q) || 0), 0), px2 = s2s[s2s.length - 1].px, f2 = Number(L.leg2Filled) || 0, rj2 = first('leg2_rejected');
+      let o2, c2;
+      if (L.leg2Resting > 0) { o2 = 'STILL RESTING ' + n(L.leg2Resting) + ' — check open orders'; c2 = 'bad'; }
+      else if (rj2 && !(f2 > 0)) { o2 = 'REFUSED by WazirX — ' + rj2.why; c2 = 'bad'; }
+      else if (done(f2, q2)) { o2 = 'FILLED ' + n(f2); c2 = 'good'; }
+      else if (f2 > 0) { o2 = 'PART FILLED — ' + n(f2) + ' of ' + n(q2); c2 = 'part'; }
+      else if (running) { o2 = 'waiting…'; c2 = ''; }
+      else { o2 = 'NOT FILLED — 0 of ' + n(q2); c2 = 'bad'; }
+      steps += step(2, s2, C + '/USDT', q2, px2, o2 + (s2s.length > 1 ? ' · sent in ' + s2s.length + ' parts' : ''), c2, when(ms(s2s[0]), ms(first('leg2_ack'))));
+    }
+    const un = Math.abs(Number(L.unhedged) || 0), dust = !(un > 0.005 * Math.abs(f1) && un * (L.leg1Px || 0) >= 10);
+    if (L.usdtSpent) res += '<span class="sf-out ink">USDT spent ' + esc(n(L.usdtSpent)) + '</span>';
+    if (L.usdtGot) res += '<span class="sf-out ink">USDT kept ' + esc(n(L.usdtGot)) + '</span>';
+    if (un > 0 && !dust) res += '<span class="sf-out sf-todo-bl bad">To do: ' + (r.path === 'A' ? 'SELL ' : 'BUY ') + esc(n(un)) + ' ' + esc(C) + ' <span class="sf-dim">not matched on ' + esc(C) + '/USDT</span></span>';
+    else if (!running && f1 > 0) res += '<span class="sf-out good">Level — both sides matched</span>';
+  } else if (r.pnlBest != null) {
+    chips += kv('Paper', inr(r.pnlWorst) + '–' + inr(r.pnlBest)) + (r.fillWorst != null ? kv('Fill', esc(n(r.fillWorst)) + '–' + esc(n(r.fillBest))) : '');
+  }
+  const notes = [];
+  if (L && L.sizedBy) notes.push('sized to your ' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' ? 'USDT float' : 'INR'));
+  if (L && L.sizeMode) notes.push('size ' + L.sizeMode);
+  if (L && L.autoQ) notes.push('auto trader already had ' + n(L.autoQ) + ' → blind sent less');
+  if (L && L.link) notes.push('auto trader could match it for ' + L.link.holdMs + ' ms' + (L.link.caught ? ' · it did: ' + L.link.smaller + ' smaller, ' + L.link.skipped + ' skipped' : ' · it did not come'));
+  if (L && L.leg1 && r.fillWorst != null) notes.push('paper ' + n(r.size) + ' (' + inr(r.sizeInr) + ') · fill ' + n(r.fillWorst) + '–' + n(r.fillBest));
+  if (L && L.skipped && !L.leg1) notes.push('live skipped: ' + L.skipped);
+  const evOpen = BL_EV_OPEN.has(r.id), nEv = 1 + evs.length + ((L && L.fills) || []).length + (r.seenAt != null ? 1 : 0);
+  return '<div class="sf-card"><div class="sf-plan"><div class="swk-kvs">' + chips + '</div></div>' +
+    (steps ? '<div class="sf-hd"><b>Orders</b><span class="sf-dim">time from the tape print</span></div>' : '') +
+    (res ? '<div class="sf-res top">' + res + '</div>' : '') + steps +
+    (notes.length ? '<div class="sf-dim sf-foot">' + esc(notes.join(' · ')) + '</div>' : '') + '</div>' +
+    '<button class="ghostbtn swk-evbtn" onclick="blindEvToggle(\'' + esc(r.id) + '\', event)">' + (evOpen ? 'Hide' : 'Show') + ' all events (' + nEv + ')</button>' +
+    (evOpen ? '<div class="sf-card bl-evcard"><div class="sf-hd"><b>All events</b><span class="sf-dim">clock on the first and last · +ms from the print · [gap]</span></div>' + blindTimeline(r) + '</div>' : '');
 }
 // Stepped timeline: clock on the stamped events (first, last), "+Nms what" on
 // every line, running delta in brackets.
@@ -2027,7 +2102,7 @@ function blindTimeline(r) {
       watch_end: (e) => 'leg 2 watch ended' + (e.resting > 0 ? ' · ' + n(e.resting) + ' still resting' : ''),
     };
     for (const e of (L.ev || [])) ev.push({ at: e.at, what: (W[e.e] || (() => e.e))(e), bad: /rejected|failed/.test(e.e) });
-    for (const f of (L.fills || [])) ev.push({ at: f.at, what: 'exchange fill, leg ' + f.leg + ': ' + n(f.q) + ' @ ' + n(f.px) });
+    for (const f of (L.fills || [])) ev.push({ at: f.at, what: 'exchange fill, leg ' + f.leg + ': ' + n(f.q) + ' @ ' + n(f.px), good: true });
   } else if (L && L.ev) {
     for (const e of L.ev) ev.push({ at: e.at, what: e.e.replace(/_/g, ' ') + (e.why ? ': ' + e.why : ''), bad: /rejected/.test(e.e) });
   } else if (L && L.skipped) ev.push({ at: t0, what: 'live skipped: ' + L.skipped });
@@ -2036,7 +2111,7 @@ function blindTimeline(r) {
   const lines = ev.map((e, i) => {
     const rel = e.at - t0, d = e.at - prev; prev = e.at;
     const stamp = i === 0 || i === ev.length - 1;
-    return '<div class="bl-tl' + (e.bad ? ' bad' : '') + '"><span class="bl-tl-c">' + (stamp ? blClock(e.at, true) : '') + '</span>'
+    return '<div class="bl-tl' + (e.bad ? ' bad' : e.good ? ' good' : '') + '"><span class="bl-tl-c">' + (stamp ? blClock(e.at, true) : '') + '</span>'
       + '<span class="bl-tl-w' + (stamp ? ' stp' : '') + '">' + (i === 0 ? '' : '+' + rel + 'ms  ') + esc(e.what) + (i === 0 ? '' : ' <span class="mut">[+' + d + ']</span>') + '</span></div>';
   }).join('');
   const facts = [];
@@ -2053,7 +2128,7 @@ function blindTimeline(r) {
     if (L.link) facts.push('auto trader could match it for <b>' + L.link.holdMs + ' ms</b>' + (L.link.caught ? ' · it did: <b>' + L.link.smaller + ' smaller, ' + L.link.skipped + ' skipped</b>' : ' · it did not come'));
   }
   if (r.fillWorst != null) facts.push('paper ' + n(r.size) + ' (' + inr(r.sizeInr) + ') · fill <b>' + n(r.fillWorst) + '–' + n(r.fillBest) + '</b> · P&amp;L <b>' + inr2(r.pnlWorst) + '–' + inr2(r.pnlBest) + '</b>');
-  return lines + (facts.length ? '<div class="facts num" style="margin-top:8px;">' + facts.map((f) => '<span class="fact">' + f + '</span>').join('') + '</div>' : '');
+  return lines;
 }
 setInterval(() => { if (!document.hidden && $('tab-blind') && $('tab-blind').classList.contains('active') && $('blindModal').classList.contains('hidden')) refreshBlind(false); }, 10000);   // 05ds: 10s, Blind tab only
 
@@ -3267,8 +3342,8 @@ function renderOrders() {
       // "stuck", which is the word this UI uses for a half-finished trade that
       // is holding real coins. A skip is the opposite: it looked again and
       // declined, before any money moved. Say which of the two it is.
-      (TD ? '<div class="o-err' + (TD.bad ? '' : ' o-note') + ' selectable"><b>To do: ' + esc(TD.text) + '</b> <span style="font-weight:500;opacity:.85">— ' + esc(TD.sub) + '</span></div>' :
-       SM && SM.todo ? '<div class="o-err selectable"><b>To do: ' + esc(SM.todo.text) + '</b>' + (SM.todo.sub ? ' <span style="font-weight:500;opacity:.85">— ' + esc(SM.todo.sub) + '</span>' : '') + '</div>' :
+      (TD ? '<div class="o-err' + (TD.bad ? '' : ' o-note') + ' selectable"><b>To do: ' + esc(TD.text) + '</b> <span style="font-weight:500;opacity:.85"><i class="swk-dash">— </i>' + esc(TD.sub) + '</span></div>' :
+       SM && SM.todo ? '<div class="o-err selectable"><b>To do: ' + esc(SM.todo.text) + '</b>' + (SM.todo.sub ? ' <span style="font-weight:500;opacity:.85"><i class="swk-dash">— </i>' + esc(SM.todo.sub) + '</span>' : '') + '</div>' :
        o.error ? '<div class="o-err' + (o.status === 'skipped' ? ' o-note' : '') + ' selectable">' +
         (o.status === 'skipped' ? 'not taken — re-checked at <b>' + esc(o.stage || '?') + '</b>, '
          : o.status === 'missed' ? 'missed at <b>' + esc(o.stage || '?') + '</b> — '
@@ -4317,6 +4392,10 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (stage === 'sell_first') return 'Sell-first';
     if (stage === 'usdt_topup') return 'USDT top-up';
     if (stage === 'leg1_skipped_usdt_held') return 'USDT taken from your float';
+    if (stage === 'balance_check') return 'Balance';
+    if (stage === 'validate') return 'Blind check';
+    if (stage === 'validated') return 'Plan';
+    if (stage === 'blind_audit') return 'Check after the trade';
     return String(stage || '').replace(/_/g, ' ');
   }
   /* What a sell-first trade made and what it still owes, from its own totals.
@@ -4343,8 +4422,44 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     var expected = open != null ? made + open : null;
     return { sold: sold, bought: bought, both: both, made: made, open: open, expected: expected, buyRef: buyRef, sellRef: sellRef, todo: todo, S: S, coin: coin, sp: sp, bp: bp, rate: rate, inrB: rate ? Number(S.boughtUsdt) * rate : null };
   }
+  /* times count from the decision (the first thing the trade logged), so nothing reads as negative */
+  function swkT0(o, evs, det){
+    var m = null;
+    (evs || []).forEach(function (e, i) { var d = (det && det[i]) || {}; var t = d.atMs != null ? Number(d.atMs) : new Date(e.ts).getTime(); if (isFinite(t) && (m === null || t < m)) m = t; });
+    return m !== null ? m : (o && o.created_at ? new Date(o.created_at).getTime() : 0);
+  }
+  /* engine words -> plain words */
+  function swkStop(x){
+    var s = String(x || ''), m;
+    if ((m = /marginal % fell below cutoff \((-?[\d.]+)% < (-?[\d.]+)%\)/.exec(s))) return 'Size limited: the next price level would lose money (' + m[1] + '%)';
+    if ((m = /hit the (\d+)-level cap/.exec(s))) return 'Size limited: used the ' + m[1] + ' best price levels (level cap)';
+    if (/budget|max_inr|per.trade/i.test(s)) return 'Size limited: per-trade limit reached';
+    return s ? 'Size limited: ' + s : '';
+  }
+  function swkPlain(e, d){
+    var a = String(d.action || '');
+    if (a === 'skipped_by_rule') return { t: 'Balance not checked \u2014 the rule sizes up to ' + sfR(d.sizedTo || 0) };
+    if (a === 'blind_link_smaller') return { t: 'Made smaller: blind already sold ' + sfN(d.blindQty) + ' on this signal', s: sfN(d.fromQty) + ' \u2192 ' + sfN(d.toQty) };
+    if (a === 'blind_link_skip' || /nothing left for this trade/.test(String(d.note || ''))) return null;
+    if (a === 'assumed_from_usdt_float') return { t: 'No USDT/INR order \u2014 USDT already held', s: d.usdtNeeded != null ? sfN(d.usdtNeeded) + ' USDT, valued at ' + d.valuedAt : '' };
+    if (a === 'leg_gap') return { t: 'Waited ' + (d.actualMs != null ? d.actualMs : d.askedMs) + ' ms after the previous order' };
+    if (a === 'deferred_shrink') return { t: 'Not enough coins yet \u2014 sell what is held once the other orders finish' };
+    if (a === 'deferred_recover') return { t: 'Sold what was held: ' + sfN(d.qty) + ' @ ' + d.price };
+    if (a === 'downgraded_from_done') return { t: 'Profit cleared \u2014 an order did not fill as planned', cls: 'bad' };
+    return null;
+  }
+  /* plan line as label/value chips so the four numbers are easy to find; profit in green */
+  function swkPlanKv(t){
+    var parts = String(t).split(' \u00b7 '), ok = true;
+    var h = parts.map(function (x) {
+      var m = /^(plan|edge|profit|cost)\s+(.+)$/i.exec(x.trim()); if (!m) { ok = false; return ''; }
+      var k = m[1].toLowerCase();
+      return '<span class="swk-kv' + (k === 'profit' ? ' good' : '') + '"><i>' + esc2(k.charAt(0).toUpperCase() + k.slice(1)) + '</i><b>' + esc2(m[2]) + '</b></span>';
+    }).join('');
+    return ok ? '<div class="swk-kvs">' + h + '</div>' : '<b>' + esc2(String(t).replace(/^plan/, 'Plan')) + '</b>';
+  }
   function tradeCardHtml(o, evs, det){
-    var list = [], byId = {}, t0 = o && o.created_at ? new Date(o.created_at).getTime() : null, plan = null, val = null, uiVal = 0, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
+    var list = [], byId = {}, t0 = swkT0(o, evs, det), plan = null, val = null, uiVal = 0, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
     var coinLc = String((o && o.coin) || '').toLowerCase();
     evs.forEach(function (e, i) {
       var d = det[i], p = sfParse(e.stage), ts = new Date(e.ts).getTime();
@@ -4413,15 +4528,15 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (!M && o && o.id != null) MADE[o.id] = LM && LM.made != null ? LM : null;
     if (!M && pr == null && LM && LM.made != null) res += '<span class="sf-pp ' + (LM.made >= 0 ? 'good' : 'bad') + '">' + (LM.made >= 0 ? 'Profit made +' : 'Loss made \u2212') + esc2(sfR(Math.abs(Math.round(LM.made * 100) / 100))) + ' <span class="sf-dim">on the ' + esc2(sfN(+LM.both.toPrecision(8))) + ' ' + esc2(coin) + ' bought and sold</span></span>';
     var dl = M ? Number(M.S.delta) || 0 : (stuck ? +coinNet.toPrecision(8) : 0), vc = stuck ? 'bad' : 'part';
-    if (M && M.todo) res += '<span class="sf-out ' + vc + '">To do: ' + esc2(M.todo.text) + (M.todo.sub ? ' <span class="sf-dim">' + esc2(M.todo.sub) + '</span>' : '') + '</span>';
-    else if (dl > 1e-9) res += '<span class="sf-out ' + vc + '">To do: SELL ' + esc2(sfN(dl)) + ' ' + esc2(coin) + ' <span class="sf-dim">' + (LG.b.q > 0 ? esc2(sfPct(dl, LG.b.q)) + ' of the ' + esc2(sfN(+LG.b.q.toPrecision(8))) + ' bought is not sold' : 'bought and not sold') + ' \u2014 you hold them now</span></span>';
-    else if (dl < -1e-9) res += '<span class="sf-out ' + vc + '">To do: BUY ' + esc2(sfN(-dl)) + ' ' + esc2(coin) + ' <span class="sf-dim">' + (LG.s.q > 0 ? esc2(sfPct(dl, LG.s.q)) + ' of the ' + esc2(sfN(+LG.s.q.toPrecision(8))) + ' sold is not bought' : 'sold and not bought') + ' \u2014 it came from your own balance</span></span>';
+    if (M && M.todo) res += '<span class="sf-out sf-todo ' + vc + '">To do: ' + esc2(M.todo.text) + (M.todo.sub ? ' <span class="sf-dim">' + esc2(M.todo.sub) + '</span>' : '') + '</span>';
+    else if (dl > 1e-9) res += '<span class="sf-out sf-todo ' + vc + '">To do: SELL ' + esc2(sfN(dl)) + ' ' + esc2(coin) + ' <span class="sf-dim">' + (LG.b.q > 0 ? esc2(sfPct(dl, LG.b.q)) + ' of the ' + esc2(sfN(+LG.b.q.toPrecision(8))) + ' bought is not sold' : 'bought and not sold') + ' \u2014 you hold them now</span></span>';
+    else if (dl < -1e-9) res += '<span class="sf-out sf-todo ' + vc + '">To do: BUY ' + esc2(sfN(-dl)) + ' ' + esc2(coin) + ' <span class="sf-dim">' + (LG.s.q > 0 ? esc2(sfPct(dl, LG.s.q)) + ' of the ' + esc2(sfN(+LG.s.q.toPrecision(8))) + ' sold is not bought' : 'sold and not bought') + ' \u2014 it came from your own balance</span></span>';
     else if (M) res += '<span class="sf-out good">Level — you hold the same ' + esc2(coin) + ' as before.</span>';
     else if (stuck) res += '<span class="sf-out">Nothing to do — no coins were bought or sold.</span>';
     if (tu.bought > 0) res += '<span class="sf-out good">USDT top-up: bought ' + esc2(sfN(+tu.bought.toFixed(2))) + ' USDT for ' + esc2(sfR(Math.round(tu.inr * 100) / 100)) + '</span>';
     if (tu.miss > 0) res += '<span class="sf-out bad">USDT top-up: ' + esc2(sfN(tu.miss)) + ' USDT not bought <span class="sf-dim">' + esc2(String(tu.why || '').replace(/_/g, ' ')) + '</span></span>';
     var head = plan ? 'Plan ' + sfN(plan.qty) + ' ' + coin + ' · you held ' + sfN(plan.held) + (Number(plan.missing) > 0 ? ' · missing ' + sfN(plan.missing) : '') : '';
-    var top = val && val.t ? '<div class="sf-plan"><b>' + esc2(val.t.replace(/^plan/, 'Plan')) + '</b>' + (val.s ? '<span class="sf-dim">' + esc2(val.s) + '</span>' : '') + '</div>' : '';
+    var top = val && val.t ? '<div class="sf-plan">' + swkPlanKv(val.t)  + (val.s ? '<span class="sf-dim">' + esc2(val.s) + '</span>' : '') + '</div>' : '';
     return '<div class="sf-card">' + top + '<div class="sf-hd"><b>' + (isSf ? 'Sell-first' : 'Orders') + '</b><span class="sf-dim">' + esc2(head) + '</span></div>' +
       (res ? '<div class="sf-res top">' + res + '</div>' : '') + steps +
       (notes.length ? '<div class="sf-dim sf-foot">' + esc2(notes.join(' · ')) + '</div>' : '') + '</div>';
@@ -4430,7 +4545,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   function evText(e, d){
     var a = String(d.action || ''), plan = d.plan || (d.netPct != null ? d : null);
     if (d.error) return { t: String(d.error).replace(/^WazirX \d+:\s*/, ''), cls: 'bad' };
-    if (e.stage === 'validated' && plan) return { t: 'plan ' + sfN(plan.qty) + ' · edge ' + plan.netPct + '% · profit ' + sfR(plan.profitInr) + ' · cost ' + sfR(plan.costInr), s: d.depth && d.depth.stoppedBy ? 'size stopped by: ' + d.depth.stoppedBy : '' };
+    var PL = swkPlain(e, d); if (PL) return PL;
+    if (e.stage === 'validated' && plan) return { t: 'plan ' + sfN(plan.qty) + ' · edge ' + plan.netPct + '% · profit ' + sfR(plan.profitInr) + ' · cost ' + sfR(plan.costInr), s: d.depth && d.depth.stoppedBy ? swkStop(d.depth.stoppedBy) : '' };
     if (a === 'plan') return { t: 'plan ' + sfN(d.qty) + ' · held ' + sfN(d.held) + (Number(d.missing) > 0 ? ' · missing ' + sfN(d.missing) : ''), s: d.buyBackMaxPx != null && Number(d.buyBackExtraPct) > 0 ? 'buy-back may pay up to ' + d.buyBackMaxPx + ' (+' + d.buyBackExtraPct + '%)' : '' };
     if (a === 'placed' || a === 'placed_blind') return { t: 'sent ' + sfN(d.qty) + ' @ ' + d.price, s: d.placeMs != null ? 'exchange answered in ' + d.placeMs + ' ms' + (d.sizedFrom ? ' · sized from the ' + d.sizedFrom : '') : '' };
     if (a === 'filled' || (a === 'blind_reconciled' && String(d.status) === 'done')) return { t: 'filled ' + sfN(d.filledQty) + ' of ' + sfN(d.ofQty != null ? d.ofQty : d.requestedQty), cls: 'good', s: d.avgPrice != null ? 'at ' + d.avgPrice : '' };
@@ -4440,17 +4556,25 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (a === 'stuck' || a === 'done' || a === 'missed') return { t: a === 'done' ? 'trade complete' + (d.profitInr != null ? ' · profit ' + sfR(d.profitInr) : '') : (d.note || a), cls: a === 'done' ? 'good' : a === 'stuck' ? 'bad' : '' };
     return { t: d.note || a.replace(/_/g, ' ') || '—' };
   }
+  function swkSideWord(t){ var m = /^(BUY BACK|BUY|SELL)\b/.exec(String(t)); return m ? '<span class="swk-sw ' + (m[1] === 'SELL' ? 'sell' : 'buy') + '">' + m[1] + '</span>' + esc2(String(t).slice(m[1].length)) : esc2(t); }
   function eventsHtml(o, evs, det){
-    var t0 = o && o.created_at ? new Date(o.created_at).getTime() : (evs[0] ? new Date(evs[0].ts).getTime() : 0);
+    var t0 = swkT0(o, evs, det);
     /* in time order, and the plan ("validated") always first: it is written to the log after the first orders are already out */
     var relOf = function (i) { var d = det[i]; return d.atMs != null ? Number(d.atMs) - t0 : new Date(evs[i].ts).getTime() - t0; };
-    var ord = evs.map(function (e, i) { return i; }).sort(function (x, y) { var vx = evs[x].stage === 'validated' ? 0 : 1, vy = evs[y].stage === 'validated' ? 0 : 1; return (vx - vy) || (relOf(x) - relOf(y)) || (x - y); });
-    return '<div class="sf-card"><div class="sf-hd"><b>All events</b><span class="sf-dim">time from the start of the trade · tap a row for its raw data</span></div>' + ord.map(function (i) {
+    var grpOf = function (i) { var e = evs[i], d = det[i], a = String(d.action || '');
+      if (/^(validated|validate|balance_check|leg1_skipped_usdt_held)$/.test(e.stage) || (e.stage === 'sell_first' && a === 'plan')) return 0;
+      if (/^(blind_reconciled|downgraded_from_done|filled|cancelled|bought|not_bought|skipped_rate|too_small|done|stuck|missed|late_fill)$/.test(a) || e.stage === 'blind_audit' || e.stage === 'usdt_topup') return 2;
+      return 1; };
+    var noise = function (i) { var a = String(det[i].action || ''); return a === 'leg_gap' || a === 'deferred_shrink'; };
+    var GN = ['Decision', 'Orders', 'After the orders'], lastG = -1;
+    var ord = evs.map(function (e, i) { return i; }).filter(function (i) { return !noise(i); }).sort(function (x, y) { var vx = evs[x].stage === 'validated' ? 0 : 1, vy = evs[y].stage === 'validated' ? 0 : 1; return (grpOf(x) - grpOf(y)) || (vx - vy) || (relOf(x) - relOf(y)) || (x - y); });
+    return '<div class="sf-card"><div class="sf-hd"><b>All events</b><span class="sf-dim">time from the decision · tap a row for its raw data</span></div>' + ord.map(function (i) {
+      var gh = ''; var g = grpOf(i); if (g !== lastG) { lastG = g; gh = '<div class="sf-grp">' + GN[g] + '</div>'; }
       var e = evs[i], d = det[i], x = evText(e, d), ts = new Date(e.ts), rel = relOf(i);
       var cls = e.ok === false || x.cls === 'bad' ? 'bad' : (x.cls || '');
       var raw = Object.keys(d).filter(function (k) { return !HIDE[k]; }).map(function (k) { return k + ': ' + (typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]); }).join(' · ');
-      return '<div class="sf-step cmp sf-ev tl-ev ' + cls + '"><span class="sf-when">' + (rel >= 0 ? '+' : '') + sfN(Math.round(rel)) + ' ms</span><div class="sf-b">' +
-        '<div class="sf-what"><b>' + esc2(stageLabel(e.stage)) + '</b><span class="sf-dim">' + ts.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
+      return gh + '<div class="sf-step cmp sf-ev tl-ev ' + cls + '"><span class="sf-when">' + (rel >= 0 ? '+' : '') + sfN(Math.round(rel)) + ' ms</span><div class="sf-b">' +
+        '<div class="sf-what"><b>' + swkSideWord(stageLabel(e.stage)) + '</b><span class="sf-dim">' + ts.toLocaleTimeString('en-IN', { hour12: false }) + '</span></div>' +
         '<div class="sf-l2"><span class="sf-out ' + (cls || 'ink') + '">' + esc2(x.t) + '</span>' + (x.s ? '<span class="sf-dim">' + esc2(x.s) + '</span>' : '') + '</div>' +
         (raw ? '<div class="swk-raw selectable">' + esc2(raw) + '</div>' : '') + '</div></div>';
     }).join('') + '</div>';
@@ -4611,5 +4735,91 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
 </script>
 <!-- ============================ END SWENIK CALM SKIN ====================== -->
 
+
+<style id="swk-calm">
+  /* numbers and prices in plain ink; green/orange/red only say what happened */
+  .sf-card .sf-todo { display: none !important; }
+  @media (max-width: 720px) {
+    .topbar { padding-top: 10px !important; padding-bottom: 10px !important; }
+    .topbar .subtitle { display: none !important; }
+    .hero-wrap { margin-top: 10px !important; }
+    .hero { padding: 12px 14px !important; }
+    .hero-row { gap: 10px !important; }
+    .hero-left { gap: 10px !important; width: 100%; }
+    .orb { width: 26px !important; height: 26px !important; }
+    .arm-state { font-size: 20px !important; }
+    .arm-sub, .lastscan { display: none !important; }
+    .hero-right { flex-direction: row !important; align-items: center !important; justify-content: space-between !important; width: 100%; flex-wrap: wrap; }
+    .bigbtn { font-size: 13px !important; padding: 9px 14px !important; min-height: 0 !important; width: auto !important; }
+    .hero-meta .keychip, #testKeysBtn, .hero-meta .ghostbtn, .heroselect { display: none !important; }
+    .hero.swk-more .hero-meta .keychip, .hero.swk-more #testKeysBtn, .hero.swk-more .hero-meta .ghostbtn, .hero.swk-more .heroselect { display: inline-flex !important; }
+    .swk-gear { display: inline-flex !important; }
+  }
+  .swk-gear { display: none; font: inherit; font-size: 13px; font-weight: 700; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink-2); cursor: pointer; }
+</style>
+<script>
+  (function () { var m = document.querySelector('.hero-meta'); if (!m) return;
+    var b = document.createElement('button'); b.className = 'swk-gear'; b.type = 'button'; b.textContent = '⚙ More';
+    b.onclick = function () { var h = document.querySelector('.hero'); if (h) { h.classList.toggle('swk-more'); b.textContent = h.classList.contains('swk-more') ? '⚙ Less' : '⚙ More'; } };
+    m.appendChild(b); })();
+</script>
+
+<style id="swk-comfort">
+  /* eye comfort: readable grey, calmer weights, more air, soft markers */
+  html body { --ink-3: #6b7688; }
+  .sf-card { padding: 14px 16px !important; }
+  .sf-step.cmp { padding: 11px 0 !important; line-height: 1.5; }
+  .sf-plan b { font-weight: 650 !important; }
+  .sf-grp { margin: 12px 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
+  .sf-ev .sf-out.ink { font-weight: 500 !important; color: var(--ink) !important; }
+  .sf-when { font-weight: 600 !important; color: var(--ink-2) !important; }
+  .o-err { font-weight: 500; line-height: 1.5; }
+  .o-err b { font-weight: 650; }
+</style>
+<style id="swk-highlight">
+  /* calm highlights: tinted backgrounds carry the meaning, text stays readable */
+  /* row: to-do as a soft red box with an accent edge; the sub-line on its own line */
+  .o-err.selectable:not(.o-note) { background: var(--danger-soft, #fdecee); border-left: 3px solid var(--danger); border-radius: 8px; margin: 0 14px 12px 16px; padding: 8px 11px !important; color: var(--ink) !important; }
+  .o-err.selectable:not(.o-note) b { color: var(--danger); font-weight: 700; }
+  .o-err.selectable:not(.o-note) > span { display: block; color: var(--ink-2); opacity: 1 !important; font-size: 12px; margin-top: 1px; }
+  /* row: money as a tinted pill */
+  .o-profit { border-radius: 7px; padding: 2px 8px; }
+  .o-profit.pos { background: var(--success-soft, #e8f6ee); }
+  .o-profit.neg { background: var(--danger-soft, #fdecee); }
+  .o-profit.o-part { background: #fdf3e2; }
+  /* card: plan as four label/value chips */
+  .swk-kvs { display: flex; gap: 5px; margin-bottom: 6px; }
+  .swk-kv { display: inline-flex; flex-direction: column; border: 1px solid var(--line, #e6e9ee); border-radius: 9px; padding: 5px 8px; flex: 1 1 auto; min-width: 0; background: #fafbfc; }
+  .swk-kv i { font-style: normal; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+  .swk-kv b { font-size: 13.5px; white-space: nowrap; font-weight: 700 !important; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .swk-kv.good { background: var(--success-soft, #e8f6ee); border-color: transparent; }
+  .swk-kv.good b { color: var(--success); }
+  /* card: profit / loss line as a tinted box */
+  .sf-res .sf-pp { display: block; border-radius: 9px; padding: 7px 11px; margin: 4px 0; }
+  .sf-res .sf-pp.good { background: var(--success-soft, #e8f6ee); }
+  .sf-res .sf-pp.bad { background: var(--danger-soft, #fdecee); }
+  .sf-res .sf-pp.part { background: #fdf3e2; }
+  /* steps: quantity and price a touch stronger, outcome on a soft tint */
+  .swk-dash { font-style: normal; }
+  .o-err.selectable:not(.o-note) .swk-dash { display: none; }
+</style>
+<style id="swk-sides">
+  /* event list: the BUY / SELL word in its colour */
+  .swk-sw { font-weight: 800; letter-spacing: .02em; }
+  .swk-sw.buy { color: var(--success); } .swk-sw.sell { color: var(--danger); }
+  /* blind: card spacing inside the open row, calm stepped timeline */
+  #blindBody .timeline .sf-card { margin: 4px 0 10px; }
+  #blindBody .swk-evbtn { margin: 2px 0 10px; }
+  .swk-kv.bad { background: var(--danger-soft, #fdecee); border-color: transparent; } .swk-kv.bad b { color: var(--danger); }
+  .sf-res .sf-out.ink { display: block; color: var(--ink-2) !important; font-weight: 500 !important; }
+  .sf-res .sf-todo-bl { display: block; background: var(--danger-soft); border-left: 3px solid var(--danger); border-radius: 8px; padding: 7px 10px; margin: 4px 0; }
+  .bl-evcard .bl-tl { font-family: inherit; font-size: 12.5px; line-height: 1.55; font-variant-numeric: tabular-nums; padding: 3px 0; }
+  .bl-evcard .bl-tl-c { flex-basis: 96px; color: var(--ink-3); font-weight: 600; }
+  .bl-evcard .bl-tl-w { color: var(--ink); }
+  .bl-evcard .bl-tl.good .bl-tl-w { color: var(--success); }
+  .bl-evcard .bl-tl.bad .bl-tl-w { color: var(--danger); }
+  .bl-evcard .bl-tl .mut { color: var(--ink-3); }
+  @media (max-width:720px){ .bl-evcard .bl-tl { font-size: 12px; } .bl-evcard .bl-tl-c { flex-basis: 80px; font-size: 11px; } }
+</style>
 </body>
 </html>
