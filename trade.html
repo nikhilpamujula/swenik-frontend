@@ -876,6 +876,7 @@
     <button class="tabbtn" id="tb-positions" onclick="setTab('positions')">Positions<span class="cnt" id="cntPos">0</span></button>
     <button class="tabbtn" id="tb-missed" onclick="setTab('missed')">Missed<span class="cnt" id="cntMissed">0</span></button>
     <button class="tabbtn" id="tb-blind" onclick="setTab('blind')">Blind<span class="cnt" id="cntBlind">0</span></button>
+    <button class="tabbtn" id="tb-dcx" onclick="setTab('dcx')">CoinDCX<span class="cnt" id="cntDcx">0</span></button>
   </div>
 </div>
 
@@ -1092,6 +1093,19 @@
     <div class="bl-coins" id="blindCoins"></div>
     <div id="blindBody"><div class="empty">Loading…</div></div>
     <div style="display:flex;justify-content:center;margin-top:4px;"><button class="btn sm" id="blMore" style="display:none;" onclick="blindMore()">Show more</button></div>
+  </div>
+
+  <div class="tabpane" id="tab-dcx">
+    <div class="rule">
+      <div class="rule-top">
+        <span class="rule-name">CoinDCX paper trades</span>
+        <span class="chip paper">paper</span>
+        <span class="hint" id="dcxHint" style="margin-left:auto;"></span>
+      </div>
+      <div class="facts num" id="dcxFacts"></div>
+    </div>
+    <div class="tiles" id="dcxTiles"></div>
+    <div id="dcxBody"><div class="empty">Loading…</div></div>
   </div>
 
   <div class="tabpane" id="tab-positions">
@@ -1603,10 +1617,12 @@ const openTimelines = new Set();
 function setTab(name) {
   // 'manual' (Track Live) is not a pane anymore — its tab button navigates
   // straight to track.html, the scanner-page clone.
-  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind']) {
+  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind', 'dcx']) {
+    if (!$('tab-' + t)) continue;
     $('tab-' + t).classList.toggle('active', t === name);
     $('tb-' + t).classList.toggle('active', t === name);
   }
+  if (name === 'dcx') refreshDcx();
   if (name === 'missed') refreshMissed();
   if (name === 'blind') refreshBlind(true);
 }
@@ -4821,5 +4837,75 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
   .bl-evcard .bl-tl .mut { color: var(--ink-3); }
   @media (max-width:720px){ .bl-evcard .bl-tl { font-size: 12px; } .bl-evcard .bl-tl-c { flex-basis: 80px; font-size: 11px; } }
 </style>
+
+<script id="swk-dcx">
+/* CoinDCX paper trades: served by the trader at /api/trader/dcx (tools/dcxpaperHost.js).
+   Read only. One row per paper trade; a row opens to its three orders and how they fill after each delay. */
+let DCX = null; const DCX_OPEN = new Set();
+const dcxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v));   // −₹21.88, not ₹-21.88
+function dcxToggle(id) { if (DCX_OPEN.has(id)) DCX_OPEN.delete(id); else DCX_OPEN.add(id); drawDcx(); }
+async function refreshDcx() {
+  const body = $('dcxBody'); if (!body) return;
+  try { DCX = await apiJson('/api/trader/dcx?limit=100'); }
+  catch (e) { DCX = null; body.innerHTML = '<div class="empty">' + (/404/.test(e.message) ? 'CoinDCX paper is not running on this trader.' : 'Could not load — ' + esc(e.message)) + '</div>'; $('dcxFacts').innerHTML = ''; $('dcxTiles').innerHTML = ''; return; }
+  drawDcx();
+}
+function drawDcx() {
+  const D = DCX || {}, body = $('dcxBody');
+  if (!D.running && !(D.trades && D.trades.length)) { body.innerHTML = '<div class="empty">CoinDCX paper: ' + esc(D.note || 'not running') + '</div>'; $('dcxFacts').innerHTML = ''; $('dcxTiles').innerHTML = ''; return; }
+  const L = D.live || {}, lats = D.lats || [], fees = D.fees || [];
+  const left = D.endsAt ? Math.max(0, D.endsAt - Date.now()) : 0;
+  $('dcxHint').textContent = D.running ? (Math.floor(left / 3600e3) + 'h ' + Math.floor(left % 3600e3 / 60e3) + 'm left') : (D.note || 'stopped');
+  $('dcxFacts').innerHTML =
+    '<span class="fact">loop ≥ <b>' + D.minPct + '%</b></span>' +
+    '<span class="fact">size ≤ <b>' + inr(D.capInr) + '</b></span>' +
+    '<span class="fact">fill checked at <b>+' + lats.join(' / +') + ' ms</b></span>' +
+    '<span class="fact">fees <b>' + fees.join('% / ') + '%</b> per order</span>' +
+    '<span class="fact">no repeat on a coin + path for <b>' + D.dedupeSec + ' s</b>' + (D.dupSkipped ? ' · skipped <b>' + D.dupSkipped + '</b>' : '') + '</span>' +
+    '<span class="fact' + (L.inr ? '' : ' warn') + '">live books INR <b>' + (L.inr || 0) + '</b> · USDT <b>' + (L.usdt || 0) + '</b> of ' + (D.coins || 0) + ' · USDT/INR <b>' + (L.usdtinr ? 'yes' : 'no') + '</b></span>';
+  $('dcxTiles').innerHTML = (D.totals || []).map((t) =>
+    tile('Paper P&L at +' + t.ms + ' ms (' + fees[1] + '% fee)', '<span class="' + ((t.net[1] || 0) >= 0 ? 'pos' : 'neg') + '">' + dcxR(t.net[1] || 0) + '</span>',
+      t.n + ' trades · filled ' + t.full + ' · part ' + (t.n - t.full - t.none) + ' · missed ' + t.none + ' · at ' + fees[0] + '% fee ' + dcxR(t.net[0] || 0), '')).join('');
+  const cnt = $('cntDcx'); if (cnt) cnt.textContent = (D.totals && D.totals[0] && D.totals[0].n) || 0;
+  const T = D.trades || [];
+  if (!T.length) { body.innerHTML = '<div class="empty">No CoinDCX loop at ' + D.minPct + '% or more yet.</div>'; return; }
+  const ms0 = lats[0];
+  body.innerHTML = T.map((t, i) => {
+    const id = t.coin + t.path + t.at, r0 = t.lat && t.lat[ms0], open = DCX_OPEN.has(id);
+    // filled = all 3 orders; part = some of the loop done; stuck = coins bought/sold but the loop never closed; missed = nothing filled
+    const st = !r0 ? ['running', 'checking'] : r0.full ? ['done', 'filled'] : r0.none ? ['skipped', 'missed'] : r0.matched > 0 ? ['missed', 'part'] : ['failed', 'stuck'];
+    const net = r0 ? r0.net[1] : null;
+    const pathTxt = t.path === 'A' ? 'A · buy INR → sell USDT' : 'B · buy USDT → sell INR';
+    return '<div class="order ' + (st[0] === 'done' ? 's-done' : st[0] === 'skipped' ? '' : 's-failed') + (open ? ' open' : '') + '">' +
+      '<div class="order-row" onclick="dcxToggle(\'' + esc(id) + '\')">' +
+        '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span><span class="chip paper">paper</span>' +
+        '<span class="o-coin">' + esc(t.coin) + '</span>' +
+        '<span class="o-path">' + pathTxt + ' · <b>' + t.pct + '%</b> · ' + inr(t.sizeInr) + '</span>' +
+        (net != null ? '<span class="o-profit num ' + (net >= 0 ? 'pos' : 'neg') + '">' + dcxR(net) + '</span>' : '') +
+        '<span class="o-time num">' + blClock(t.at) + '</span>' +
+      '</div>' + (open ? '<div class="timeline" style="display:block;">' + dcxCard(t, lats, fees) + '</div>' : '') + '</div>';
+  }).join('');
+}
+function dcxCard(t, lats, fees) {
+  const n = (v) => blN(v, 8);
+  const steps = (t.legs || []).map((l, i) => {
+    const parts = lats.map((ms) => { const r = t.lat && t.lat[ms]; const f = r ? r.fills[i] : null;
+      return f == null ? '+' + ms + ' ms …' : '+' + ms + ' ms ' + (f >= 99.9 ? 'FILLED' : f <= 0.1 ? 'MISSED' : f + '%'); });
+    const r = t.lat && t.lat[lats[0]], f = r ? r.fills[i] : null, cls = f == null ? '' : f >= 99.9 ? 'good' : f <= 0.1 ? 'bad' : 'part';
+    const pair = String(l.pair).replace(/^[A-Z]+-/, '').replace('_', '/');
+    return '<div class="sf-step cmp ' + cls + '"><span class="sf-n">' + (i + 1) + '</span><div class="sf-b">' +
+      '<div class="sf-what"><span class="swk-side ' + l.side + '">' + l.side.toUpperCase() + '</span><span class="sf-num"><span class="sf-nw"><span class="num">' + esc(n(l.qty)) + '</span> ' + esc(pair) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc(n(l.px)) + '</span></span></span></div>' +
+      '<div class="sf-l2"><span class="sf-out ' + cls + '">' + esc(parts.join(' · ')) + '</span></div></div></div>';
+  }).join('');
+  const rows = lats.map((ms) => { const r = t.lat && t.lat[ms]; if (!r) return '';
+    return '<span class="fact">+' + ms + ' ms: <b>' + (r.full ? 'filled' : r.none ? 'missed' : r.matched > 0 ? 'part ' + r.matched + '%' : 'stuck') + '</b> · ' + fees.map((f, i) => f + '% fee <b>' + dcxR(r.net[i]) + '</b>').join(' · ') + (r.leftoverInr ? ' · left holding <b>' + inr(r.leftoverInr) + '</b>' : '') + '</span>'; }).join('');
+  return '<div class="sf-card"><div class="sf-plan"><div class="swk-kvs">' +
+    '<span class="swk-kv"><i>Path</i><b>' + esc(t.path) + '</b></span><span class="swk-kv"><i>Edge</i><b>' + t.pct + '%</b></span>' +
+    '<span class="swk-kv"><i>Size</i><b>' + inr(t.sizeInr) + '</b></span></div></div>' +
+    '<div class="sf-hd"><b>Paper orders</b><span class="sf-dim">would they still fill after the delay?</span></div>' + steps +
+    '<div class="facts num" style="margin-top:8px;">' + rows + '</div></div>';
+}
+setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classList.contains('active')) refreshDcx(); }, 10000);
+</script>
 </body>
 </html>
