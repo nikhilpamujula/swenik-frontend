@@ -1103,6 +1103,20 @@
         <span class="hint" id="dcxHint" style="margin-left:auto;"></span>
       </div>
       <div class="facts num" id="dcxFacts"></div>
+      <div style="margin-top:10px;"><button class="btn" id="dcxSetBtn" onclick="dcxSetToggle()" style="padding:6px 12px;font-size:12px;">Settings</button></div>
+      <div id="dcxSet" style="display:none;margin-top:10px;">
+        <div class="frm">
+          <div class="f"><label>Min loop %</label><input id="dcx_minPct" type="number" step="0.05" min="0.1"><div class="sub">average % over the whole size</div></div>
+          <div class="f"><label>Min amount ₹</label><input id="dcx_minInr" type="number" step="1000" min="10000"><div class="sub">must be available at that % — never below ₹10,000</div></div>
+          <div class="f"><label>Amount per trade ₹</label><input id="dcx_maxInr" type="number" step="1000" min="10000"><div class="sub">walks the books up to this</div></div>
+          <div class="f"><label>Min profit ₹ (before fees)</label><input id="dcx_minProfit" type="number" step="10" min="0"><div class="sub">at the size taken</div></div>
+          <div class="f"><label>No repeat on a coin + path (sec)</label><input id="dcx_cooldownSec" type="number" step="30" min="10"><div class="sub">the same three prices are never repeated at all</div></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;margin-top:10px;">
+          <span class="hint">Saving starts a fresh count with the new settings.</span>
+          <button class="btn primary" onclick="dcxSave()">Save</button>
+        </div>
+      </div>
     </div>
     <div class="tiles" id="dcxTiles"></div>
     <div id="dcxBody"><div class="empty">Loading…</div></div>
@@ -4841,7 +4855,20 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
 <script id="swk-dcx">
 /* CoinDCX paper trades: served by the trader at /api/trader/dcx (tools/dcxpaperHost.js).
    Read only. One row per paper trade; a row opens to its three orders and how they fill after each delay. */
-let DCX = null; const DCX_OPEN = new Set();
+let DCX = null; const DCX_OPEN = new Set(); let DCX_SET = false;
+const DCX_KEYS = ['minPct', 'minInr', 'maxInr', 'minProfit', 'cooldownSec'];
+function dcxSetToggle() { DCX_SET = !DCX_SET; $('dcxSet').style.display = DCX_SET ? '' : 'none'; $('dcxSetBtn').textContent = DCX_SET ? 'Hide settings' : 'Settings'; if (DCX_SET) dcxFill(true); }
+function dcxFill(force) { const c = (DCX && DCX.cfg) || {}; for (const k of DCX_KEYS) { const el = $('dcx_' + k); if (el && (force || document.activeElement !== el) && c[k] != null) el.value = c[k]; } }
+async function dcxSave() {
+  const body = {}; for (const k of DCX_KEYS) { const v = $('dcx_' + k).value; if (v !== '') body[k] = Number(v); }
+  if (body.minInr != null && body.minInr < 10000) { alert('Min amount cannot be below ₹10,000.'); return; }
+  if (body.maxInr != null && body.minInr != null && body.maxInr < body.minInr) { alert('Amount per trade must be at least the min amount.'); return; }
+  try {
+    const r = await apiJson('/api/trader/dcx/config', { method: 'POST', body: JSON.stringify(body) });
+    if (r && r.cfg) { DCX = Object.assign({}, DCX, { cfg: r.cfg }); dcxFill(true); }
+    setTimeout(refreshDcx, 5500);
+  } catch (e) { alert('Could not save — ' + e.message); }
+}
 const dcxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v));   // −₹21.88, not ₹-21.88
 function dcxToggle(id) { if (DCX_OPEN.has(id)) DCX_OPEN.delete(id); else DCX_OPEN.add(id); drawDcx(); }
 async function refreshDcx() {
@@ -4853,22 +4880,25 @@ async function refreshDcx() {
 function drawDcx() {
   const D = DCX || {}, body = $('dcxBody');
   if (!D.running && !(D.trades && D.trades.length)) { body.innerHTML = '<div class="empty">CoinDCX paper: ' + esc(D.note || 'not running') + '</div>'; $('dcxFacts').innerHTML = ''; $('dcxTiles').innerHTML = ''; return; }
-  const L = D.live || {}, lats = D.lats || [], fees = D.fees || [];
+  const L = D.live || {}, lats = D.lats || [], fees = D.fees || [], C = D.cfg || { minPct: D.minPct, minInr: D.capInr, maxInr: D.capInr, minProfit: 0, cooldownSec: D.dedupeSec };
+  if (DCX_SET) dcxFill(false);
   const left = D.endsAt ? Math.max(0, D.endsAt - Date.now()) : 0;
   $('dcxHint').textContent = D.running ? (Math.floor(left / 3600e3) + 'h ' + Math.floor(left % 3600e3 / 60e3) + 'm left') : (D.note || 'stopped');
   $('dcxFacts').innerHTML =
-    '<span class="fact">loop ≥ <b>' + D.minPct + '%</b></span>' +
-    '<span class="fact">size ≤ <b>' + inr(D.capInr) + '</b></span>' +
+    '<span class="fact">loop ≥ <b>' + C.minPct + '%</b></span>' +
+    '<span class="fact">amount <b>' + inr(C.minInr) + (C.maxInr > C.minInr ? '–' + inr(C.maxInr) : '') + '</b></span>' +
+    '<span class="fact">profit ≥ <b>' + inr(C.minProfit) + '</b> before fees</span>' +
     '<span class="fact">fill checked at <b>+' + lats.join(' / +') + ' ms</b></span>' +
     '<span class="fact">fees <b>' + fees.join('% / ') + '%</b> per order</span>' +
-    '<span class="fact">no repeat on a coin + path for <b>' + D.dedupeSec + ' s</b>' + (D.dupSkipped ? ' · skipped <b>' + D.dupSkipped + '</b>' : '') + '</span>' +
+    '<span class="fact">no repeat on a coin + path for <b>' + C.cooldownSec + ' s</b>, same prices never</span>' +
+    '<span class="fact">skipped: too small <b>' + (D.tooSmall || 0) + '</b> · low profit <b>' + (D.lowProfit || 0) + '</b> · repeats <b>' + (D.dupSkipped || 0) + '</b>' + (D.cfgAt ? ' · since ' + blClock(D.cfgAt) : '') + '</span>' +
     '<span class="fact' + (L.inr ? '' : ' warn') + '">live books INR <b>' + (L.inr || 0) + '</b> · USDT <b>' + (L.usdt || 0) + '</b> of ' + (D.coins || 0) + ' · USDT/INR <b>' + (L.usdtinr ? 'yes' : 'no') + '</b></span>';
   $('dcxTiles').innerHTML = (D.totals || []).map((t) =>
     tile('Paper P&L at +' + t.ms + ' ms (' + fees[1] + '% fee)', '<span class="' + ((t.net[1] || 0) >= 0 ? 'pos' : 'neg') + '">' + dcxR(t.net[1] || 0) + '</span>',
       t.n + ' trades · filled ' + t.full + ' · part ' + (t.n - t.full - t.none) + ' · missed ' + t.none + ' · at ' + fees[0] + '% fee ' + dcxR(t.net[0] || 0), '')).join('');
   const cnt = $('cntDcx'); if (cnt) cnt.textContent = (D.totals && D.totals[0] && D.totals[0].n) || 0;
   const T = D.trades || [];
-  if (!T.length) { body.innerHTML = '<div class="empty">No CoinDCX loop at ' + D.minPct + '% or more yet.</div>'; return; }
+  if (!T.length) { body.innerHTML = '<div class="empty">No CoinDCX loop yet with ' + inr(C.minInr) + ' at ' + C.minPct + '% or more.</div>'; return; }
   const ms0 = lats[0];
   body.innerHTML = T.map((t, i) => {
     const id = t.coin + t.path + t.at, r0 = t.lat && t.lat[ms0], open = DCX_OPEN.has(id);
