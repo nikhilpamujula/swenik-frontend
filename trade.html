@@ -878,6 +878,7 @@
     <button class="tabbtn" id="tb-blind" onclick="setTab('blind')">Blind<span class="cnt" id="cntBlind">0</span></button>
     <button class="tabbtn" id="tb-dcx" onclick="setTab('dcx')">CoinDCX<span class="cnt" id="cntDcx">0</span></button>
     <button class="tabbtn" id="tb-dcxl" onclick="setTab('dcxl')">DCX Live<span class="cnt" id="cntDcxl">0</span></button>
+    <button class="tabbtn" id="tb-rs" onclick="setTab('rs')">Trader 3<span class="cnt" id="cntRs">0</span></button>
   </div>
 </div>
 
@@ -1204,6 +1205,32 @@
     </div>
     <div id="dxBody"><div class="empty">Loading…</div></div>
   </div>
+  <style>
+    #tab-rs .num { color:var(--ink) !important; }
+    #tab-rs .pos, #tab-rs .o-profit.pos { color:var(--success) !important; }
+    #tab-rs .neg, #tab-rs .o-profit.neg { color:var(--danger) !important; }
+    #tab-rs .hint, #tab-rs .hint.num, #tab-rs .rs-mut { color:var(--gray-500) !important; }
+    #tab-rs .o-time.num { color:var(--gray-500) !important; }
+    #tab-rs .dx-seg .btn.on { background:var(--accent) !important; border-color:var(--accent) !important; color:#fff !important; }
+  </style>
+  <div class="tabpane" id="tab-rs">
+    <div class="rule">
+      <div class="rule-top">
+        <span class="rule-name">Trader 3 · Rust (WazirX auto loop)</span>
+        <span class="chip paper" id="rsMode">paper</span>
+        <span class="hint" id="rsHint" style="margin-left:auto;"></span>
+      </div>
+      <div class="facts num" id="rsFacts"></div>
+    </div>
+    <div class="tiles" id="rsTiles"></div>
+    <div class="dx-seg" style="margin:4px 0 10px;">
+      <button class="btn sm" id="rsv-trades" onclick="rsView('trades')">Paper trades</button>
+      <button class="btn sm" id="rsv-node" onclick="rsView('node')">vs Node</button>
+      <button class="btn sm" id="rsv-health" onclick="rsView('health')">Health</button>
+    </div>
+    <div id="rsBody"><div class="empty">Loading…</div></div>
+  </div>
+
 
   <div class="tabpane" id="tab-positions">
     <div class="panel" id="walletPanel" style="display:none;">
@@ -1714,13 +1741,14 @@ const openTimelines = new Set();
 function setTab(name) {
   // 'manual' (Track Live) is not a pane anymore — its tab button navigates
   // straight to track.html, the scanner-page clone.
-  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind', 'dcx', 'dcxl']) {
+  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind', 'dcx', 'dcxl', 'rs']) {
     if (!$('tab-' + t)) continue;
     $('tab-' + t).classList.toggle('active', t === name);
     $('tb-' + t).classList.toggle('active', t === name);
   }
   if (name === 'dcx') refreshDcx();
   if (name === 'dcxl') refreshDx();
+  if (name === 'rs') refreshRs();
   if (name === 'missed') refreshMissed();
   if (name === 'blind') refreshBlind(true);
 }
@@ -5236,5 +5264,111 @@ function dxHealth(D) {
 }
 setInterval(() => { if (!document.hidden && $('tab-dcxl') && $('tab-dcxl').classList.contains('active')) refreshDx(); }, 5000);
 </script>
+<script id="swk-rs">
+/* Trader 3 = swenik-rs, the Rust engine on the EC2 box (api-ec2 /rs-api). Read-only page: GET only,
+   no token, no buttons that change anything. Paper trades come from /rs-api/paper, the Node
+   comparison from /rs-api/compare, engine state from /rs-api/status. */
+const RS_BASE = 'https://api-ec2.swenik.co.in/rs-api';
+let RS = { st: null, paper: null, cmp: null, err: null }, RS_VIEW = 'trades'; const RS_OPEN = new Set();
+async function rsGet(p) { const r = await fetch(RS_BASE + p + (p.includes('?') ? '&' : '?') + 'cb=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
+async function refreshRs() {
+  try { const [st, paper, cmp] = await Promise.all([rsGet('/status'), rsGet('/paper'), rsGet('/compare')]); RS = { st, paper, cmp, err: null }; }
+  catch (e) { RS.err = e.message; }
+  drawRs();
+}
+function rsView(v) { RS_VIEW = v; drawRs(); }
+function rsToggle(id) { if (RS_OPEN.has(id)) RS_OPEN.delete(id); else RS_OPEN.add(id); drawRs(); }
+const rsUp = (s) => s < 90 ? s + 's' : s < 5400 ? Math.round(s / 60) + 'm' : (s / 3600).toFixed(1) + 'h';
+function drawRs() {
+  const S = RS.st, P = RS.paper || {}, C = RS.cmp || {};
+  if (!S) { $('rsBody').innerHTML = '<div class="empty">' + (RS.err ? 'Could not reach Trader 3 — ' + esc(RS.err) : 'Loading…') + '</div>'; $('rsFacts').innerHTML = ''; $('rsTiles').innerHTML = ''; return; }
+  const sk = S.sockets || {}, up = Object.values(sk).filter(Boolean).length, all = Object.keys(sk).length;
+  const R = S.wazirxRate || {}, A = S.auto || {}, E = S.evalUs || {}, W = S.wallet || {}, rule = S.rule || {};
+  $('rsMode').textContent = P.on ? 'paper' : 'shadow'; $('rsMode').className = 'chip ' + (P.on ? 'paper' : 'off');
+  $('rsHint').textContent = (RS.err ? '⚠ ' + RS.err + ' · ' : '') + 'updated ' + blClock(S.at) + ' · up ' + rsUp(S.upSec || 0);
+  $('rsFacts').innerHTML =
+    '<span class="fact">orders <b>off</b> · paper <b>' + (P.on ? 'on' : 'off') + '</b></span>' +
+    '<span class="fact">rule <b>' + esc(rule.id || '—') + ' · ' + esc(rule.name || '') + '</b></span>' +
+    '<span class="fact' + (up === all && all ? '' : ' warn') + '">sockets <b>' + up + '/' + all + '</b> · ' + (S.coins || 0) + ' coins</span>' +
+    '<span class="fact' + (W.known ? '' : ' warn') + '">wallet <b>' + (W.known ? 'live' : 'not connected') + '</b></span>' +
+    '<span class="fact' + ((R.hits429 || R.hits418) ? ' warn' : '') + '">WazirX REST 429 <b>' + (R.hits429 || 0) + '</b> · 418 <b>' + (R.hits418 || 0) + '</b></span>';
+  const pr = P.profitInr || 0, rows = P.recent || [];
+  const cnt = (s) => rows.filter((r) => r.status === s).length;
+  $('rsTiles').innerHTML =
+    tile('Paper P&L', '<span class="' + (pr >= 0 ? 'pos' : 'neg') + '">' + dxR(pr) + '</span>', 'since Trader 3 started', '', true) +
+    tile('Paper trades', String(P.trades || 0), 'done ' + cnt('done') + ' · missed ' + cnt('missed') + ' · failed ' + cnt('failed')) +
+    tile('Same as Node', (C.matched || 0) + ' / ' + ((C.matched || 0) + (C.nodeOnly || 0)), 'Rust only ' + (C.rustOnly || 0) + ' · Node orders, last 6 h') +
+    tile('Decision', (E.n ? Math.round(E.avgUs) : '—') + ' µs', 'max ' + (E.maxUs || 0) + ' µs · ' + (E.n || 0) + ' fires');
+  const c = $('cntRs'); if (c) c.textContent = P.trades || 0;
+  for (const v of ['trades', 'node', 'health']) { const b = $('rsv-' + v); if (b) b.className = 'btn sm' + (RS_VIEW === v ? ' on' : ''); }
+  $('rsBody').innerHTML = RS_VIEW === 'node' ? rsNode(C) : RS_VIEW === 'health' ? rsHealth(S) : rsTrades(rows, C);
+}
+const RS_ST = { done: ['done', 'done'], missed: ['skipped', 'missed'], failed: ['failed', 'failed'] };
+function rsNodeFor(t, C) {
+  for (const r of (C.rows || [])) { if (r.rust && r.node && r.node.coin === t.coin && Math.abs((r.node.fire || r.node.at) - t.atMs) <= 3000) return r; }
+  return null;
+}
+function rsTrades(rows, C) {
+  if (!rows.length) return '<div class="empty">No paper trade yet — they appear when rule 4 finds a loop.</div>';
+  return rows.map((t) => {
+    const id = t.coin + '-' + t.atMs, st = RS_ST[t.status] || ['failed', t.status], open = RS_OPEN.has(id);
+    const pathTxt = t.path === 'A' ? 'A · buy INR → sell USDT' : 'B · buy USDT → sell INR';
+    const p = t.profitInr;
+    return '<div class="order ' + (t.status === 'done' ? 's-done' : t.status === 'missed' ? '' : 's-failed') + (open ? ' open' : '') + '">' +
+      '<div class="order-row" onclick="rsToggle(\'' + esc(id) + '\')">' +
+        '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span><span class="chip paper">paper</span>' +
+        '<span class="o-coin">' + esc(String(t.coin).toUpperCase()) + '</span>' +
+        '<span class="o-path">' + pathTxt + ' · <b>' + t.planNetPct + '%</b>' + (t.spentInr > 0 ? ' · ' + inr(t.spentInr) : '') + '</span>' +
+        (p == null ? '' : '<span class="o-profit num ' + (p >= 0 ? 'pos' : 'neg') + '">' + dxR(p) + '</span>') +
+        '<span class="o-time num">' + blClock(t.atMs) + '</span>' +
+      '</div>' + (open ? '<div class="timeline" style="display:block;">' + rsCard(t, rsNodeFor(t, C)) + '</div>' : '') + '</div>';
+  }).join('');
+}
+function rsCard(t, m) {
+  const n = (v) => blN(v, 8);
+  let prev = t.atMs;
+  const legs = (t.legs || []).map((l) => {
+    const d = l.atMs - t.atMs, dd = l.atMs - prev; prev = l.atMs;
+    const side = l.side === 'buy' ? 'Buy' : 'Sell', sym = String(l.sym).toUpperCase().replace(/(INR|USDT)$/, '/$1');
+    return '<div class="sf-step cmp ' + (l.synthetic ? 'part' : 'good') + '"><span class="sf-n">' + (l.n || '·') + '</span><div class="sf-b">' +
+      '<div class="sf-what">' + (l.synthetic ? 'USDT already held — not bought' : side + ' <b>' + n(l.qty) + '</b> ' + esc(sym) + ' @ <b>' + n(l.avgPx) + '</b>') + '</div>' +
+      '<div class="sf-l2 hint num">' + blClock(l.atMs, true) + ' · +' + d + ' ms (+' + dd + ' ms)</div></div></div>';
+  }).join('');
+  const plan = '<div class="hint num" style="margin:2px 0 8px;">plan <b>' + t.planNetPct + '%</b> · ₹' + blN(t.planProfitInr, 2) + ' on ' + inr(t.spentInr) + ' → paper <b>' + (t.profitInr == null ? '—' : dxR(t.profitInr)) + '</b>' + (t.why ? ' · ' + esc(t.why) : '') + '</div>';
+  let node = '<div class="hint" style="margin-top:8px;">Node: no order on this coin within 3 s.</div>';
+  if (m) {
+    const r = m.rust || {}, o = m.node || {}, lag = r.rustFrameMinusNodeFireMs;
+    node = '<div class="hint num" style="margin-top:8px;">Node order <b>' + o.id + '</b> · ' + esc(o.status) + (o.profit != null ? ' · real <b>' + dxR(Number(o.profit)) + '</b>' : '') +
+      (lag == null ? '' : ' · Rust data ' + (lag <= 0 ? '<b class="pos">' + Math.abs(lag) + ' ms before</b>' : '<b class="neg">' + lag + ' ms after</b>') + ' Node fired') + '</div>';
+  }
+  return plan + legs + node;
+}
+function rsNode(C) {
+  const rows = (C.rows || []).filter((r) => r.rust);
+  if (!rows.length) return '<div class="empty">No Node intra-loop order matched yet (last 6 h).</div>';
+  return '<div class="hint" style="margin-bottom:8px;">Each Node order next to Rust. "data" = when Rust got the update that fired it, against Node’s fire time.</div>' +
+    rows.map((r) => {
+      const o = r.node, x = r.rust, lag = x.rustFrameMinusNodeFireMs, pp = x.paper || {};
+      return '<div class="order"><div class="order-row" style="cursor:default;">' +
+        '<span class="st ' + (o.status === 'done' ? 'done' : 'failed') + '">' + esc(o.status) + '</span>' +
+        '<span class="o-coin">' + esc(String(o.coin).toUpperCase()) + '</span>' +
+        '<span class="o-path num">#' + o.id + ' · ' + esc(x.path) + ' · ' + x.netPct + '% · data ' + (lag == null ? '—' : (lag <= 0 ? '<b class="pos">' + lag + ' ms</b>' : '<b class="neg">+' + lag + ' ms</b>')) + ' · ' + (x.decideUs || 0) + ' µs</span>' +
+        '<span class="o-profit num">' + (o.profit != null ? 'Node <b class="' + (Number(o.profit) >= 0 ? 'pos' : 'neg') + '">' + dxR(Number(o.profit)) + '</b>' : 'Node <span class="rs-mut">no ₹</span>') +
+          ' · Rust ' + (pp.profitInr != null ? '<b class="' + (pp.profitInr >= 0 ? 'pos' : 'neg') + '">' + dxR(pp.profitInr) + '</b>' : '<span class="rs-mut">' + esc(pp.status || 'no paper') + '</span>') + '</span>' +
+        '<span class="o-time num">' + blClock(o.fire || o.at) + '</span></div></div>';
+    }).join('');
+}
+function rsHealth(S) {
+  const f = (S.frames || []), names = ['main', 'S0', 'S1', 'S2'], A = S.auto || {}, fu = A.funnel || {}, B = (S.blind || {}).counts || {};
+  const kv = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<span class="fact">' + esc(k) + ' <b>' + v + '</b></span>').join('');
+  return '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Feed</div><div class="facts num">' +
+      names.map((n, i) => '<span class="fact">' + n + ' <b>' + (f[i] || 0).toLocaleString('en-IN') + '</b> frames</span>').join('') +
+      Object.entries(S.sockets || {}).map(([k, v]) => '<span class="fact' + (v ? '' : ' warn') + '">' + esc(k) + ' <b>' + (v ? 'up' : 'down') + '</b></span>').join('') + '</div></div>' +
+    '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Why the auto loop did not fire</div><div class="facts num">' + kv(fu) + '</div></div>' +
+    '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Blind signals (logged, not traded)</div><div class="facts num">' + kv(B) + '</div></div>';
+}
+setInterval(() => { if ($('tab-rs') && $('tab-rs').classList.contains('active')) refreshRs(); }, 4000);
+</script>
+
 </body>
 </html>
