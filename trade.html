@@ -5361,7 +5361,9 @@ function rsNode(C) {
 function rsHealth(S) {
   const f = (S.frames || []), names = ['main', 'S0', 'S1', 'S2'], A = S.auto || {}, fu = A.funnel || {}, B = (S.blind || {}).counts || {};
   const kv = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<span class="fact">' + esc(k) + ' <b>' + v + '</b></span>').join('');
-  return '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Feed</div><div class="facts num">' +
+  const fw = (S.feedWins || []).map((w) => '<span class="fact">' + esc(w.socket) + ' first <b>' + w.first.toLocaleString('en-IN') + '</b> · late <b>' + w.late.toLocaleString('en-IN') + '</b> by <b>' + w.avgLateMs + ' ms</b></span>').join('');
+  return (fw ? '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Which socket brings a change first</div><div class="facts num">' + fw + '</div></div>' : '') +
+    '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Feed</div><div class="facts num">' +
       names.map((n, i) => '<span class="fact">' + n + ' <b>' + (f[i] || 0).toLocaleString('en-IN') + '</b> frames</span>').join('') +
       Object.entries(S.sockets || {}).map(([k, v]) => '<span class="fact' + (v ? '' : ' warn') + '">' + esc(k) + ' <b>' + (v ? 'up' : 'down') + '</b></span>').join('') + '</div></div>' +
     '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Why the auto loop did not fire</div><div class="facts num">' + kv(fu) + '</div></div>' +
