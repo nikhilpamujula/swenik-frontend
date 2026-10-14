@@ -877,6 +877,7 @@
     <button class="tabbtn" id="tb-missed" onclick="setTab('missed')">Missed<span class="cnt" id="cntMissed">0</span></button>
     <button class="tabbtn" id="tb-blind" onclick="setTab('blind')">Blind<span class="cnt" id="cntBlind">0</span></button>
     <button class="tabbtn" id="tb-dcx" onclick="setTab('dcx')">CoinDCX<span class="cnt" id="cntDcx">0</span></button>
+    <button class="tabbtn" id="tb-dcxl" onclick="setTab('dcxl')">DCX Live<span class="cnt" id="cntDcxl">0</span></button>
   </div>
 </div>
 
@@ -1120,6 +1121,73 @@
     </div>
     <div class="tiles" id="dcxTiles"></div>
     <div id="dcxBody"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="tabpane" id="tab-dcxl">
+    <div class="rule">
+      <div class="rule-top">
+        <span class="rule-name">Trader 2 · CoinDCX auto loop</span>
+        <span class="chip" id="dxMode">…</span>
+        <span class="hint" id="dxHint" style="margin-left:auto;"></span>
+      </div>
+      <div class="dx-seg" id="dxSeg">
+        <button class="btn" data-m="off" onclick="dxMode('off')">Off</button>
+        <button class="btn" data-m="paper" onclick="dxMode('paper')">Paper</button>
+        <button class="btn" data-m="live" onclick="dxMode('live')">Live</button>
+      </div>
+      <div class="facts num" id="dxFacts"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" id="dxSetBtn" onclick="dxSetToggle()" style="padding:6px 12px;font-size:12px;">Settings</button>
+        <button class="btn" onclick="dxToken(true)" style="padding:6px 12px;font-size:12px;">UI token</button>
+      </div>
+      <div id="dxSet" style="display:none;margin-top:12px;">
+        <div class="dx-grp">Paths &amp; fee</div>
+        <div class="frm">
+          <div class="f"><label>Path A · buy INR → sell USDT</label><select id="dx_pathA"><option value="true">on</option><option value="false">off</option></select></div>
+          <div class="f"><label>Path B · buy USDT → sell INR</label><select id="dx_pathB"><option value="true">on</option><option value="false">off</option></select></div>
+          <div class="f"><label>Fee % per order</label><input id="dx_feePct" type="number" step="0.01"><div class="sub">0.5% + 18% GST = 0.59</div></div>
+        </div>
+        <div class="dx-grp">When to trade</div>
+        <div class="frm">
+          <div class="f"><label>Min loop % after fees</label><input id="dx_minNetPct" type="number" step="0.05"><div class="sub">both fees already taken off</div></div>
+          <div class="f"><label>Min profit ₹ after fees</label><input id="dx_minProfitInr" type="number" step="1"></div>
+          <div class="f"><label>Ignore loops above %</label><input id="dx_maxPct" type="number" step="0.5"><div class="sub">treated as bad data</div></div>
+          <div class="f"><label>Min amount ₹</label><input id="dx_minInr" type="number" step="50"></div>
+          <div class="f"><label>Max amount ₹</label><input id="dx_maxInr" type="number" step="100"><div class="sub">walks the books up to this</div></div>
+        </div>
+        <div class="dx-grp">Timing (ms)</div>
+        <div class="frm">
+          <div class="f"><label>Gap leg 1 → leg 2</label><input id="dx_gapMs" type="number" step="5"><div class="sub">leg 2 goes this long after leg 1 is sent, without waiting</div></div>
+          <div class="f"><label>Leg 2 retry every</label><input id="dx_retryMs" type="number" step="10"><div class="sub">while CoinDCX says the coin is not there yet</div></div>
+          <div class="f"><label>Leg 2 retry for</label><input id="dx_retryForMs" type="number" step="100"></div>
+          <div class="f"><label>Status check every</label><input id="dx_pollMs" type="number" step="10"></div>
+          <div class="f"><label>Cancel leg 1 rest after</label><input id="dx_leg1CancelMs" type="number" step="100"></div>
+          <div class="f"><label>Cancel leg 2 rest after</label><input id="dx_leg2TimeoutMs" type="number" step="500"></div>
+          <div class="f"><label>Sell leftover coin back</label><select id="dx_unwindStuck"><option value="true">yes, at bid −0.5%</option><option value="false">no, keep it</option></select></div>
+        </div>
+        <div class="dx-grp">Safety</div>
+        <div class="frm">
+          <div class="f"><label>No repeat coin + path (sec)</label><input id="dx_cooldownSec" type="number" step="10"></div>
+          <div class="f"><label>Max trades per day</label><input id="dx_maxTradesPerDay" type="number" step="1"></div>
+          <div class="f"><label>Daily loss cap ₹</label><input id="dx_dailyLossCapInr" type="number" step="50"><div class="sub">hit → switches to paper</div></div>
+          <div class="f"><label>Keep INR ₹</label><input id="dx_inrReserve" type="number" step="100"><div class="sub">path A never spends this</div></div>
+          <div class="f"><label>Keep USDT</label><input id="dx_usdtReserve" type="number" step="1"><div class="sub">path B never spends this</div></div>
+          <div class="f full"><label>Only these coins (comma, empty = all)</label><input id="dx_allow" type="text" placeholder="XRP, DOGE"></div>
+          <div class="f full"><label>Never these coins</label><input id="dx_block" type="text" placeholder="SOL"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;margin-top:12px;">
+          <span class="hint" id="dxSaveHint"></span>
+          <button class="btn primary" onclick="dxSave()">Save</button>
+        </div>
+      </div>
+    </div>
+    <div class="tiles" id="dxTiles"></div>
+    <div class="dx-sub">
+      <button class="btn sm" id="dxv-trades" onclick="dxView('trades')">Live trades</button>
+      <button class="btn sm" id="dxv-signals" onclick="dxView('signals')">Paper signals</button>
+      <button class="btn sm" id="dxv-health" onclick="dxView('health')">Health</button>
+    </div>
+    <div id="dxBody"><div class="empty">Loading…</div></div>
   </div>
 
   <div class="tabpane" id="tab-positions">
@@ -1631,12 +1699,13 @@ const openTimelines = new Set();
 function setTab(name) {
   // 'manual' (Track Live) is not a pane anymore — its tab button navigates
   // straight to track.html, the scanner-page clone.
-  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind', 'dcx']) {
+  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind', 'dcx', 'dcxl']) {
     if (!$('tab-' + t)) continue;
     $('tab-' + t).classList.toggle('active', t === name);
     $('tb-' + t).classList.toggle('active', t === name);
   }
   if (name === 'dcx') refreshDcx();
+  if (name === 'dcxl') refreshDx();
   if (name === 'missed') refreshMissed();
   if (name === 'blind') refreshBlind(true);
 }
@@ -4936,6 +5005,190 @@ function dcxCard(t, lats, fees) {
     '<div class="facts num" style="margin-top:8px;">' + rows + '</div></div>';
 }
 setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classList.contains('active')) refreshDcx(); }, 10000);
+</script>
+<style id="swk-dcxl-css">
+  #tab-dcxl .dx-seg { display:flex; gap:6px; margin-top:12px; }
+  #tab-dcxl .dx-seg .btn { flex:1 1 0; padding:8px 0; font-size:12.5px; font-weight:800; }
+  #tab-dcxl .dx-seg .btn.on { background:var(--accent) !important; border-color:var(--accent) !important; color:#fff !important; }
+  #tab-dcxl .dx-seg .btn.on.live { background:var(--danger) !important; border-color:var(--danger) !important; }
+  #tab-dcxl .dx-seg .btn.on.off { background:#64748b !important; border-color:#64748b !important; }
+  #tab-dcxl .chip.off { background:var(--gray-100, #f1f5f9); color:var(--gray-500, #64748b); }
+  #tab-dcxl .dx-grp { font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--gray-500, #64748b); margin:14px 0 8px; }
+  #tab-dcxl .dx-grp:first-child { margin-top:0; }
+  #tab-dcxl .dx-sub { display:flex; gap:6px; margin:12px 0 8px; }
+  #tab-dcxl .dx-sub .btn.on { background:var(--accent) !important; border-color:var(--accent) !important; color:#fff !important; }
+  #tab-dcxl .swk-kvs { flex-wrap:wrap !important; overflow:visible !important; }
+  #tab-dcxl .dx-ev { display:grid; grid-template-columns:auto auto auto 1fr; gap:3px 10px; font-size:12px; margin-top:6px; align-items:baseline; }
+  #tab-dcxl .dx-ev .t { color:var(--ink-3, #8b96a8) !important; }
+  #tab-dcxl .dx-ev .ms { font-weight:800; text-align:right; color:var(--ink, #26303f) !important; }
+  #tab-dcxl .dx-ev .dl { color:var(--ink-3, #8b96a8) !important; text-align:right; }
+  #tab-dcxl .dx-ev .w { color:var(--ink-2, #586576) !important; min-width:0; overflow-wrap:anywhere; }
+  #tab-dcxl .dx-ev .w.bad { color:var(--danger) !important; } #tab-dcxl .dx-ev .w.good { color:var(--success) !important; }
+  #tab-dcxl .dx-ev .w .x { color:var(--ink-3, #8b96a8) !important; font-weight:500; }
+  #tab-dcxl .dx-tbl { width:100%; border-collapse:collapse; font-size:12px; }
+  #tab-dcxl .dx-tbl td { padding:5px 4px; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
+  #tab-dcxl .dx-tbl td:last-child { text-align:right; font-weight:800; color:var(--ink, #26303f) !important; }
+  #tab-dcxl .frm { grid-template-columns:1fr 1fr !important; }
+  #tab-dcxl .dx-h { font-size:12px; font-weight:800; margin:14px 0 4px; }
+</style>
+<script id="swk-dcxl">
+/* CoinDCX live trader (Trader 2, service swenik-dcx, tools trader.js) at api-ec2/dcx-api.
+   Reads /status every 5 s while this tab is open. Changes (mode, settings) need the UI token,
+   kept in this browser only and sent inside the request body. */
+const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || 'https://api-ec2.swenik.co.in/dcx-api'; } catch (e) { return 'https://api-ec2.swenik.co.in/dcx-api'; } })();
+const DX_TKEY = 'swenik_dcx_token';
+let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
+const DX_NUM = ['feePct', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
+const DX_BOOL = ['pathA', 'pathB', 'unwindStuck'], DX_TXT = ['allow', 'block'];
+const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
+function dxToken(ask) {
+  let t = ''; try { t = localStorage.getItem(DX_TKEY) || ''; } catch (e) {}
+  if (!t || ask) { const n = prompt('CoinDCX UI token (printed once by the install, also in /etc/swenik/dcx.env as DCX_UI_TOKEN). Kept in this browser only.', t ? '•••• saved — type a new one to replace' : ''); if (n && !/^•/.test(n)) { t = n.trim(); try { localStorage.setItem(DX_TKEY, t); } catch (e) {} } }
+  return t;
+}
+async function dxPost(path, obj) {
+  const token = dxToken(false); if (!token) throw new Error('no UI token');
+  const r = await fetch(DX_URL + path, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(Object.assign({ token }, obj)) });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401) { try { localStorage.removeItem(DX_TKEY); } catch (e) {} throw new Error('token wrong — tap UI token and enter it again'); }
+  if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+async function dxMode(m) {
+  const S = (DX && DX.settings) || {};
+  if (S.mode === m) return;
+  if (m === 'live' && !confirm('Go LIVE on CoinDCX?\n\nReal orders, ' + inr(S.minInr) + '–' + inr(S.maxInr) + ' per trade, loop ≥ ' + S.minNetPct + '% after ' + S.feePct + '% fee per order.\nDaily loss cap ' + inr(S.dailyLossCapInr) + ' → back to paper.')) return;
+  try { const j = await dxPost('/mode', { mode: m }); DX = Object.assign({}, DX, { settings: j.settings }); drawDx(); setTimeout(refreshDx, 800); }
+  catch (e) { alert('Mode not changed — ' + e.message); }
+}
+function dxSetToggle() { DX_SET = !DX_SET; $('dxSet').style.display = DX_SET ? '' : 'none'; $('dxSetBtn').textContent = DX_SET ? 'Hide settings' : 'Settings'; if (DX_SET) dxFill(true); }
+function dxFill(force) {
+  const c = (DX && DX.settings) || {};
+  for (const k of DX_NUM.concat(DX_BOOL, DX_TXT)) { const el = $('dx_' + k); if (el && (force || document.activeElement !== el) && c[k] != null) el.value = String(c[k]); }
+}
+async function dxSave() {
+  const b = {};
+  for (const k of DX_NUM) { const v = $('dx_' + k).value; if (v !== '') b[k] = Number(v); }
+  for (const k of DX_BOOL) b[k] = $('dx_' + k).value === 'true';
+  for (const k of DX_TXT) b[k] = $('dx_' + k).value.toUpperCase().replace(/\s+/g, '');
+  if (b.maxInr < b.minInr) { alert('Max amount must be at least the min amount.'); return; }
+  try { const j = await dxPost('/settings', b); DX = Object.assign({}, DX, { settings: j.settings }); dxFill(true); drawDx(); $('dxSaveHint').textContent = 'Saved ' + blClock(Date.now()); }
+  catch (e) { alert('Not saved — ' + e.message); }
+}
+function dxView(v) { DX_VIEW = v; drawDx(); }
+function dxToggle(id) { if (DX_OPEN.has(id)) DX_OPEN.delete(id); else DX_OPEN.add(id); drawDx(); }
+async function refreshDx() {
+  if (!$('dxBody')) return;
+  try { const r = await fetch(DX_URL + '/status?cb=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status); DX = await r.json(); DX._err = null; }
+  catch (e) { DX = Object.assign({}, DX || {}, { _err: e.message }); }
+  drawDx();
+}
+const dxAgo = (t) => { const s = Math.max(0, (Date.now() - Date.parse(t)) / 1000); return s < 90 ? Math.round(s) + 's' : s < 5400 ? Math.round(s / 60) + 'm' : (s / 3600).toFixed(1) + 'h'; };
+function drawDx() {
+  const D = DX || {};
+  if (!D.service) { $('dxBody').innerHTML = '<div class="empty">' + (D._err ? 'Could not reach CoinDCX trader — ' + esc(D._err) : 'Loading…') + '</div>'; $('dxFacts').innerHTML = ''; $('dxTiles').innerHTML = ''; $('dxMode').textContent = '—'; return; }
+  const S = D.settings || {}, B = D.balances || {}, F = D.feed || {}, R = D.rest || {}, W = D.wazirx || {}, M = D.markets || {}, E = D.engine || {}, Me = D.self || {}, T = D.today || {};
+  if (DX_SET) dxFill(false);
+  const mc = $('dxMode'); mc.textContent = S.mode; mc.className = 'chip ' + (S.mode === 'live' ? 'live' : S.mode === 'paper' ? 'paper' : 'off');
+  for (const b of $('dxSeg').children) b.className = 'btn' + (b.dataset.m === S.mode ? ' on ' + S.mode : '');
+  $('dxHint').textContent = (D._err ? '⚠ ' + D._err + ' · ' : '') + 'updated ' + blClock(D.at) + ' · up ' + dxAgo(D.startedAt);
+  const bal = (x, f) => (x ? f(x.free) + (x.locked ? ' (+' + f(x.locked) + ' locked)' : '') : '—');
+  const books = F.coins ? F.coins * 2 + 1 : 0;
+  const wz = W.now ? 'avg <b>' + W.now.avgLagMs + '</b> · max <b>' + W.now.maxLagMs + ' ms</b>' + (W.baseline ? ' (at start ' + W.baseline.maxLagMs + ')' : '') : (W.err ? 'n/a' : '—');
+  $('dxFacts').innerHTML =
+    '<span class="fact">INR <b>' + bal(B.INR, inr2) + '</b></span>' +
+    '<span class="fact">USDT <b>' + bal(B.USDT, (v) => blN(v, 2)) + '</b></span>' +
+    (D.keys ? '' : '<span class="fact warn">no API keys — paper only</span>') +
+    (B.err ? '<span class="fact warn">balance: ' + esc(B.err) + '</span>' : '') +
+    '<span class="fact">loop ≥ <b>' + S.minNetPct + '%</b> after <b>' + S.feePct + '%</b> ×2 fee · ≥ <b>' + inr(S.minProfitInr) + '</b></span>' +
+    '<span class="fact">size <b>' + inr(S.minInr) + '–' + inr(S.maxInr) + '</b> · gap <b>' + S.gapMs + ' ms</b></span>' +
+    '<span class="fact">paths <b>' + (S.pathA ? 'A' : '') + (S.pathA && S.pathB ? ' + ' : '') + (S.pathB ? 'B' : '') + (S.pathA || S.pathB ? '' : 'none') + '</b>' + (S.allow ? ' · only <b>' + esc(S.allow) + '</b>' : '') + (S.block ? ' · never <b>' + esc(S.block) + '</b>' : '') + '</span>' +
+    '<span class="fact' + (F.books >= books && books ? '' : ' warn') + '">books <b>' + (F.books || 0) + '/' + books + '</b> · ' + (F.coins || 0) + ' coins</span>' +
+    (D.busy ? '<span class="fact warn">trading <b>' + esc(D.busy.coin) + ' ' + esc(D.busy.path) + '</b> since ' + blClock(D.busy.since) + '</span>' : '') +
+    (M.paused ? '<span class="fact warn">paused pairs <b>' + M.paused + '</b></span>' : '') +
+    '<span class="fact">WazirX loop ' + wz + '</span>';
+  const pnl = T.pnl || 0;
+  $('dxTiles').innerHTML =
+    tile('Today P&L ' + (S.mode === 'live' ? '' : '(live trades)'), '<span class="' + (pnl >= 0 ? 'pos' : 'neg') + '">' + dxR(pnl) + '</span>', 'loss cap ' + inr(S.dailyLossCapInr), '', true) +
+    tile('Trades today', String(T.trades || 0), 'done ' + (T.done || 0) + ' · part ' + (T.partial || 0) + ' · sold back ' + (T.unwound || 0) + ' · stuck ' + (T.stuck || 0) + ' · missed ' + (T.missed || 0) + ' · max ' + S.maxTradesPerDay) +
+    tile('Signals', String(E.signals || 0), E.lastSignal ? 'last ' + E.lastSignal.coin + ' ' + E.lastSignal.path + ' ' + E.lastSignal.netPct + '% · ' + dxAgo(E.lastSignal.at) + ' ago' : 'none yet') +
+    tile('REST', (R.ttfbMs && R.ttfbMs.p50 != null ? R.ttfbMs.p50 : '—') + ' ms', 'p90 ' + ((R.ttfbMs && R.ttfbMs.p90) || '—') + ' ms · ' + (R.calls || 0) + ' calls');
+  const cnt = $('cntDcxl'); if (cnt) cnt.textContent = T.trades || 0;
+  for (const v of ['trades', 'signals', 'health']) { const b = $('dxv-' + v); if (b) b.className = 'btn sm' + (DX_VIEW === v ? ' on' : ''); }
+  $('dxBody').innerHTML = DX_VIEW === 'signals' ? dxSignals(D) : DX_VIEW === 'health' ? dxHealth(D) : dxTrades(D);
+}
+const DX_ST = { done: ['done', 'done'], partial: ['missed', 'part'], unwound: ['missed', 'sold back'], stuck: ['failed', 'stuck'], missed: ['skipped', 'missed'], running: ['running', 'running'] };
+const dxPair = (p) => String(p || '').replace(/^[A-Z]+-/, '').replace('_', '/');
+function dxTrades(D) {
+  const L = D.trades || [];
+  if (!L.length) return '<div class="empty">No live CoinDCX trade yet' + ((D.settings || {}).mode !== 'live' ? ' — switch to Live to start.' : '.') + '</div>';
+  return L.map((t) => {
+    const st = DX_ST[t.state] || ['failed', t.state], open = DX_OPEN.has(t.id);
+    const pathTxt = t.path === 'A' ? 'A · buy INR → sell USDT' : 'B · buy USDT → sell INR';
+    return '<div class="order ' + (t.state === 'done' ? 's-done' : t.state === 'missed' ? '' : 's-failed') + (open ? ' open' : '') + '">' +
+      '<div class="order-row" onclick="dxToggle(\'' + esc(t.id) + '\')">' +
+        '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span><span class="chip live">live</span>' +
+        '<span class="o-coin">' + esc(t.coin) + '</span>' +
+        '<span class="o-path">' + pathTxt + ' · <b>' + t.plan.netPct + '%</b> · ' + inr(t.plan.costInr) + ' · ' + t.ms + ' ms</span>' +
+        '<span class="o-profit num ' + ((t.pnlInr || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(t.pnlInr) + '</span>' +
+        '<span class="o-time num">' + blClock(t.at) + '</span>' +
+      '</div>' + (open ? '<div class="timeline" style="display:block;">' + dxCard(t) + '</div>' : '') + '</div>';
+  }).join('');
+}
+function dxCard(t) {
+  const P = t.plan || {}, n = (v) => blN(v, 8);
+  const legs = (t.legs || []).map((l) => {
+    const full = l.filled >= l.qty - 1e-9, none = !(l.filled > 0), cls = full ? 'good' : none ? 'bad' : 'part';
+    const out = (none ? 'not filled' : full ? 'FILLED' : 'filled ' + n(l.filled)) + (l.avg ? ' @ ' + n(l.avg) : '') + (full && l.status === 'filled' ? '' : ' · ' + (l.status || '—')) +
+      (l.ackMs != null ? ' · ack +' + l.ackMs + ' ms' : '') + (l.ids && l.ids.length ? ' · ' + l.ids.length + ' order' + (l.ids.length > 1 ? 's' : '') + ', ' + (l.tries || 0) + ' tries' : '') + (l.err ? ' · ' + l.err : '');
+    return '<div class="sf-step cmp ' + cls + '"><span class="sf-n">' + l.n + '</span><div class="sf-b">' +
+      '<div class="sf-what"><span class="swk-side ' + l.side + '">' + l.side.toUpperCase() + '</span><span class="sf-num"><span class="sf-nw"><span class="num">' + esc(n(l.qty)) + '</span> ' + esc(dxPair(l.pair)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc(n(l.price)) + '</span></span></span></div>' +
+      '<div class="sf-l2"><span class="sf-out ' + cls + '">' + esc(out) + '</span></div></div></div>';
+  }).join('') + (t.unwind ? '<div class="sf-step cmp ' + (t.unwind.filled >= t.unwind.qty - 1e-9 ? 'part' : 'bad') + '"><span class="sf-n">↩</span><div class="sf-b"><div class="sf-what"><span class="swk-side sell">SELL BACK</span><span class="sf-num"><span class="num">' + esc(n(t.unwind.qty)) + '</span> ' + esc(t.coin) + '</span></div><div class="sf-l2"><span class="sf-out">filled ' + esc(n(t.unwind.filled || 0)) + (t.unwind.avg ? ' @ ' + esc(n(t.unwind.avg)) : '') + (t.unwind.status === 'filled' ? '' : ' · ' + esc(t.unwind.status || '—')) + '</span></div></div></div>' : '');
+  let prev = 0; const t0 = Date.parse(t.at);
+  const ev = (t.ev || []).map((e) => {
+    const d = e.ms - prev; prev = e.ms;
+    const lab = { netPct: (v) => v + '%', qty: (v) => 'qty ' + v, status: (v) => v, why: (v) => '“' + v + '”', filled: (v) => 'filled ' + v, try: (v) => 'try ' + v, price: (v) => '@ ' + v, ok: (v) => (v ? 'accepted' : 'refused'), pnlInr: (v) => dxR(v) };
+    const x = Object.keys(e).filter((k) => k !== 'ms' && k !== 'what' && e[k] != null).map((k) => (lab[k] ? lab[k](e[k]) : k + ' ' + (typeof e[k] === 'object' ? JSON.stringify(e[k]) : e[k]))).join(' · ');
+    const cls = /refused|stuck|error/.test(e.what) ? 'bad' : /waiting|cancel|unwind/.test(e.what) ? '' : /filled|placed|end done/.test(e.what) ? 'good' : '';
+    return '<span class="t num">' + blClock(t0 + e.ms, true) + '</span><span class="ms num">+' + e.ms + '</span><span class="dl num">Δ' + d + '</span><span class="w ' + cls + '">' + esc(e.what) + (x ? ' <span class="x">' + esc(x) + '</span>' : '') + '</span>';
+  }).join('');
+  return '<div class="sf-card"><div class="sf-plan"><div class="swk-kvs">' +
+    '<span class="swk-kv"><i>Plan</i><b>' + P.netPct + '%</b></span><span class="swk-kv"><i>Gross</i><b>' + P.grossPct + '%</b></span>' +
+    '<span class="swk-kv"><i>Size</i><b>' + inr(P.costInr) + '</b></span><span class="swk-kv"><i>Expected</i><b>' + inr2(P.expInr) + '</b></span>' +
+    '<span class="swk-kv"><i>USDT/INR</i><b>' + P.usdInr + '</b></span><span class="swk-kv"><i>Gap</i><b>' + P.gapMs + ' ms</b></span></div></div>' +
+    '<div class="sf-hd"><b>Orders</b></div>' + legs +
+    (t.leftover ? '<div class="facts"><span class="fact warn">still holding <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
+    '<div class="sf-hd" style="margin-top:10px;"><b>Timeline</b><span class="sf-dim">ms from leg 1 sent</span></div><div class="dx-ev">' + ev + '</div></div>';
+}
+function dxSignals(D) {
+  const L = D.signals || [];
+  if (!L.length) return '<div class="empty">No paper signal yet. In Paper mode every loop that passes your settings shows here (no order sent).</div>';
+  return L.map((s) => '<div class="order"><div class="order-row" style="cursor:default;">' +
+    '<span class="chip paper">paper</span><span class="o-coin">' + esc(s.coin) + '</span>' +
+    '<span class="o-path">' + esc(s.path) + ' · <b>' + s.netPct + '%</b> (gross ' + s.grossPct + '%) · ' + inr(s.costInr) + ' · ' +
+      esc(s.leg1.side) + ' ' + esc(dxPair(s.leg1.pair)) + ' @ ' + blN(s.leg1.price, 8) + ' → ' + esc(s.leg2.side) + ' ' + esc(dxPair(s.leg2.pair)) + ' @ ' + blN(s.leg2.price, 8) + '</span>' +
+    '<span class="o-profit num pos">' + dxR(s.expInr) + '</span><span class="o-time num">' + blClock(s.at) + '</span></div></div>').join('');
+}
+function dxHealth(D) {
+  const E = D.engine || {}, F = D.feed || {}, R = D.rest || {}, M = D.markets || {}, Me = D.self || {};
+  const sk = Object.entries(E.skips || {}).sort((a, b) => b[1] - a[1]);
+  const row = (k, v) => '<tr><td>' + esc(k) + '</td><td class="num">' + v + '</td></tr>';
+  return '<div class="rule">' +
+    '<div class="dx-h">Why loops were not taken</div><table class="dx-tbl">' + (sk.length ? sk.map(([k, v]) => row(k, blN(v, 0))).join('') : row('nothing skipped yet', '')) + '</table>' +
+    '<div class="dx-h">Feed &amp; box</div><table class="dx-tbl">' +
+      row('order books live', (F.books || 0) + ' / ' + ((F.coins || 0) * 2 + 1)) + row('sockets · reconnects', (F.sockets || 0) + ' · ' + (F.reconnects || 0)) +
+      row('frames · prints', blN(F.frames, 0) + ' · ' + blN(F.prints, 0)) + row('checks run', blN(E.evals, 0)) +
+      row('REST calls · p50 · p90', (R.calls || 0) + ' · ' + ((R.ttfbMs || {}).p50 ?? '—') + ' · ' + ((R.ttfbMs || {}).p90 ?? '—') + ' ms') +
+      row('REST errors', esc(Object.entries(R.errors || {}).map(([k, v]) => k + ' ×' + v).join(', ') || 'none')) +
+      row('CPU · memory · cores', (Me.cpuPct ?? '—') + '% · ' + (Me.rssMb ?? '—') + ' MB · ' + esc(Me.cpus || '—')) +
+      row('market checks', (M.checks || 0) + (M.at ? ' · ' + blClock(M.at) : '')) + '</table>' +
+    (F.lastErr || R.lastErr ? '<div class="facts">' + (F.lastErr ? '<span class="fact warn">feed: ' + esc(F.lastErr) + '</span>' : '') + (R.lastErr ? '<span class="fact warn">rest: ' + esc(String(R.lastErr).slice(0, 160)) + '</span>' : '') + '</div>' : '') +
+    (M.pausedPairs && M.pausedPairs.length ? '<div class="dx-h">Paused on CoinDCX</div><div class="facts">' + M.pausedPairs.map((p) => '<span class="fact">' + esc(dxPair(p)) + '</span>').join('') + '</div>' : '') +
+    (M.changes && M.changes.length ? '<div class="dx-h">Market status changes</div><div class="facts">' + M.changes.slice().reverse().map((c) => '<span class="fact">' + esc(typeof c === 'string' ? c : JSON.stringify(c)) + '</span>').join('') + '</div>' : '') +
+    '</div>';
+}
+setInterval(() => { if (!document.hidden && $('tab-dcxl') && $('tab-dcxl').classList.contains('active')) refreshDx(); }, 5000);
 </script>
 </body>
 </html>
