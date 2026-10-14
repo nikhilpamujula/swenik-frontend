@@ -1163,7 +1163,8 @@
           <div class="f"><label>Status check every</label><input id="dx_pollMs" type="number" step="10"></div>
           <div class="f"><label>Cancel leg 1 rest after</label><input id="dx_leg1CancelMs" type="number" step="100"></div>
           <div class="f"><label>Cancel leg 2 rest after</label><input id="dx_leg2TimeoutMs" type="number" step="500"></div>
-          <div class="f"><label>Sell leftover coin back</label><select id="dx_unwindStuck"><option value="true">yes, at bid −0.5%</option><option value="false">no, keep it</option></select></div>
+          <div class="f"><label>Sell leftover coin back</label><select id="dx_unwindStuck"><option value="true">yes</option><option value="false">no, keep it</option></select></div>
+          <div class="f"><label>Sell-back: at most % under bid</label><input id="dx_unwindMaxPct" type="number" step="0.5"><div class="sub">walks the bids until the whole leftover fits</div></div>
         </div>
         <div class="dx-grp">Safety</div>
         <div class="frm">
@@ -5031,6 +5032,9 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
   #tab-dcxl .dx-tbl td { padding:5px 4px; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
   #tab-dcxl .dx-tbl td:last-child { text-align:right; font-weight:800; color:var(--ink, #26303f) !important; }
   #tab-dcxl .frm { grid-template-columns:1fr 1fr !important; }
+  #tab-dcxl .fact { max-width:100%; overflow-wrap:anywhere; border-radius:12px !important; }
+  #tab-dcxl, #tab-dcxl .rule { min-width:0; max-width:100%; overflow-x:hidden; }
+  #tab-dcxl input[type=text] { min-width:0; width:100%; }
   #tab-dcxl .dx-h { font-size:12px; font-weight:800; margin:14px 0 4px; }
 </style>
 <script id="swk-dcxl">
@@ -5040,8 +5044,9 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
 const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || 'https://api-ec2.swenik.co.in/dcx-api'; } catch (e) { return 'https://api-ec2.swenik.co.in/dcx-api'; } })();
 const DX_TKEY = 'swenik_dcx_token';
 let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
-const DX_NUM = ['maxTradeAgeMin', 'autoBlockHours', 'feePct', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
+const DX_NUM = ['unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'feePct', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
 const DX_BOOL = ['pathA', 'pathB', 'unwindStuck'], DX_TXT = ['allow', 'block'];
+const dxList = (s) => { const a = String(s || '').split(',').filter(Boolean); return a.length > 4 ? a.length + ' coins' : esc(a.join(', ')); };
 const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
 function dxToken(ask) {
   let t = ''; try { t = localStorage.getItem(DX_TKEY) || ''; } catch (e) {}
@@ -5105,10 +5110,10 @@ function drawDx() {
     (B.err ? '<span class="fact warn">balance: ' + esc(B.err) + '</span>' : '') +
     '<span class="fact">loop ≥ <b>' + S.minNetPct + '%</b> after <b>' + S.feePct + '%</b> ×2 fee · ≥ <b>' + inr(S.minProfitInr) + '</b></span>' +
     '<span class="fact">size <b>' + inr(S.minInr) + '–' + inr(S.maxInr) + '</b> · gap <b>' + S.gapMs + ' ms</b></span>' +
-    '<span class="fact">paths <b>' + (S.pathA ? 'A' : '') + (S.pathA && S.pathB ? ' + ' : '') + (S.pathB ? 'B' : '') + (S.pathA || S.pathB ? '' : 'none') + '</b>' + (S.allow ? ' · only <b>' + esc(S.allow) + '</b>' : '') + (S.block ? ' · never <b>' + esc(S.block) + '</b>' : '') + '</span>' +
+    '<span class="fact">paths <b>' + (S.pathA ? 'A' : '') + (S.pathA && S.pathB ? ' + ' : '') + (S.pathB ? 'B' : '') + (S.pathA || S.pathB ? '' : 'none') + '</b>' + (S.allow ? ' · only <b>' + dxList(S.allow) + '</b>' : '') + (S.block ? ' · never <b>' + dxList(S.block) + '</b>' : '') + '</span>' +
     '<span class="fact' + (F.books >= books && books ? '' : ' warn') + '">books <b>' + (F.books || 0) + '/' + books + '</b> · ' + (F.coins || 0) + ' coins</span>' +
     (D.busy ? '<span class="fact warn">trading <b>' + esc(D.busy.coin) + ' ' + esc(D.busy.path) + '</b> since ' + blClock(D.busy.since) + '</span>' : '') +
-    ((D.blocked || []).length ? '<span class="fact warn">auto-blocked <b>' + D.blocked.map((b) => esc(b.coin)).join(', ') + '</b></span>' : '') +
+    ((D.blocked || []).length ? '<span class="fact warn">auto-blocked <b>' + dxList(D.blocked.map((b) => b.coin).join(',')) + '</b></span>' : '') +
     (M.paused ? '<span class="fact warn">paused pairs <b>' + M.paused + '</b></span>' : '') +
     '<span class="fact">WazirX loop ' + wz + '</span>';
   const pnl = T.pnl || 0;
@@ -5164,7 +5169,7 @@ function dxCard(t) {
     '<span class="swk-kv"><i>USDT/INR</i><b>' + P.usdInr + '</b></span><span class="swk-kv"><i>Gap</i><b>' + P.gapMs + ' ms</b></span></div></div>' +
     '<div class="sf-hd"><b>Orders</b></div>' + legs +
     (t.openOrder ? '<div class="facts"><span class="fact warn">order still OPEN: ' + esc(t.openOrder.side) + ' ' + esc(n(t.openOrder.qty)) + ' on ' + esc(t.openOrder.market) + ' @ ' + esc(n(t.openOrder.price)) + ' — cancel it in the CoinDCX app</span></div>' : '') +
-    (t.leftover ? '<div class="facts"><span class="fact warn">still holding <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
+    (t.leftover ? '<div class="facts"><span class="fact warn">still holding (in P&amp;L at its bid) <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
     '<div class="sf-hd" style="margin-top:10px;"><b>Timeline</b><span class="sf-dim">ms from leg 1 sent</span></div><div class="dx-ev">' + ev + '</div></div>';
 }
 function dxSignals(D) {
@@ -5182,6 +5187,7 @@ function dxHealth(D) {
   const row = (k, v) => '<tr><td>' + esc(k) + '</td><td class="num">' + v + '</td></tr>';
   return '<div class="rule">' +
     '<div class="dx-h">Why loops were not taken</div><table class="dx-tbl">' + (sk.length ? sk.map(([k, v]) => row(k, blN(v, 0))).join('') : row('nothing skipped yet', '')) + '</table>' +
+    ((D.settings || {}).block ? '<div class="dx-h">Never these coins (' + D.settings.block.split(',').filter(Boolean).length + ')</div><div class="facts"><span class="fact">' + esc(D.settings.block.split(',').join(', ')) + '</span></div>' : '') +
     ((D.blocked || []).length ? '<div class="dx-h">Auto-blocked coins</div><table class="dx-tbl">' + D.blocked.map((b) => '<tr><td><b>' + esc(b.coin) + '</b> · ' + esc(b.why) + ' · till ' + blClock(b.until) + '</td><td><button class="btn sm" onclick="dxUnblock(\'' + esc(b.coin) + '\')">Unblock</button></td></tr>').join('') + '</table>' : '') +
     '<div class="dx-h">Feed &amp; box</div><table class="dx-tbl">' +
       row('last-trade check', D.tradeAge ? D.tradeAge.known + ' / ' + D.tradeAge.pairs + ' pairs known · ' + D.tradeAge.cycles + ' sweeps done' : '—') +
