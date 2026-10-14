@@ -1145,7 +1145,8 @@
         <div class="frm">
           <div class="f"><label>Path A · buy INR → sell USDT</label><select id="dx_pathA"><option value="true">on</option><option value="false">off</option></select></div>
           <div class="f"><label>Path B · buy USDT → sell INR</label><select id="dx_pathB"><option value="true">on</option><option value="false">off</option></select></div>
-          <div class="f"><label>Fee % per order</label><input id="dx_feePct" type="number" step="0.01"><div class="sub">0.5% + 18% GST = 0.59</div></div>
+          <div class="f"><label>Fee % on INR pairs</label><input id="dx_feeInrPct" type="number" step="0.01"><div class="sub">0.5% + 18% GST = 0.59 (seen on AMP, SIREN)</div></div>
+          <div class="f"><label>Fee % on USDT pairs</label><input id="dx_feeUsdtPct" type="number" step="0.01"><div class="sub">0.2 seen on CORE, MUBARAK</div></div>
         </div>
         <div class="dx-grp">When to trade</div>
         <div class="frm">
@@ -1157,7 +1158,7 @@
         </div>
         <div class="dx-grp">Timing (ms)</div>
         <div class="frm">
-          <div class="f"><label>Gap leg 1 → leg 2</label><input id="dx_gapMs" type="number" step="5"><div class="sub">leg 2 goes this long after leg 1 is sent, without waiting</div></div>
+          <div class="f"><label>First leg-2 try after (ms)</label><input id="dx_gapMs" type="number" step="10"><div class="sub">a buy fills ~270 ms after sending; earlier tries are refused</div></div>
           <div class="f"><label>Leg 2 retry every</label><input id="dx_retryMs" type="number" step="10"><div class="sub">while CoinDCX says the coin is not there yet</div></div>
           <div class="f"><label>Leg 2 retry for</label><input id="dx_retryForMs" type="number" step="100"></div>
           <div class="f"><label>Status check every</label><input id="dx_pollMs" type="number" step="10"></div>
@@ -1165,6 +1166,15 @@
           <div class="f"><label>Cancel leg 2 rest after</label><input id="dx_leg2TimeoutMs" type="number" step="500"></div>
           <div class="f"><label>Sell leftover coin back</label><select id="dx_unwindStuck"><option value="true">yes</option><option value="false">no, keep it</option></select></div>
           <div class="f"><label>Sell-back: at most % under bid</label><input id="dx_unwindMaxPct" type="number" step="0.5"><div class="sub">walks the bids until the whole leftover fits</div></div>
+        </div>
+        <div class="dx-grp">Balances</div>
+        <div class="frm">
+          <div class="f"><label>Auto-balance INR / USDT</label><select id="dx_autoBalance"><option value="true">on</option><option value="false">off</option></select><div class="sub">converts on the USDT/INR market (0.59% fee, counted in P&amp;L)</div></div>
+          <div class="f"><label>Convert when a side is below %</label><input id="dx_balTriggerPct" type="number" step="5"></div>
+          <div class="f"><label>Convert back to % each</label><input id="dx_balTargetPct" type="number" step="5"></div>
+          <div class="f"><label>At most one conversion per (min)</label><input id="dx_balMinGapMin" type="number" step="1"></div>
+          <div class="f"><label>Size trades under free balance by %</label><input id="dx_balMarginPct" type="number" step="0.5"><div class="sub">avoids "Insufficient Wallet Balance"</div></div>
+          <div class="f"><label>Binance watch (paper)</label><select id="dx_binanceWatch"><option value="true">on</option><option value="false">off</option></select><div class="sub">records when Binance shows a loop before CoinDCX does</div></div>
         </div>
         <div class="dx-grp">Safety</div>
         <div class="frm">
@@ -5044,8 +5054,8 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
 const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || 'https://api-ec2.swenik.co.in/dcx-api'; } catch (e) { return 'https://api-ec2.swenik.co.in/dcx-api'; } })();
 const DX_TKEY = 'swenik_dcx_token';
 let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
-const DX_NUM = ['unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'feePct', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
-const DX_BOOL = ['pathA', 'pathB', 'unwindStuck'], DX_TXT = ['allow', 'block'];
+const DX_NUM = ['feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
+const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch'], DX_TXT = ['allow', 'block'];
 const dxList = (s) => { const a = String(s || '').split(',').filter(Boolean); return a.length > 4 ? a.length + ' coins' : esc(a.join(', ')); };
 const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
 function dxToken(ask) {
@@ -5065,7 +5075,7 @@ async function dxUnblock(c) { try { await dxPost('/unblock', { coin: c }); setTi
 async function dxMode(m) {
   const S = (DX && DX.settings) || {};
   if (S.mode === m) return;
-  if (m === 'live' && !confirm('Go LIVE on CoinDCX?\n\nReal orders, ' + inr(S.minInr) + '–' + inr(S.maxInr) + ' per trade, loop ≥ ' + S.minNetPct + '% after ' + S.feePct + '% fee per order.\nDaily loss cap ' + inr(S.dailyLossCapInr) + ' → back to paper.')) return;
+  if (m === 'live' && !confirm('Go LIVE on CoinDCX?\n\nReal orders, ' + inr(S.minInr) + '–' + inr(S.maxInr) + ' per trade, loop ≥ ' + S.minNetPct + '% after fees (INR ' + S.feeInrPct + '% + USDT ' + S.feeUsdtPct + '%).\nDaily loss cap ' + inr(S.dailyLossCapInr) + ' → back to paper.')) return;
   try { const j = await dxPost('/mode', { mode: m }); DX = Object.assign({}, DX, { settings: j.settings }); drawDx(); setTimeout(refreshDx, 800); }
   catch (e) { alert('Mode not changed — ' + e.message); }
 }
@@ -5108,7 +5118,8 @@ function drawDx() {
     '<span class="fact">USDT <b>' + bal(B.USDT, (v) => blN(v, 2)) + '</b></span>' +
     (D.keys ? '' : '<span class="fact warn">no API keys — paper only</span>') +
     (B.err ? '<span class="fact warn">balance: ' + esc(B.err) + '</span>' : '') +
-    '<span class="fact">loop ≥ <b>' + S.minNetPct + '%</b> after <b>' + S.feePct + '%</b> ×2 fee · ≥ <b>' + inr(S.minProfitInr) + '</b></span>' +
+    '<span class="fact">loop ≥ <b>' + S.minNetPct + '%</b> after fees INR <b>' + S.feeInrPct + '%</b> + USDT <b>' + S.feeUsdtPct + '%</b> · ≥ <b>' + inr(S.minProfitInr) + '</b></span>' +
+    (S.autoBalance ? '<span class="fact">auto-balance <b>' + S.balTriggerPct + '% → ' + S.balTargetPct + '%</b>' + (B.INR && B.USDT && D.feed ? '' : '') + '</span>' : '') +
     '<span class="fact">size <b>' + inr(S.minInr) + '–' + inr(S.maxInr) + '</b> · gap <b>' + S.gapMs + ' ms</b></span>' +
     '<span class="fact">paths <b>' + (S.pathA ? 'A' : '') + (S.pathA && S.pathB ? ' + ' : '') + (S.pathB ? 'B' : '') + (S.pathA || S.pathB ? '' : 'none') + '</b>' + (S.allow ? ' · only <b>' + dxList(S.allow) + '</b>' : '') + (S.block ? ' · never <b>' + dxList(S.block) + '</b>' : '') + '</span>' +
     '<span class="fact' + (F.books >= books && books ? '' : ' warn') + '">books <b>' + (F.books || 0) + '/' + books + '</b> · ' + (F.coins || 0) + ' coins</span>' +
@@ -5118,7 +5129,7 @@ function drawDx() {
     '<span class="fact">WazirX loop ' + wz + '</span>';
   const pnl = T.pnl || 0;
   $('dxTiles').innerHTML =
-    tile('Today P&L ' + (S.mode === 'live' ? '' : '(live trades)'), '<span class="' + (pnl >= 0 ? 'pos' : 'neg') + '">' + dxR(pnl) + '</span>', 'loss cap ' + inr(S.dailyLossCapInr), '', true) +
+    tile('Today P&L ' + (S.mode === 'live' ? '' : '(live trades)'), '<span class="' + (pnl >= 0 ? 'pos' : 'neg') + '">' + dxR(pnl) + '</span>', (T.rebalances ? 'incl. ' + T.rebalances + ' conversion' + (T.rebalances > 1 ? 's' : '') + ' −' + inr2(T.rebalanceInr) + ' · ' : '') + 'loss cap ' + inr(S.dailyLossCapInr), '', true) +
     tile('Trades today', String(T.trades || 0), 'done ' + (T.done || 0) + ' · part ' + (T.partial || 0) + ' · sold back ' + (T.unwound || 0) + ' · stuck ' + (T.stuck || 0) + ' · missed ' + (T.missed || 0) + (T['open order'] ? ' · open order ' + T['open order'] : '') + ' · max ' + S.maxTradesPerDay) +
     tile('Signals', String(E.signals || 0), E.lastSignal ? 'last ' + E.lastSignal.coin + ' ' + E.lastSignal.path + ' ' + E.lastSignal.netPct + '% · ' + dxAgo(E.lastSignal.at) + ' ago' : 'none yet') +
     tile('REST', (R.ttfbMs && R.ttfbMs.p50 != null ? R.ttfbMs.p50 : '—') + ' ms', 'p90 ' + ((R.ttfbMs && R.ttfbMs.p90) || '—') + ' ms · ' + (R.calls || 0) + ' calls');
@@ -5167,7 +5178,7 @@ function dxCard(t) {
     '<span class="swk-kv"><i>Plan</i><b>' + P.netPct + '%</b></span><span class="swk-kv"><i>Gross</i><b>' + P.grossPct + '%</b></span>' +
     '<span class="swk-kv"><i>Size</i><b>' + inr(P.costInr) + '</b></span><span class="swk-kv"><i>Expected</i><b>' + inr2(P.expInr) + '</b></span>' +
     '<span class="swk-kv"><i>USDT/INR</i><b>' + P.usdInr + '</b></span><span class="swk-kv"><i>Gap</i><b>' + P.gapMs + ' ms</b></span></div></div>' +
-    '<div class="sf-hd"><b>Orders</b></div>' + legs +
+    '<div class="sf-hd"><b>Orders</b>' + (t.fees ? '<span class="sf-dim">fees ' + inr2(t.fees.leg1Inr) + ' + ' + inr2(t.fees.leg2Inr) + (t.fees.unwindInr ? ' + ' + inr2(t.fees.unwindInr) : '') + (t.fees.fromExchange ? ' (as charged)' : ' (estimated)') + '</span>' : '') + '</div>' + legs +
     (t.openOrder ? '<div class="facts"><span class="fact warn">order still OPEN: ' + esc(t.openOrder.side) + ' ' + esc(n(t.openOrder.qty)) + ' on ' + esc(t.openOrder.market) + ' @ ' + esc(n(t.openOrder.price)) + ' — cancel it in the CoinDCX app</span></div>' : '') +
     (t.leftover ? '<div class="facts"><span class="fact warn">still holding (in P&amp;L at its bid) <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
     '<div class="sf-hd" style="margin-top:10px;"><b>Timeline</b><span class="sf-dim">ms from leg 1 sent</span></div><div class="dx-ev">' + ev + '</div></div>';
@@ -5181,6 +5192,20 @@ function dxSignals(D) {
       esc(s.leg1.side) + ' ' + esc(dxPair(s.leg1.pair)) + ' @ ' + blN(s.leg1.price, 8) + ' → ' + esc(s.leg2.side) + ' ' + esc(dxPair(s.leg2.pair)) + ' @ ' + blN(s.leg2.price, 8) + '</span>' +
     '<span class="o-profit num pos">' + dxR(s.expInr) + '</span><span class="o-time num">' + blClock(s.at) + '</span></div></div>').join('');
 }
+function dxRebal(D) {
+  const R = D.rebalance; if (!R) return '';
+  const rows = (R.list || []).map((r) => '<tr><td>' + blClock(r.at) + ' · ' + (r.side === 'buy' ? 'INR → USDT' : 'USDT → INR') + ' ' + blN(r.filled, 2) + ' of ' + blN(r.qty, 2) + ' USDT @ ' + r.price + ' · ' + esc(r.status || '') + (r.err ? ' · ' + esc(r.err) : '') + ' · INR was ' + r.inrShareBefore + '%</td><td class="num">−' + inr2(r.costInr) + '</td></tr>').join('');
+  return '<div class="dx-h">Auto-balance (' + (R.on ? 'on' : 'off') + ')</div><table class="dx-tbl">' + (rows || '<tr><td>no conversion yet · ' + (R.checks || 0) + ' checks</td><td></td></tr>') + '</table>';
+}
+function dxBinance(D) {
+  const W = D.binance; if (!W) return '';
+  const head = '<tr><td>' + (W.on ? (W.connected ? 'connected' : 'connecting') : 'off') + ' · ' + W.coins + ' coins · ' + blN(W.msgs, 0) + ' ticks' + (W.lastErr ? ' · ' + esc(W.lastErr) : '') + '</td><td></td></tr>' +
+    '<tr><td>Binance showed a loop first</td><td class="num">' + W.early + '</td></tr>' +
+    '<tr><td>… then CoinDCX showed it too</td><td class="num">' + W.hit + (W.leadMs && W.leadMs.p50 != null ? ' · lead p50 ' + W.leadMs.p50 + ' / p90 ' + W.leadMs.p90 + ' ms' : '') + '</td></tr>' +
+    '<tr><td>… never on CoinDCX (5 s)</td><td class="num">' + W.expired + '</td></tr>';
+  const rows = (W.list || []).slice(0, 12).map((r) => '<tr><td>' + blClock(r.at) + ' · ' + esc(r.coin) + ' ' + esc(r.path) + ' · Binance ' + r.predNetPct + '% vs CoinDCX ' + (r.dcxNetPct != null ? r.dcxNetPct + '%' : '—') + ' · ' + esc(r.outcome) + '</td><td class="num">' + (r.leadMs != null ? '+' + r.leadMs + ' ms' : '') + '</td></tr>').join('');
+  return '<div class="dx-h">Binance watch (paper)</div><table class="dx-tbl">' + head + rows + '</table>';
+}
 function dxHealth(D) {
   const E = D.engine || {}, F = D.feed || {}, R = D.rest || {}, M = D.markets || {}, Me = D.self || {};
   const sk = Object.entries(E.skips || {}).sort((a, b) => b[1] - a[1]);
@@ -5189,6 +5214,7 @@ function dxHealth(D) {
     '<div class="dx-h">Why loops were not taken</div><table class="dx-tbl">' + (sk.length ? sk.map(([k, v]) => row(k, blN(v, 0))).join('') : row('nothing skipped yet', '')) + '</table>' +
     ((D.settings || {}).block ? '<div class="dx-h">Never these coins (' + D.settings.block.split(',').filter(Boolean).length + ')</div><div class="facts"><span class="fact">' + esc(D.settings.block.split(',').join(', ')) + '</span></div>' : '') +
     ((D.blocked || []).length ? '<div class="dx-h">Auto-blocked coins</div><table class="dx-tbl">' + D.blocked.map((b) => '<tr><td><b>' + esc(b.coin) + '</b> · ' + esc(b.why) + ' · till ' + blClock(b.until) + '</td><td><button class="btn sm" onclick="dxUnblock(\'' + esc(b.coin) + '\')">Unblock</button></td></tr>').join('') + '</table>' : '') +
+    dxRebal(D) + dxBinance(D) +
     '<div class="dx-h">Feed &amp; box</div><table class="dx-tbl">' +
       row('last-trade check', D.tradeAge ? D.tradeAge.known + ' / ' + D.tradeAge.pairs + ' pairs known · ' + D.tradeAge.cycles + ' sweeps done' : '—') +
       row('order books live', (F.books || 0) + ' / ' + ((F.coins || 0) * 2 + 1)) + row('sockets · reconnects', (F.sockets || 0) + ' · ' + (F.reconnects || 0)) +
