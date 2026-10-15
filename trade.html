@@ -4502,7 +4502,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      is still to do (red). The raw event list is one tap away, closed by default. */
   var SF_ROLE = { held_sell: 'SELL the coins you held', missing_buy: 'BUY the missing part', missing_sell: 'SELL the coins just bought',
     held_buy: 'BUY BACK the coins sold in step 1', fallback_buy: 'BUY first (the held sell was refused)', fallback_sell: 'SELL the coins just bought', topup_buy: 'BUY USDT back (top-up)' };
-  function sfParse(stage){ var m = /^sf_(held|missing|fallback|topup)_(buy|sell)_(.+)$/.exec(String(stage || '')); return m ? { tag: m[1], side: m[2], sym: m[3], role: SF_ROLE[m[1] + '_' + m[2]] || (m[2] + ' ' + m[3]) } : null; }
+  function sfParse(stage){ var r5 = /^sf_buyback_retry_(.+)$/.exec(String(stage || '')); if (r5) return { tag: 'retry', side: 'buy', sym: r5[1], role: 'BUY BACK again after the wait' };   /* 05ep */
+    var m = /^sf_(held|missing|fallback|topup)_(buy|sell)_(.+)$/.exec(String(stage || '')); return m ? { tag: m[1], side: m[2], sym: m[3], role: SF_ROLE[m[1] + '_' + m[2]] || (m[2] + ' ' + m[3]) } : null; }
   function legParse(stage){ var m = /^leg(\d)_(buy|sell)_(.+)$/.exec(String(stage || '')); if (!m) return null;
     var sym = m[3], usdtinr = sym === 'usdtinr';
     return { tag: 'leg' + m[1], side: m[2], sym: sym, role: (m[2] === 'buy' ? 'BUY ' : 'SELL ') + (usdtinr ? 'USDT' : 'the coin') }; }
@@ -4538,6 +4539,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (stage === 'validate') return 'Blind check';
     if (stage === 'validated') return 'Plan';
     if (stage === 'blind_audit') return 'Check after the trade';
+    if (stage === 'blind_truth') return 'What really filled';   /* 05ep */
     return String(stage || '').replace(/_/g, ' ');
   }
   /* What a sell-first trade made and what it still owes, from its own totals.
@@ -4588,6 +4590,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (a === 'deferred_shrink') return { t: 'Not enough coins yet \u2014 sell what is held once the other orders finish' };
     if (a === 'deferred_recover') return { t: 'Sold what was held: ' + sfN(d.qty) + ' @ ' + d.price };
     if (a === 'downgraded_from_done') return { t: 'Profit cleared \u2014 an order did not fill as planned', cls: 'bad' };
+    if (a === 'real_fills') return { t: d.status === 'stuck' ? String(d.note || 'held after the trade') : 'Profit from the real fills ' + sfR(d.realProfitInr), s: d.placedProfitInr != null ? 'at the placed prices it read ' + sfR(d.placedProfitInr) : '', cls: d.status === 'stuck' ? 'bad' : 'good' };   /* 05ep */
+    if (a === 'waiting' && d.waitMs != null) return { t: 'Buy-back not filled \u2014 trying again in ' + Math.round(d.waitMs / 1000) + ' s at up to ' + d.price };   /* 05ep */
     return null;
   }
   /* plan line as label/value chips so the four numbers are easy to find; profit in green */
@@ -4705,7 +4709,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     var relOf = function (i) { var d = det[i]; return d.atMs != null ? Number(d.atMs) - t0 : new Date(evs[i].ts).getTime() - t0; };
     var grpOf = function (i) { var e = evs[i], d = det[i], a = String(d.action || '');
       if (/^(validated|validate|balance_check|leg1_skipped_usdt_held)$/.test(e.stage) || (e.stage === 'sell_first' && a === 'plan')) return 0;
-      if (/^(blind_reconciled|downgraded_from_done|filled|cancelled|bought|not_bought|skipped_rate|too_small|done|stuck|missed|late_fill)$/.test(a) || e.stage === 'blind_audit' || e.stage === 'usdt_topup') return 2;
+      if (/^(blind_reconciled|downgraded_from_done|filled|cancelled|bought|not_bought|skipped_rate|too_small|done|stuck|missed|late_fill)$/.test(a) || e.stage === 'blind_audit' || e.stage === 'blind_truth' || e.stage === 'usdt_topup') return 2;
       return 1; };
     var noise = function (i) { var a = String(det[i].action || ''); return a === 'leg_gap' || a === 'deferred_shrink'; };
     var GN = ['Decision', 'Orders', 'After the orders'], lastG = -1;
