@@ -5307,7 +5307,7 @@ function drawRs() {
   for (const v of ['trades', 'node', 'health']) { const b = $('rsv-' + v); if (b) b.className = 'btn sm' + (RS_VIEW === v ? ' on' : ''); }
   $('rsBody').innerHTML = RS_VIEW === 'node' ? rsNode(C) : RS_VIEW === 'health' ? rsHealth(S) : rsTrades(rows, C);
 }
-const RS_ST = { done: ['done', 'done'], missed: ['skipped', 'missed'], failed: ['failed', 'failed'] };
+const RS_ST = { done: ['done', 'done'], missed: ['skipped', 'missed'], failed: ['failed', 'failed'], stuck: ['failed', 'stuck'] };   /* 05ep */
 function rsNodeFor(t, C) {
   for (const r of (C.rows || [])) { if (r.rust && r.node && r.node.coin === t.coin && Math.abs((r.node.fire || r.node.at) - t.atMs) <= 3000) return r; }
   return null;
