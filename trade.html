@@ -1172,6 +1172,9 @@
         </div>
         <div class="dx-grp">Balances</div>
         <div class="frm">
+          <div class="f"><label>3rd leg on USDT/INR</label><select id="dx_leg3"><option value="true">on - every trade ends in INR</option><option value="false">off - USDT stays as float</option></select><div class="sub">A sells the USDT it got, B buys back the USDT it spent; its 0.59% fee is in the plan</div></div>
+          <div class="f"><label>3rd leg: max % worse than plan</label><input id="dx_leg3MaxSlipPct" type="number" step="0.05"><div class="sub">worse than that: left in the float for auto-balance</div></div>
+          <div class="f"><label>3rd leg: cancel rest after (ms)</label><input id="dx_leg3CancelMs" type="number" step="100"></div>
           <div class="f"><label>Auto-balance INR / USDT</label><select id="dx_autoBalance"><option value="true">on</option><option value="false">off</option></select><div class="sub">converts on the USDT/INR market (0.59% fee, counted in P&amp;L)</div></div>
           <div class="f"><label>Convert when a side is below %</label><input id="dx_balTriggerPct" type="number" step="5"></div>
           <div class="f"><label>Convert back to % each</label><input id="dx_balTargetPct" type="number" step="5"></div>
@@ -1227,6 +1230,7 @@
     </div>
     <div class="tiles" id="rsTiles"></div>
     <div class="dx-seg" style="margin:4px 0 10px;">
+      <button class="btn sm" id="rsv-live" onclick="rsView('live')">Live vs shadow</button>
       <button class="btn sm" id="rsv-trades" onclick="rsView('trades')">Paper trades</button>
       <button class="btn sm" id="rsv-blind" onclick="rsView('blind')">Blind</button>
       <button class="btn sm" id="rsv-node" onclick="rsView('node')">vs Node</button>
@@ -5093,8 +5097,8 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
 const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || 'https://api-ec2.swenik.co.in/dcx-api'; } catch (e) { return 'https://api-ec2.swenik.co.in/dcx-api'; } })();
 const DX_TKEY = 'swenik_dcx_token';
 let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
-const DX_NUM = ['unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
-const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger'];
+const DX_NUM = ['leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
+const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch', 'leg3'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger'];
 const dxList = (s) => { const a = String(s || '').split(',').filter(Boolean); return a.length > 4 ? a.length + ' coins' : esc(a.join(', ')); };
 const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
 function dxToken(ask) {
@@ -5185,7 +5189,7 @@ function dxTrades(D) {
   if (!L.length) return '<div class="empty">No live CoinDCX trade yet' + ((D.settings || {}).mode !== 'live' ? ' — switch to Live to start.' : '.') + '</div>';
   return L.map((t) => {
     const st = DX_ST[t.state] || ['failed', t.state], open = DX_OPEN.has(t.id);
-    const pathTxt = t.path === 'A' ? 'A · buy INR → sell USDT' : 'B · buy USDT → sell INR';
+    const pathTxt = (t.path === 'A' ? 'A · buy INR → sell USDT' : 'B · buy USDT → sell INR') + ((t.plan || {}).legs === 3 ? (t.path === 'A' ? ' → sell USDT/INR' : ' → buy USDT/INR') : '');   /* trader9 */
     return '<div class="order ' + (t.state === 'done' ? 's-done' : t.state === 'missed' ? '' : 's-failed') + (open ? ' open' : '') + '">' +
       '<div class="order-row" onclick="dxToggle(\'' + esc(t.id) + '\')">' +
         '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span><span class="chip live">live</span>' + (t.trigger === 'binance' ? '<span class="chip dx-bn">Binance</span>' : '') +
@@ -5201,7 +5205,7 @@ function dxCard(t) {
   const legs = (t.legs || []).map((l) => {
     const full = l.filled >= l.qty - 1e-9, none = !(l.filled > 0), cls = full ? 'good' : none ? 'bad' : 'part';
     const out = (none ? 'not filled' : full ? 'FILLED' : 'filled ' + n(l.filled)) + (l.avg ? ' @ ' + n(l.avg) : '') + (full && l.status === 'filled' ? '' : ' · ' + (l.status || '—')) +
-      (l.ackMs != null ? ' · ack +' + l.ackMs + ' ms' : '') + (l.ids && l.ids.length ? ' · ' + l.ids.length + ' order' + (l.ids.length > 1 ? 's' : '') + ', ' + (l.tries || 0) + ' tries' : '') + (l.err ? ' · ' + l.err : '');
+      (l.ackMs != null ? ' · ack +' + l.ackMs + ' ms' : '') + (l.ids && l.ids.length ? ' · ' + l.ids.length + ' order' + (l.ids.length > 1 ? 's' : '') + ', ' + (l.tries || 0) + ' tries' : '') + (l.err ? ' · ' + l.err : '') + (l.note ? ' · ' + l.note : '');
     return '<div class="sf-step cmp ' + cls + '"><span class="sf-n">' + l.n + '</span><div class="sf-b">' +
       '<div class="sf-what"><span class="swk-side ' + l.side + '">' + l.side.toUpperCase() + '</span><span class="sf-num"><span class="sf-nw"><span class="num">' + esc(n(l.qty)) + '</span> ' + esc(dxPair(l.pair)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc(n(l.price)) + '</span></span></span></div>' +
       '<div class="sf-l2"><span class="sf-out ' + cls + '">' + esc(out) + '</span></div></div></div>';
@@ -5218,8 +5222,10 @@ function dxCard(t) {
     '<span class="swk-kv"><i>Plan</i><b>' + P.netPct + '%</b></span><span class="swk-kv"><i>Gross</i><b>' + P.grossPct + '%</b></span>' +
     '<span class="swk-kv"><i>Size</i><b>' + inr(P.costInr) + '</b></span><span class="swk-kv"><i>Expected</i><b>' + inr2(P.expInr) + '</b></span>' +
     '<span class="swk-kv"><i>USDT/INR</i><b>' + P.usdInr + '</b></span><span class="swk-kv"><i>Gap</i><b>' + P.gapMs + ' ms</b></span>' +
+    (P.legs === 3 ? '<span class="swk-kv"><i>Legs</i><b>3 · ends in INR</b></span>' : '') +
+    (t.leg3 && t.leg3.floatLeftUsdt > 0 ? '<span class="swk-kv"><i>Left in float</i><b>' + t.leg3.floatLeftUsdt + ' USDT</b></span>' : '') +
     (t.trigger === 'binance' ? '<span class="swk-kv"><i>Started on</i><b>Binance · CoinDCX was ' + (t.dcxNetPctAtStart != null ? t.dcxNetPctAtStart + '%' : '—') + '</b></span>' : '') + '</div></div>' +
-    '<div class="sf-hd"><b>Orders</b>' + (t.fees ? '<span class="sf-dim">fees ' + inr2(t.fees.leg1Inr) + ' + ' + inr2(t.fees.leg2Inr) + (t.fees.unwindInr ? ' + ' + inr2(t.fees.unwindInr) : '') + (t.fees.fromExchange ? ' (as charged)' : ' (estimated)') + '</span>' : '') + '</div>' + legs +
+    '<div class="sf-hd"><b>Orders</b>' + (t.fees ? '<span class="sf-dim">fees ' + inr2(t.fees.leg1Inr) + ' + ' + inr2(t.fees.leg2Inr) + (t.fees.leg3Inr != null ? ' + ' + inr2(t.fees.leg3Inr) : '') + (t.fees.unwindInr ? ' + ' + inr2(t.fees.unwindInr) : '') + (t.fees.fromExchange ? ' (as charged)' : ' (estimated)') + '</span>' : '') + '</div>' + legs +
     (t.openOrder ? '<div class="facts"><span class="fact warn">order still OPEN: ' + esc(t.openOrder.side) + ' ' + esc(n(t.openOrder.qty)) + ' on ' + esc(t.openOrder.market) + ' @ ' + esc(n(t.openOrder.price)) + ' — cancel it in the CoinDCX app</span></div>' : '') +
     (t.leftover ? '<div class="facts"><span class="fact warn">still holding (in P&amp;L at its bid) <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
     '<div class="sf-hd" style="margin-top:10px;"><b>Timeline</b><span class="sf-dim">ms from leg 1 sent</span></div><div class="dx-ev">' + ev + '</div></div>';
@@ -5277,11 +5283,12 @@ setInterval(() => { if (!document.hidden && $('tab-dcxl') && $('tab-dcxl').class
    no token, no buttons that change anything. Paper trades come from /rs-api/paper, the Node
    comparison from /rs-api/compare, engine state from /rs-api/status. */
 const RS_BASE = 'https://api-ec2.swenik.co.in/rs-api';
-let RS = { st: null, paper: null, cmp: null, err: null }, RS_VIEW = 'trades'; const RS_OPEN = new Set();
+let RS = { st: null, paper: null, cmp: null, err: null }, RS_VIEW = null; const RS_OPEN = new Set();
 async function rsGet(p) { const r = await fetch(RS_BASE + p + (p.includes('?') ? '&' : '?') + 'cb=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
 async function refreshRs() {
-  try { const [st, paper, cmp] = await Promise.all([rsGet('/status'), rsGet('/paper'), rsGet('/compare')]); RS = { st, paper, cmp, err: null }; }
+  try { const [st, paper, cmp] = await Promise.all([rsGet('/status'), rsGet('/paper'), rsGet('/compare')]); RS = Object.assign(RS, { st, paper, cmp, err: null }); }
   catch (e) { RS.err = e.message; }
+  if (currentBox().id === 'ec2') { try { RS.eng = await apiJson('/api/trader/engine'); } catch (e) {} }   /* 05er: when auto moved to Rust */
   drawRs();
 }
 function rsView(v) { RS_VIEW = v; drawRs(); }
@@ -5293,6 +5300,7 @@ function drawRs() {
   const sk = S.sockets || {}, up = Object.values(sk).filter(Boolean).length, all = Object.keys(sk).length;
   const R = S.wazirxRate || {}, A = S.auto || {}, E = S.evalUs || {}, W = S.wallet || {}, rule = S.rule || {};
   const EN = S.liveEngine || {}, rsLive = EN.auto === 'rust' || EN.blind === 'rust';
+  if (!RS_VIEW) RS_VIEW = EN.auto === 'rust' ? 'live' : 'trades';   /* 05er: open on live vs shadow while Rust trades */
   $('rsMode').textContent = rsLive ? 'live' : P.on ? 'paper' : 'shadow'; $('rsMode').className = 'chip ' + (rsLive ? 'live' : P.on ? 'paper' : 'off');
   $('rsHint').textContent = (RS.err ? '⚠ ' + RS.err + ' · ' : '') + 'updated ' + blClock(S.at) + ' · up ' + rsUp(S.upSec || 0);
   $('rsFacts').innerHTML =
@@ -5310,8 +5318,47 @@ function drawRs() {
     tile('Decision', (E.n ? Math.round(E.avgUs) : '—') + ' µs', 'max ' + (E.maxUs || 0) + ' µs · ' + (E.n || 0) + ' fires');
   const c = $('cntRs'); if (c) c.textContent = P.trades || 0;
   const en = $('rsEngine'); if (en) en.innerHTML = rsEngineHtml(S);
-  for (const v of ['trades', 'blind', 'node', 'health']) { const b = $('rsv-' + v); if (b) b.className = 'btn sm' + (RS_VIEW === v ? ' on' : ''); }
-  $('rsBody').innerHTML = RS_VIEW === 'blind' ? rsBlind(P.blind || {}, (S.blind || {}).link || {}) : RS_VIEW === 'node' ? rsNode(C) : RS_VIEW === 'health' ? rsHealth(S) : rsTrades(rows, C);
+  for (const v of ['live', 'trades', 'blind', 'node', 'health']) { const b = $('rsv-' + v); if (b) b.className = 'btn sm' + (RS_VIEW === v ? ' on' : ''); }
+  $('rsBody').innerHTML = RS_VIEW === 'live' ? rsLiveShadow(EN) : RS_VIEW === 'blind' ? rsBlind(P.blind || {}, (S.blind || {}).link || {}) : RS_VIEW === 'node' ? rsNode(C) : RS_VIEW === 'health' ? rsHealth(S) : rsTrades(rows, C);
+}
+/* 05er: Rust LIVE next to Node SHADOW (paper) for the same signal - same coin, rows within 3 s, since auto moved to Rust */
+function rsLiveShadow(EN) {
+  if (EN.auto !== 'rust') return '<div class="empty">The auto loop is on Node - Rust is the shadow here (see Paper trades).</div>';
+  if (currentBox().id !== 'ec2') return '<div class="empty">Open Trader 2 (EC2) to see live vs shadow.</div>';
+  const since = Date.parse((RS.eng || {}).at || '') || 0, T = (o) => Date.parse(o.created_at) || 0;
+  const all = (orders || []).filter((o) => T(o) >= since && o.status !== 'skipped');
+  const live = all.filter((o) => o.mode === 'live'), sh = all.filter((o) => o.mode === 'paper');
+  const used = new Set(), pairs = [];
+  for (const l of live) {
+    let best = null; for (const p of sh) { if (used.has(p.id) || p.coin !== l.coin) continue; const d = Math.abs(T(p) - T(l)); if (d <= 3000 && (!best || d < Math.abs(T(best) - T(l)))) best = p; }
+    if (best) used.add(best.id); pairs.push({ at: T(l), coin: l.coin, l, p: best });
+  }
+  for (const p of sh) if (!used.has(p.id)) pairs.push({ at: T(p), coin: p.coin, l: null, p });
+  pairs.sort((a, b) => b.at - a.at);
+  const pnl = (o) => (o && o.profit_inr != null && o.status === 'done') ? Number(o.profit_inr) : null;
+  const sum = (xs) => xs.reduce((a, o) => a + (pnl(o) || 0), 0), n = (xs, s) => xs.filter((o) => o.status === s).length;
+  const ST = (o) => { const s = o.status; return s === 'done' ? ['done', 'done'] : s === 'missed' ? ['skipped', 'missed'] : (s === 'failed' || s === 'stuck') ? ['failed', s] : ['skipped', s]; };
+  const side = (o, who) => {
+    const lab = who === 'rust' ? '<span class="chip live">Rust live</span>' : '<span class="chip paper">Node shadow</span>';
+    if (!o) return '<div class="order-row" style="opacity:.55;">' + lab + '<span class="o-path">' + (who === 'rust' ? 'no Rust trade' : 'no Node shadow row') + '</span></div>';
+    const st = ST(o), v = pnl(o), path = /USDT → \S+ → INR$/.test(String(o.path_label || '')) ? 'B' : 'A';
+    return '<div class="order-row">' + lab + '<span class="st ' + st[0] + '">' + esc(st[1]) + '</span>' +
+      '<span class="o-path">#' + o.id + ' · path ' + path + '</span>' +
+      (v == null ? '' : '<span class="o-profit num ' + (v >= 0 ? 'pos' : 'neg') + '">' + dxR(v) + '</span>') + '</div>';
+  };
+  const head = '<div class="rule"><div class="facts num">' +
+    '<span class="fact">Rust live <b>' + live.length + '</b> · done <b>' + n(live, 'done') + '</b> <b class="' + (sum(live) >= 0 ? 'pos' : 'neg') + '">' + dxR(sum(live)) + '</b>' + (n(live, 'stuck') ? ' · <b class="neg">stuck ' + n(live, 'stuck') + '</b>' : '') + '</span>' +
+    '<span class="fact">Node shadow <b>' + sh.length + '</b> · done <b>' + n(sh, 'done') + '</b> <b class="' + (sum(sh) >= 0 ? 'pos' : 'neg') + '">' + dxR(sum(sh)) + '</b></span>' +
+    '<span class="fact">same signal <b>' + pairs.filter((x) => x.l && x.p).length + '</b> · Rust only <b>' + pairs.filter((x) => x.l && !x.p).length + '</b> · Node only <b>' + pairs.filter((x) => !x.l).length + '</b></span>' +
+    '</div><div class="hint" style="margin-top:6px;">since auto moved to Rust ' + (since ? blClock(since) : '') + ' · shadow P&amp;L is from the book, live P&amp;L from WazirX fills</div></div>';
+  if (!pairs.length) return head + '<div class="empty">No trade since the switch yet.</div>';
+  return head + pairs.map((x) => {
+    const d = x.l && x.p ? T(x.p) - T(x.l) : null;
+    return '<div class="order ' + (x.l ? (x.l.status === 'done' ? 's-done' : (x.l.status === 'stuck' || x.l.status === 'failed') ? 's-failed' : '') : '') + '">' +
+      '<div class="order-row" style="padding-bottom:2px;"><span class="o-coin">' + esc(String(x.coin).toUpperCase()) + '</span>' +
+      '<span class="o-path">' + (d == null ? '' : 'Node row ' + (d >= 0 ? '+' : '') + d + ' ms after Rust') + '</span><span class="o-time num">' + blClock(x.at) + '</span></div>' +
+      side(x.l, 'rust') + side(x.p, 'node') + '</div>';
+  }).join('');
 }
 /* 05eq: the live engine switch - which engine places real orders for the auto loop and for blind trades */
 function rsEngineHtml(S) {
