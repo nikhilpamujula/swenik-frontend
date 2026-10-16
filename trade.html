@@ -1227,6 +1227,7 @@
     <div class="tiles" id="rsTiles"></div>
     <div class="dx-seg" style="margin:4px 0 10px;">
       <button class="btn sm" id="rsv-trades" onclick="rsView('trades')">Paper trades</button>
+      <button class="btn sm" id="rsv-blind" onclick="rsView('blind')">Blind</button>
       <button class="btn sm" id="rsv-node" onclick="rsView('node')">vs Node</button>
       <button class="btn sm" id="rsv-health" onclick="rsView('health')">Health</button>
     </div>
@@ -5306,10 +5307,30 @@ function drawRs() {
     tile('Same as Node', (C.matched || 0) + ' / ' + ((C.matched || 0) + (C.nodeOnly || 0)), 'Rust only ' + (C.rustOnly || 0) + ' · Node orders, last 6 h') +
     tile('Decision', (E.n ? Math.round(E.avgUs) : '—') + ' µs', 'max ' + (E.maxUs || 0) + ' µs · ' + (E.n || 0) + ' fires');
   const c = $('cntRs'); if (c) c.textContent = P.trades || 0;
-  for (const v of ['trades', 'node', 'health']) { const b = $('rsv-' + v); if (b) b.className = 'btn sm' + (RS_VIEW === v ? ' on' : ''); }
-  $('rsBody').innerHTML = RS_VIEW === 'node' ? rsNode(C) : RS_VIEW === 'health' ? rsHealth(S) : rsTrades(rows, C);
+  for (const v of ['trades', 'blind', 'node', 'health']) { const b = $('rsv-' + v); if (b) b.className = 'btn sm' + (RS_VIEW === v ? ' on' : ''); }
+  $('rsBody').innerHTML = RS_VIEW === 'blind' ? rsBlind(P.blind || {}, (S.blind || {}).link || {}) : RS_VIEW === 'node' ? rsNode(C) : RS_VIEW === 'health' ? rsHealth(S) : rsTrades(rows, C);
 }
 const RS_ST = { done: ['done', 'done'], missed: ['skipped', 'missed'], failed: ['failed', 'failed'], stuck: ['failed', 'stuck'] };   /* 05ep */
+/* fix9: Rust blind paper - what a blind order at the tape price would have filled (behind everyone / first) and made */
+function rsBlind(B, L) {
+  const st = { filled: ['done', 'filled'], only_if_first: ['skipped', 'only if first'], no_fill_cancelled: ['failed', 'no fill'] };
+  const head = '<div class="rule"><div class="facts num">' +
+    '<span class="fact">scored <b>' + (B.scored || 0) + '</b> · filled if first <b>' + (B.filledBest || 0) + '</b> · filled behind everyone <b>' + (B.filledWorst || 0) + '</b></span>' +
+    '<span class="fact">P&amp;L behind everyone <b class="' + ((B.pnlWorst || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(B.pnlWorst || 0) + '</b> · if first <b class="' + ((B.pnlBest || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(B.pnlBest || 0) + '</b></span>' +
+    '<span class="fact">shared with auto: reserved <b>' + (L.reserved || 0) + '</b> · auto made smaller <b>' + (L.autoShrunk || 0) + '</b></span></div></div>';
+  const rows = (B.recent || []);
+  if (!rows.length) return head + '<div class="empty">No blind signal scored yet.</div>';
+  return head + rows.slice(0, 60).map((r) => {
+    const s = st[r.state] || ['failed', r.state], pw = r.pnlWorst || 0, pb = r.pnlBest || 0;
+    return '<div class="order ' + (r.state === 'filled' ? 's-done' : r.state === 'only_if_first' ? '' : 's-failed') + '"><div class="order-row">' +
+      '<span class="st ' + s[0] + '">' + s[1] + '</span><span class="chip paper">blind</span>' +
+      '<span class="o-coin">' + esc(String(r.coin).toUpperCase()) + '</span>' +
+      '<span class="o-path">' + (r.path === 'A' ? 'A · buy INR @ ' : 'B · sell INR @ ') + esc(blN(r.price, 8)) + ' · <b>' + r.pct + '%</b> · ' + inr(r.sizeInr) +
+      ' · fill ' + blN(r.fillWorst, 4) + '–' + blN(r.fillBest, 4) + '</span>' +
+      '<span class="o-profit num ' + (pw >= 0 ? 'pos' : 'neg') + '">' + dxR(pw) + (pb !== pw ? ' – ' + dxR(pb) : '') + '</span>' +
+      '<span class="o-time num">' + blClock(r.atMs) + '</span></div></div>';
+  }).join('');
+}
 function rsNodeFor(t, C) {
   for (const r of (C.rows || [])) { if (r.rust && r.node && r.node.coin === t.coin && Math.abs((r.node.fire || r.node.at) - t.atMs) <= 3000) return r; }
   return null;
@@ -5367,7 +5388,7 @@ function rsNode(C) {
 function rsHealth(S) {
   const f = (S.frames || []), names = ['main', 'S0', 'S1', 'S2'], A = S.auto || {}, fu = A.funnel || {}, B = (S.blind || {}).counts || {};
   const kv = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<span class="fact">' + esc(k) + ' <b>' + v + '</b></span>').join('');
-  const fw = (S.feedWins || []).map((w) => '<span class="fact">' + esc(w.socket) + ' first <b>' + w.first.toLocaleString('en-IN') + '</b> · late <b>' + w.late.toLocaleString('en-IN') + '</b> by <b>' + w.avgLateMs + ' ms</b></span>').join('');
+  const fw = (S.feedWins || []).map((w) => '<span class="fact">' + esc(w.socket) + ' first <b>' + w.first.toLocaleString('en-IN') + '</b> · late <b>' + w.late.toLocaleString('en-IN') + '</b> by <b>' + w.avgLateMs + ' ms</b>' + (w.leadCopies ? ' · ahead by <b>' + w.avgLeadMs + ' ms</b>' : '') + '</span>').join('');
   return (fw ? '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Which socket brings a change first</div><div class="facts num">' + fw + '</div></div>' : '') +
     '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Feed</div><div class="facts num">' +
       names.map((n, i) => '<span class="fact">' + n + ' <b>' + (f[i] || 0).toLocaleString('en-IN') + '</b> frames</span>').join('') +
