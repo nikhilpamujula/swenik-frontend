@@ -1223,6 +1223,7 @@
         <span class="hint" id="rsHint" style="margin-left:auto;"></span>
       </div>
       <div class="facts num" id="rsFacts"></div>
+      <div id="rsEngine" style="margin-top:8px;"></div>
     </div>
     <div class="tiles" id="rsTiles"></div>
     <div class="dx-seg" style="margin:4px 0 10px;">
@@ -5291,10 +5292,11 @@ function drawRs() {
   if (!S) { $('rsBody').innerHTML = '<div class="empty">' + (RS.err ? 'Could not reach Trader 3 — ' + esc(RS.err) : 'Loading…') + '</div>'; $('rsFacts').innerHTML = ''; $('rsTiles').innerHTML = ''; return; }
   const sk = S.sockets || {}, up = Object.values(sk).filter(Boolean).length, all = Object.keys(sk).length;
   const R = S.wazirxRate || {}, A = S.auto || {}, E = S.evalUs || {}, W = S.wallet || {}, rule = S.rule || {};
-  $('rsMode').textContent = P.on ? 'paper' : 'shadow'; $('rsMode').className = 'chip ' + (P.on ? 'paper' : 'off');
+  const EN = S.liveEngine || {}, rsLive = EN.auto === 'rust' || EN.blind === 'rust';
+  $('rsMode').textContent = rsLive ? 'live' : P.on ? 'paper' : 'shadow'; $('rsMode').className = 'chip ' + (rsLive ? 'live' : P.on ? 'paper' : 'off');
   $('rsHint').textContent = (RS.err ? '⚠ ' + RS.err + ' · ' : '') + 'updated ' + blClock(S.at) + ' · up ' + rsUp(S.upSec || 0);
   $('rsFacts').innerHTML =
-    '<span class="fact">orders <b>off</b> · paper <b>' + (P.on ? 'on' : 'off') + '</b></span>' +
+    '<span class="fact">orders <b>' + (rsLive ? 'LIVE (' + [EN.auto === 'rust' ? 'auto' : '', EN.blind === 'rust' ? 'blind' : ''].filter(Boolean).join(' + ') + ')' : 'off') + '</b> · paper <b>' + (P.on ? 'on' : 'off') + '</b></span>' +
     '<span class="fact">rule <b>' + esc(rule.id || '—') + ' · ' + esc(rule.name || '') + '</b></span>' +
     '<span class="fact' + (up === all && all ? '' : ' warn') + '">sockets <b>' + up + '/' + all + '</b> · ' + (S.coins || 0) + ' coins</span>' +
     '<span class="fact' + (W.known ? '' : ' warn') + '">wallet <b>' + (W.known ? 'live' : 'not connected') + '</b></span>' +
@@ -5307,8 +5309,31 @@ function drawRs() {
     tile('Same as Node', (C.matched || 0) + ' / ' + ((C.matched || 0) + (C.nodeOnly || 0)), 'Rust only ' + (C.rustOnly || 0) + ' · Node orders, last 6 h') +
     tile('Decision', (E.n ? Math.round(E.avgUs) : '—') + ' µs', 'max ' + (E.maxUs || 0) + ' µs · ' + (E.n || 0) + ' fires');
   const c = $('cntRs'); if (c) c.textContent = P.trades || 0;
+  const en = $('rsEngine'); if (en) en.innerHTML = rsEngineHtml(S);
   for (const v of ['trades', 'blind', 'node', 'health']) { const b = $('rsv-' + v); if (b) b.className = 'btn sm' + (RS_VIEW === v ? ' on' : ''); }
   $('rsBody').innerHTML = RS_VIEW === 'blind' ? rsBlind(P.blind || {}, (S.blind || {}).link || {}) : RS_VIEW === 'node' ? rsNode(C) : RS_VIEW === 'health' ? rsHealth(S) : rsTrades(rows, C);
+}
+/* 05eq: the live engine switch - which engine places real orders for the auto loop and for blind trades */
+function rsEngineHtml(S) {
+  const E = S.liveEngine || {}, seg = (part, who) => '<button class="btn sm' + (E[part] === who ? ' on' : '') + '" onclick="rsEngine(\'' + part + '\',\'' + who + '\')">' + (who === 'rust' ? 'Rust' : 'Node') + '</button>';
+  const line = (part, label) => '<span class="fact" style="display:inline-flex;align-items:center;gap:8px;">' + label + ' <span class="dx-seg" style="display:inline-flex;gap:4px;">' + seg(part, 'node') + seg(part, 'rust') + '</span></span>';
+  const who = (x) => (x === 'rust' ? 'Rust trades live · Node paper' : 'Node trades live · Rust paper');
+  return '<div class="facts num" style="align-items:center;">' + line('auto', 'Auto loop') + line('blind', 'Blind') + '</div>' +
+    '<div class="hint" style="margin-top:6px;">Auto: ' + who(E.auto) + ' &nbsp;·&nbsp; Blind: ' + who(E.blind) + (E.armed ? '' : ' &nbsp;·&nbsp; <b class="neg">disarmed</b> - nothing trades') + '</div>';
+}
+async function rsEngine(part, who) {
+  const S = RS.st || {}, E = S.liveEngine || {};
+  if (E[part] === who) return;
+  if (currentBox().id !== 'ec2') { toast('Switch to Trader 2 (EC2) first - the Rust engine runs there'); return; }   /* fix11: never flip a setting on the wrong box */
+  const name = part === 'auto' ? 'the AUTO LOOP (incl. sell-first, USDT auto-balance)' : 'BLIND trades';
+  if (!confirm('Move ' + name + ' to ' + (who === 'rust' ? 'RUST' : 'NODE') + '?\n\n' + (who === 'rust'
+      ? 'Node stops placing these orders within ~3 s and paper-trades them. Rust places REAL orders with the same WazirX key, while the master switch is armed.'
+      : 'Rust stops placing these orders within ~3 s. Node places them again (it is still armed/disarmed by the same master switch).'))) return;
+  try {
+    const b = {}; b[part] = who;
+    await apiJson('/api/trader/engine', { method: 'POST', body: JSON.stringify(b) });
+    toast((part === 'auto' ? 'Auto loop' : 'Blind') + ' → ' + (who === 'rust' ? 'Rust' : 'Node')); setTimeout(refreshRs, 3500);
+  } catch (e) { toast('Failed: ' + e.message); }
 }
 const RS_ST = { done: ['done', 'done'], missed: ['skipped', 'missed'], failed: ['failed', 'failed'], stuck: ['failed', 'stuck'] };   /* 05ep */
 /* fix9: Rust blind paper - what a blind order at the tape price would have filled (behind everyone / first) and made */
@@ -5318,9 +5343,13 @@ function rsBlind(B, L) {
     '<span class="fact">scored <b>' + (B.scored || 0) + '</b> · filled if first <b>' + (B.filledBest || 0) + '</b> · filled behind everyone <b>' + (B.filledWorst || 0) + '</b></span>' +
     '<span class="fact">P&amp;L behind everyone <b class="' + ((B.pnlWorst || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(B.pnlWorst || 0) + '</b> · if first <b class="' + ((B.pnlBest || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(B.pnlBest || 0) + '</b></span>' +
     '<span class="fact">shared with auto: reserved <b>' + (L.reserved || 0) + '</b> · auto made smaller <b>' + (L.autoShrunk || 0) + '</b></span></div></div>';
+  const live = (B.live || []).map((r) => { const L = r.live || {}, pnl = Number(r.profitInr || 0), ok = r.status === 'done' || /^stock/.test(r.status);
+    return '<div class="order ' + (ok ? 's-done' : 's-failed') + '"><div class="order-row"><span class="st ' + (ok ? 'done' : 'failed') + '">' + esc(String(r.status || '').replace(/_/g, ' ')) + '</span><span class="chip live">live</span>' +
+      '<span class="o-coin">' + esc(String(r.coin).toUpperCase()) + '</span><span class="o-path">' + (r.path === 'A' ? 'A · buy INR @ ' : 'B · sell INR @ ') + esc(blN(r.price, 8)) + ' · <b>' + r.pct + '%</b> · filled ' + blN(L.filled || 0, 4) + (L.sizedBy ? ' · ' + esc(L.sizedBy) : '') + '</span>' +
+      '<span class="o-profit num ' + (pnl >= 0 ? 'pos' : 'neg') + '">' + dxR(pnl) + '</span><span class="o-time num">' + blClock(r.atMs) + '</span></div></div>'; }).join('');
   const rows = (B.recent || []);
-  if (!rows.length) return head + '<div class="empty">No blind signal scored yet.</div>';
-  return head + rows.slice(0, 60).map((r) => {
+  if (!rows.length) return head + live + '<div class="empty">No blind signal scored yet.</div>';
+  return head + live + rows.slice(0, 60).map((r) => {
     const s = st[r.state] || ['failed', r.state], pw = r.pnlWorst || 0, pb = r.pnlBest || 0;
     return '<div class="order ' + (r.state === 'filled' ? 's-done' : r.state === 'only_if_first' ? '' : 's-failed') + '"><div class="order-row">' +
       '<span class="st ' + s[0] + '">' + s[1] + '</span><span class="chip paper">blind</span>' +
