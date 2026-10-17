@@ -2217,6 +2217,7 @@ function blindCardHtml(r) {
     chips += kv('Paper', inr(r.pnlWorst) + '–' + inr(r.pnlBest)) + (r.fillWorst != null ? kv('Fill', esc(n(r.fillWorst)) + '–' + esc(n(r.fillBest))) : '');
   }
   const notes = [];
+  if (L && L.engine === 'rust') notes.push('placed by the Rust engine');   /* 05es */
   if (L && L.sizedBy) notes.push('sized to your ' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' ? 'USDT float' : 'INR'));
   if (L && L.sizeMode) notes.push('size ' + L.sizeMode);
   if (L && L.autoQ) notes.push('auto trader already had ' + n(L.autoQ) + ' → blind sent less');
