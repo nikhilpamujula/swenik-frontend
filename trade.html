@@ -500,6 +500,10 @@
   .cap.at b { color:#b3261e; }
   /* a clean skip is not an incident — no red, no bold */
   .o-err.o-note { color:var(--muted, #64748b); }
+  .o-story { font-size:12px; line-height:1.5; color:var(--muted, #64748b); padding:0 14px 10px 16px; }
+  .o-story b { color:var(--ink, #0f172a); font-weight:600; }
+  .o-story .rs { color:#b45309; font-weight:600; }
+  .chip.blind { background:#fef3c7; color:#92400e; }
   .caret { flex:none; color:var(--gray-500); transition:transform .18s; font-size:11px; }
   .order.open .caret { transform:rotate(90deg); }
 
@@ -874,11 +878,11 @@
          page (track.html) with Execute wired to this trader. -->
     <button class="tabbtn" id="tb-manual" onclick="window.location.href='./track.html'">Track Live ↗</button>
     <button class="tabbtn" id="tb-positions" onclick="setTab('positions')">Positions<span class="cnt" id="cntPos">0</span></button>
-    <button class="tabbtn" id="tb-missed" onclick="setTab('missed')">Missed<span class="cnt" id="cntMissed">0</span></button>
+    <button class="tabbtn" id="tb-missed" style="display:none" onclick="setTab('missed')">Missed<span class="cnt" id="cntMissed">0</span></button>
     <button class="tabbtn" id="tb-blind" onclick="setTab('blind')">Blind<span class="cnt" id="cntBlind">0</span></button>
-    <button class="tabbtn" id="tb-dcx" onclick="setTab('dcx')">CoinDCX<span class="cnt" id="cntDcx">0</span></button>
+    <button class="tabbtn" id="tb-dcx" style="display:none" onclick="setTab('dcx')">CoinDCX<span class="cnt" id="cntDcx">0</span></button>
     <button class="tabbtn" id="tb-dcxl" onclick="setTab('dcxl')">DCX Live<span class="cnt" id="cntDcxl">0</span></button>
-    <button class="tabbtn" id="tb-rs" onclick="setTab('rs')">Trader 3<span class="cnt" id="cntRs">0</span></button>
+    <button class="tabbtn" id="tb-rs" onclick="setTab('rs')">Node vs Rust<span class="cnt" id="cntRs">0</span></button>
   </div>
 </div>
 
@@ -1221,7 +1225,7 @@
   <div class="tabpane" id="tab-rs">
     <div class="rule">
       <div class="rule-top">
-        <span class="rule-name">Trader 3 · Rust (WazirX auto loop)</span>
+        <span class="rule-name">Node vs Rust · WazirX auto loop + blind</span>
         <span class="chip paper" id="rsMode">paper</span>
         <span class="hint" id="rsHint" style="margin-left:auto;"></span>
       </div>
@@ -3444,11 +3448,12 @@ async function refreshOrders() {
   }
   renderOrders();
   renderChart();
+  actRsLoad().then((ok) => { if (ok) renderOrders(); });   /* fe09 */
 }
 
 function renderOrders() {
   const box = $('ordersBox');
-  const list = orders.filter(passFilter);
+  const list = actWithBlind(orders).filter(passFilter);   /* fe09: Rust blind live trades are rows here too */
   if (!list.length) { box.innerHTML = '<div class="empty">' + (orders.length ? 'Nothing matches this filter.' : 'No activity yet. Arm the engine with a paper rule and watch it work.') + '</div>'; return; }
   box.innerHTML = list.map(o => {
     let [cls, label, side] = stClass(o);
@@ -3474,10 +3479,10 @@ function renderOrders() {
     }
     const open = openTimelines.has(o.id);
     return '<div class="order ' + side + (open ? ' open' : '') + '" id="ord' + o.id + '">' +
-      '<div class="order-row" onclick="toggleTimeline(' + o.id + ')">' +
+      '<div class="order-row" onclick="toggleTimeline(' + (o.synthetic ? '\'' + o.id + '\'' : o.id) + ')">' +
         '<span class="caret">▶</span>' +
         '<span class="st ' + cls + '">' + esc(label) + '</span>' +
-        '<span class="chip ' + o.mode + '">' + o.mode + '</span>' +
+        '<span class="chip ' + o.mode + '">' + o.mode + '</span>' + (o.synthetic ? '<span class="chip blind">blind</span>' : '') +
         '<span class="o-coin">' + esc((o.coin || '').toUpperCase()) + '</span>' +
         '<span class="o-path">' + esc(o.path_label || o.strategy) + '</span>' +
         (profit != null ? '<span class="o-profit num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (profit >= 0 ? '+' : '') + inr2(profit) + '</span>'
@@ -3500,6 +3505,7 @@ function renderOrders() {
          : o.status === 'missed' ? 'missed at <b>' + esc(o.stage || '?') + '</b> — '
          : o.stage === 'sf_sell' || o.stage === 'sf_buy_back' ? ''
          : 'stuck at <b>' + esc(o.stage || '?') + '</b> — ') + esc(o.error) + '</div>' : '') +
+      actStory(o) +
       '<div class="timeline" id="tl' + o.id + '"></div>' +
     '</div>';
   }).join('');
@@ -3518,6 +3524,7 @@ async function toggleTimeline(id) {
 async function loadTimeline(id) {
   const el = $('tl' + id);
   if (!el) return;
+  if (String(id)[0] === 'B') { el.innerHTML = actBlindTimeline(id); return; }   /* fe09 */
   try {
     const o = await apiJson('/api/trader/orders/' + id);
     const evs = o.events || [];
@@ -3539,6 +3546,102 @@ async function loadTimeline(id) {
       '</div>';
     }).join('');
   } catch (e) { el.innerHTML = '<div class="empty">Could not load timeline (' + esc(e.message) + ')</div>'; }
+}
+
+
+/* fe09: ACTIVITY NARRATION. On EC2, while Rust trades live, each row says who really traded and how the two engines
+   and blind/auto coordinated. Read-only: GET /rs-api/paper, /recent, /near and /api/trader/engine, at most every 8 s. */
+let ACT_RS = { at: 0, paper: null, recent: null, near: null, eng: null };
+async function actRsLoad() {
+  if (currentBox().id !== 'ec2' || Date.now() - ACT_RS.at < 8000) return false;
+  ACT_RS.at = Date.now();
+  try {
+    const [paper, recent, near, eng] = await Promise.all([rsGet('/paper'), rsGet('/recent'), rsGet('/near'), apiJson('/api/trader/engine')]);
+    Object.assign(ACT_RS, { paper, recent: Array.isArray(recent) ? recent : [], near: (near && near.rows) || [], eng: eng || {} });
+    return true;
+  } catch (e) { return false; }
+}
+const actOn = () => currentBox().id === 'ec2' && ACT_RS.eng && (ACT_RS.eng.auto === 'rust' || ACT_RS.eng.blind === 'rust');
+const actT = (o) => Date.parse(o.created_at) || 0;
+const actMs = (d) => (d >= 0 ? '+' : '−') + Math.abs(Math.round(d)).toLocaleString('en-IN') + ' ms';
+const actQ = (v) => Number(+Number(v || 0).toPrecision(6)).toLocaleString('en-IN', { maximumFractionDigits: 6 });
+const ACT_BST = { done: ['done', true], stock_held: ['done', true], stock_partial: ['done', true], no_fill_cancelled: ['missed', false], leg1_no_balance: ['skipped', false], leg1_error: ['failed', false],
+  leg2_failed: ['stuck', false], leg2_partial: ['stuck', false], cancel_unconfirmed: ['stuck', false], buy_unconfirmed: ['stuck', false], leg1_unconfirmed: ['stuck', false], buy_error: ['failed', false] };
+function actBlindRaw() { return actOn() ? ((((ACT_RS.paper || {}).blind || {}).live) || []) : []; }
+function actWithBlind(list) {
+  const raw = actBlindRaw(); if (!raw.length) return list;
+  const oldest = list.length ? Math.min.apply(null, list.map(actT)) : 0;
+  const rows = raw.filter((r) => Number(r.atMs) >= oldest).map((r) => { const st = ACT_BST[r.status] || ['failed', false], C = String(r.coin || '').toUpperCase();
+    return { id: 'B' + r.atMs, synthetic: true, _bl: r, mode: 'live', coin: r.coin, created_at: new Date(Number(r.atMs)).toISOString(), status: st[0], ok: st[1], strategy: 'blind',
+      profit_inr: st[0] === 'done' ? Number(r.profitInr || 0) : null, path_label: r.path === 'B' ? 'INR → USDT → ' + C + ' → INR' : 'INR → ' + C + ' → USDT → INR',
+      stage: r.status, error: null }; });   /* the story line carries the outcome */
+  return list.concat(rows).sort((a, b) => actT(b) - actT(a));
+}
+function actBlindOutcome(r) {
+  const L = r.live || {}, C = String(r.coin || '').toUpperCase(), cancel = (L.ev || []).find((e) => e.e === 'cancel_reply' || e.e === 'buy_cancel_reply');
+  switch (r.status) {
+    case 'done': return 'both legs filled' + (L.ms != null ? ' in ' + L.ms + ' ms' : '');
+    case 'no_fill_cancelled': return 'leg 1 got no fill — the price was taken before our order arrived — cancelled' + (cancel ? ' at +' + cancel.ms + ' ms' : '') + ', nothing held';
+    case 'leg2_failed': case 'leg2_partial': { const u = actQ(L.unhedged), how = r.status === 'leg2_failed' ? 'leg 2 did not go through' : 'leg 2 only part';
+      return r.path === 'B' ? 'leg 1 sold ' + actQ(L.filled) + ' ' + C + ' from your balance, ' + how + ' — BUY ' + u + ' ' + C + ' back'
+        : 'leg 1 bought ' + actQ(L.filled) + ' ' + C + ', ' + how + ' — SELL ' + u + ' ' + C; }
+    case 'stock_held': case 'stock_partial': return 'bought ' + actQ(L.got) + ' ' + C + ', ' + actQ(L.stock) + ' kept as stock';
+    case 'leg1_no_balance': return 'leg 1 refused — not enough balance';
+    default: return String(r.status || '') + (L.error ? ' — ' + L.error : '');
+  }
+}
+function actNear(coin, t) {
+  const n = (ACT_RS.near || []).find((x) => x.coin === coin && t >= Number(x.atMs) - 3000 && t <= Number(x.lastMs || x.atMs) + 3000);
+  if (!n) return null;
+  const why = n.why === 'barMiss' ? 'edge ' + n.bestNetPct + '% under the ' + n.needPct + '% minimum'
+    : n.why === 'profitFloor' ? 'profit ' + inr2(n.profitInr) + ' under the ' + inr2(n.needInr) + ' minimum (' + n.bestNetPct + '%)'
+    : n.why === 'cooldown' ? 'coin still cooling down' : String(n.why);
+  return { at: Number(n.atMs), why };
+}
+function actRecent(coin, t, pred) { return (ACT_RS.recent || []).filter((x) => x.kind === 'auto' && x.coin === coin && Math.abs(Number(x.atMs) - t) <= 3000 && pred(x)).sort((a, b) => Math.abs(Number(a.atMs) - t) - Math.abs(Number(b.atMs) - t))[0] || null; }
+function actStory(o) {
+  if (!actOn()) return '';
+  const E = ACT_RS.eng, since = Date.parse(E.at || '') || 0, t = actT(o), C = String(o.coin || '').toLowerCase();
+  if (t < since) return '';
+  const near = (xs, ms) => xs.filter((x) => x.coin === o.coin && x !== o && Math.abs(actT(x) - t) <= (ms || 3000)).sort((a, b) => Math.abs(actT(a) - t) - Math.abs(actT(b) - t))[0] || null;
+  const res = (x) => x.status === 'done' ? 'done ' + dxR(Number(x.profit_inr || 0)) : x.status === 'stuck' ? 'stuck at ' + esc(x.stage || '?') : esc(x.status || '');
+  const S = [];
+  if (o.synthetic) {
+    const r = o._bl;
+    const bad = o.status === 'stuck' || o.status === 'failed';
+    S.push('<span class="rs">Rust blind</span> fired on a WazirX tape print at <b>' + esc(r.price) + '</b> (' + esc(r.pct) + '%), ' + inr2(r.spentInr) + ' — ' + (bad ? '<b class="neg">' + esc(actBlindOutcome(r)) + '</b>' : esc(actBlindOutcome(r))) + '.');
+    const a = actRecent(C, t, (x) => /^blindLink/.test(x.why || ''));
+    if (a) S.push('Coordination: the auto loop saw ' + C.toUpperCase() + ' ' + actMs(Number(a.atMs) - t) + ' later and stood down — <b>' + esc(a.why) + '</b> (the blind trade already holds that part of the book).');
+    const p = near(orders.filter((x) => x.mode === 'paper'));
+    if (p) S.push('Node shadow #' + p.id + ' (paper, no order) ' + actMs(actT(p) - t) + ': ' + res(p) + '.');
+  } else if (o.mode === 'live' && E.auto === 'rust') {
+    S.push('<span class="rs">Rust auto loop</span> placed this live.');
+    if (/nothing to trade from previous leg/.test(o.error || '')) S.push('Leg 1 never filled: the price was gone when the order reached WazirX, so legs 2–3 had nothing to sell.');
+    const p = near(orders.filter((x) => x.mode === 'paper'));
+    if (p) S.push('Node shadow #' + p.id + ' ran the same signal ' + actMs(actT(p) - t) + ' as paper: ' + res(p) + ' <i>(book price — it never meets the queue)</i>.');
+  } else if (o.mode === 'paper' && E.auto === 'rust') {
+    S.push('Paper shadow — Node placed nothing.');
+    const l = near(orders.filter((x) => x.mode === 'live'));
+    const b = actWithBlind([]).filter((x) => x.coin === o.coin && Math.abs(actT(x) - t) <= 3000)[0];
+    const sk = actRecent(C, t, (x) => x.outcome === 'skip');
+    const nr = (!l && !b && !sk) ? actNear(C, t) : null;
+    if (b) S.push('Live: <span class="rs">Rust blind</span> ' + blClock(actT(b), true) + ' (' + actMs(t - actT(b)) + ' before this row) — ' + esc(actBlindOutcome(b._bl)) + '.');
+    if (l) S.push('Live: <span class="rs">Rust #' + l.id + '</span> ' + actMs(actT(l) - t) + ' — ' + res(l) + '.');
+    if (sk) S.push('Rust saw it ' + actMs(Number(sk.atMs) - t) + ' and skipped: <b>' + esc(sk.why) + '</b>.');
+    if (nr) S.push('Rust skipped it: <b>' + esc(nr.why) + '</b>.');
+    if (!l && !b && !sk && !nr) S.push('No Rust trade or skip found within 3 s (its logs keep the last few hundred).');
+  }
+  return S.length ? '<div class="o-story selectable">' + S.join(' ') + '</div>' : '';
+}
+function actBlindTimeline(id) {
+  const r = actBlindRaw().find((x) => 'B' + x.atMs === id); if (!r) return '<div class="empty">No longer in the Rust log.</div>';
+  const t0 = Number(r.atMs), ev = ((r.live || {}).ev || []);
+  if (!ev.length) return '<div class="empty">No events recorded.</div>';
+  let prev = 0;
+  return ev.map((e, i) => { const d = Object.entries(e).filter(([k]) => k !== 'e' && k !== 'ms').map(([k, v]) => k + ': ' + (typeof v === 'object' ? JSON.stringify(v) : v)).join(' · ');
+    const line = blClock(t0 + (e.ms || 0), true) + ' +' + (e.ms || 0) + 'ms (Δ' + ((e.ms || 0) - prev) + ')'; prev = e.ms || 0;
+    return '<div class="tl-ev"><div class="tl-rail"><span class="tl-dot ' + (/rejected|error/.test(e.e) ? 'bad' : '') + '"></span>' + (i < ev.length - 1 ? '<span class="tl-line"></span>' : '') + '</div>' +
+      '<div class="tl-body"><span class="tl-stage">' + esc(e.e) + '</span><span class="tl-t num">' + line + '</span>' + (d ? '<div class="tl-det selectable">' + esc(d) + '</div>' : '') + '</div></div>'; }).join('');
 }
 
 // ---------------- positions ----------------
@@ -4510,9 +4613,9 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
      price, when it went, how it ended. Under it: the money made (green) and what
      is still to do (red). The raw event list is one tap away, closed by default. */
   var SF_ROLE = { held_sell: 'SELL the coins you held', missing_buy: 'BUY the missing part', missing_sell: 'SELL the coins just bought',
-    held_buy: 'BUY BACK the coins sold in step 1', fallback_buy: 'BUY first (the held sell was refused)', fallback_sell: 'SELL the coins just bought', topup_buy: 'BUY USDT back (top-up)' };
+    held_buy: 'BUY BACK the coins sold in step 1', buyfirst_buy: 'BUY on USDT first', buyfirst_sell: 'SELL on INR (held coins, same instant)', fallback_buy: 'BUY first (the held sell was refused)', fallback_sell: 'SELL the coins just bought', topup_buy: 'BUY USDT back (top-up)' };
   function sfParse(stage){ var r5 = /^sf_buyback_retry_(.+)$/.exec(String(stage || '')); if (r5) return { tag: 'retry', side: 'buy', sym: r5[1], role: 'BUY BACK again after the wait' };   /* 05ep */
-    var m = /^sf_(held|missing|fallback|topup)_(buy|sell)_(.+)$/.exec(String(stage || '')); return m ? { tag: m[1], side: m[2], sym: m[3], role: SF_ROLE[m[1] + '_' + m[2]] || (m[2] + ' ' + m[3]) } : null; }
+    var m = /^sf_(held|missing|fallback|topup|buyfirst)_(buy|sell)_(.+)$/.exec(String(stage || '')); return m ? { tag: m[1], side: m[2], sym: m[3], role: SF_ROLE[m[1] + '_' + m[2]] || (m[2] + ' ' + m[3]) } : null; }
   function legParse(stage){ var m = /^leg(\d)_(buy|sell)_(.+)$/.exec(String(stage || '')); if (!m) return null;
     var sym = m[3], usdtinr = sym === 'usdtinr';
     return { tag: 'leg' + m[1], side: m[2], sym: sym, role: (m[2] === 'buy' ? 'BUY ' : 'SELL ') + (usdtinr ? 'USDT' : 'the coin') }; }
@@ -4751,6 +4854,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     window.loadTimeline = async function (id) {
       var el = document.getElementById('tl' + id);
       if (!el) return;
+      if (String(id)[0] === 'B') { el.innerHTML = actBlindTimeline(id); return; }   /* fe09: Rust blind row */
       try {
         var o = await apiJson('/api/trader/orders/' + id);
         var evs = o.events || [];
@@ -5297,7 +5401,7 @@ function rsToggle(id) { if (RS_OPEN.has(id)) RS_OPEN.delete(id); else RS_OPEN.ad
 const rsUp = (s) => s < 90 ? s + 's' : s < 5400 ? Math.round(s / 60) + 'm' : (s / 3600).toFixed(1) + 'h';
 function drawRs() {
   const S = RS.st, P = RS.paper || {}, C = RS.cmp || {};
-  if (!S) { $('rsBody').innerHTML = '<div class="empty">' + (RS.err ? 'Could not reach Trader 3 — ' + esc(RS.err) : 'Loading…') + '</div>'; $('rsFacts').innerHTML = ''; $('rsTiles').innerHTML = ''; return; }
+  if (!S) { $('rsBody').innerHTML = '<div class="empty">' + (RS.err ? 'Could not reach the Rust engine — ' + esc(RS.err) : 'Loading…') + '</div>'; $('rsFacts').innerHTML = ''; $('rsTiles').innerHTML = ''; return; }
   const sk = S.sockets || {}, up = Object.values(sk).filter(Boolean).length, all = Object.keys(sk).length;
   const R = S.wazirxRate || {}, A = S.auto || {}, E = S.evalUs || {}, W = S.wallet || {}, rule = S.rule || {};
   const EN = S.liveEngine || {}, rsLive = EN.auto === 'rust' || EN.blind === 'rust';
@@ -5313,7 +5417,7 @@ function drawRs() {
   const pr = P.profitInr || 0, rows = P.recent || [];
   const cnt = (s) => rows.filter((r) => r.status === s).length;
   $('rsTiles').innerHTML =
-    tile('Paper P&L', '<span class="' + (pr >= 0 ? 'pos' : 'neg') + '">' + dxR(pr) + '</span>', 'since Trader 3 started', '', true) +
+    tile('Paper P&L', '<span class="' + (pr >= 0 ? 'pos' : 'neg') + '">' + dxR(pr) + '</span>', 'since Rust started', '', true) +
     tile('Paper trades', String(P.trades || 0), 'done ' + cnt('done') + ' · missed ' + cnt('missed') + ' · failed ' + cnt('failed')) +
     tile('Same as Node', (C.matched || 0) + ' / ' + ((C.matched || 0) + (C.nodeOnly || 0)), 'Rust only ' + (C.rustOnly || 0) + ' · Node orders, last 6 h') +
     tile('Decision', (E.n ? Math.round(E.avgUs) : '—') + ' µs', 'max ' + (E.maxUs || 0) + ' µs · ' + (E.n || 0) + ' fires');
@@ -5470,7 +5574,8 @@ function rsHealth(S) {
   const f = (S.frames || []), names = ['main', 'S0', 'S1', 'S2'], A = S.auto || {}, fu = A.funnel || {}, B = (S.blind || {}).counts || {};
   const kv = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<span class="fact">' + esc(k) + ' <b>' + v + '</b></span>').join('');
   const fw = (S.feedWins || []).map((w) => '<span class="fact">' + esc(w.socket) + ' first <b>' + w.first.toLocaleString('en-IN') + '</b> · late <b>' + w.late.toLocaleString('en-IN') + '</b> by <b>' + w.avgLateMs + ' ms</b>' + (w.leadCopies ? ' · ahead by <b>' + w.avgLeadMs + ' ms</b>' : '') + '</span>').join('');
-  return (fw ? '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Which socket brings a change first</div><div class="facts num">' + fw + '</div></div>' : '') +
+  return (fw ? '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Which socket brings a change first</div><div class="facts num">' + fw + '</div></div>'
+      : S.feedStats === false ? '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Which socket brings a change first</div><div class="hint">Off — kept out of the hot path (fix16). RS_FEED_STATS=1 turns it back on.</div></div>' : '') +
     '<div class="rule"><div class="rule-name" style="margin-bottom:6px;">Feed</div><div class="facts num">' +
       names.map((n, i) => '<span class="fact">' + n + ' <b>' + (f[i] || 0).toLocaleString('en-IN') + '</b> frames</span>').join('') +
       Object.entries(S.sockets || {}).map(([k, v]) => '<span class="fact' + (v ? '' : ' warn') + '">' + esc(k) + ' <b>' + (v ? 'up' : 'down') + '</b></span>').join('') + '</div></div>' +
