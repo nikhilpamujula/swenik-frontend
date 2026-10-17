@@ -5327,7 +5327,11 @@ function rsLiveShadow(EN) {
   if (currentBox().id !== 'ec2') return '<div class="empty">Open Trader 2 (EC2) to see live vs shadow.</div>';
   const since = Date.parse((RS.eng || {}).at || '') || 0, T = (o) => Date.parse(o.created_at) || 0;
   const all = (orders || []).filter((o) => T(o) >= since && o.status !== 'skipped');
-  const live = all.filter((o) => o.mode === 'live'), sh = all.filter((o) => o.mode === 'paper');
+  /* fix14 UI: Rust's live BLIND trades are in rs_paper, not in the orders list - they count as Rust live here too */
+  const bl = (((RS.paper || {}).blind || {}).live || []).filter((r) => r.atMs >= since && r.status !== 'no_fill_cancelled' && !/^leg1_(no_balance|error)$/.test(r.status || ''))
+    .map((r) => ({ id: 'blind', blind: true, mode: 'live', coin: r.coin, created_at: new Date(r.atMs).toISOString(), status: r.status === 'done' || /^stock/.test(r.status || '') ? 'done' : r.status, profit_inr: r.profitInr,
+      path_label: r.path === 'B' ? 'INR → USDT → ' + String(r.coin).toUpperCase() + ' → INR' : 'INR → ' + String(r.coin).toUpperCase() + ' → USDT → INR' }));
+  const live = all.filter((o) => o.mode === 'live').concat(bl), sh = all.filter((o) => o.mode === 'paper');
   const used = new Set(), pairs = [];
   for (const l of live) {
     let best = null; for (const p of sh) { if (used.has(p.id) || p.coin !== l.coin) continue; const d = Math.abs(T(p) - T(l)); if (d <= 3000 && (!best || d < Math.abs(T(best) - T(l)))) best = p; }
@@ -5339,11 +5343,11 @@ function rsLiveShadow(EN) {
   const sum = (xs) => xs.reduce((a, o) => a + (pnl(o) || 0), 0), n = (xs, s) => xs.filter((o) => o.status === s).length;
   const ST = (o) => { const s = o.status; return s === 'done' ? ['done', 'done'] : s === 'missed' ? ['skipped', 'missed'] : (s === 'failed' || s === 'stuck') ? ['failed', s] : ['skipped', s]; };
   const side = (o, who) => {
-    const lab = who === 'rust' ? '<span class="chip live">Rust live</span>' : '<span class="chip paper">Node shadow</span>';
+    const lab = who === 'rust' ? '<span class="chip live">Rust ' + (o && o.blind ? 'blind' : 'live') + '</span>' : '<span class="chip paper">Node shadow</span>';
     if (!o) return '<div class="order-row" style="opacity:.55;">' + lab + '<span class="o-path">' + (who === 'rust' ? 'no Rust trade' : 'no Node shadow row') + '</span></div>';
     const st = ST(o), v = pnl(o), path = /USDT → \S+ → INR$/.test(String(o.path_label || '')) ? 'B' : 'A';
     return '<div class="order-row">' + lab + '<span class="st ' + st[0] + '">' + esc(st[1]) + '</span>' +
-      '<span class="o-path">#' + o.id + ' · path ' + path + '</span>' +
+      '<span class="o-path">' + (o.blind ? 'blind trade' : '#' + o.id) + ' · path ' + path + '</span>' +
       (v == null ? '' : '<span class="o-profit num ' + (v >= 0 ? 'pos' : 'neg') + '">' + dxR(v) + '</span>') + '</div>';
   };
   const head = '<div class="rule"><div class="facts num">' +
