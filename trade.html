@@ -3482,7 +3482,7 @@ function renderOrders() {
       '<div class="order-row" onclick="toggleTimeline(' + (o.synthetic ? '\'' + o.id + '\'' : o.id) + ')">' +
         '<span class="caret">▶</span>' +
         '<span class="st ' + cls + '">' + esc(label) + '</span>' +
-        '<span class="chip ' + o.mode + '">' + o.mode + '</span>' + (o.synthetic ? '<span class="chip blind">blind</span>' : '') +
+        '<span class="chip ' + o.mode + '">' + o.mode + '</span>' + (o.stage === 'blind_link' ? '<span class="chip blind">blind first</span>' : '') +
         '<span class="o-coin">' + esc((o.coin || '').toUpperCase()) + '</span>' +
         '<span class="o-path">' + esc(o.path_label || o.strategy) + '</span>' +
         (profit != null ? '<span class="o-profit num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (profit >= 0 ? '+' : '') + inr2(profit) + '</span>'
@@ -3500,8 +3500,9 @@ function renderOrders() {
       // declined, before any money moved. Say which of the two it is.
       (TD ? '<div class="o-err' + (TD.bad ? '' : ' o-note') + ' selectable"><b>To do: ' + esc(TD.text) + '</b> <span style="font-weight:500;opacity:.85"><i class="swk-dash">— </i>' + esc(TD.sub) + '</span></div>' :
        SM && SM.todo ? '<div class="o-err selectable"><b>To do: ' + esc(SM.todo.text) + '</b>' + (SM.todo.sub ? ' <span style="font-weight:500;opacity:.85"><i class="swk-dash">— </i>' + esc(SM.todo.sub) + '</span>' : '') + '</div>' :
-       o.error ? '<div class="o-err' + (o.status === 'skipped' ? ' o-note' : '') + ' selectable">' +
+       o.error && o.stage !== 'blind_link' ? '<div class="o-err' + (o.status === 'skipped' ? ' o-note' : '') + ' selectable">' +
         (o.status === 'skipped' ? 'not taken — re-checked at <b>' + esc(o.stage || '?') + '</b>, '
+         : o.status === 'missed' && o.stage === 'blind_link' ? ''
          : o.status === 'missed' ? 'missed at <b>' + esc(o.stage || '?') + '</b> — '
          : o.stage === 'sf_sell' || o.stage === 'sf_buy_back' ? ''
          : 'stuck at <b>' + esc(o.stage || '?') + '</b> — ') + esc(o.error) + '</div>' : '') +
@@ -3569,6 +3570,7 @@ const ACT_BST = { done: ['done', true], stock_held: ['done', true], stock_partia
   leg2_failed: ['stuck', false], leg2_partial: ['stuck', false], cancel_unconfirmed: ['stuck', false], buy_unconfirmed: ['stuck', false], leg1_unconfirmed: ['stuck', false], buy_error: ['failed', false] };
 function actBlindRaw() { return actOn() ? ((((ACT_RS.paper || {}).blind || {}).live) || []) : []; }
 function actWithBlind(list) {
+  return list;   /* fe10: blind trades stay on the Blind tab */
   const raw = actBlindRaw(); if (!raw.length) return list;
   const oldest = list.length ? Math.min.apply(null, list.map(actT)) : 0;
   const rows = raw.filter((r) => Number(r.atMs) >= oldest).map((r) => { const st = ACT_BST[r.status] || ['failed', false], C = String(r.coin || '').toUpperCase();
@@ -3600,38 +3602,14 @@ function actNear(coin, t) {
 }
 function actRecent(coin, t, pred) { return (ACT_RS.recent || []).filter((x) => x.kind === 'auto' && x.coin === coin && Math.abs(Number(x.atMs) - t) <= 3000 && pred(x)).sort((a, b) => Math.abs(Number(a.atMs) - t) - Math.abs(Number(b.atMs) - t))[0] || null; }
 function actStory(o) {
-  if (!actOn()) return '';
-  const E = ACT_RS.eng, since = Date.parse(E.at || '') || 0, t = actT(o), C = String(o.coin || '').toLowerCase();
-  if (t < since) return '';
-  const near = (xs, ms) => xs.filter((x) => x.coin === o.coin && x !== o && Math.abs(actT(x) - t) <= (ms || 3000)).sort((a, b) => Math.abs(actT(a) - t) - Math.abs(actT(b) - t))[0] || null;
-  const res = (x) => x.status === 'done' ? 'done ' + dxR(Number(x.profit_inr || 0)) : x.status === 'stuck' ? 'stuck at ' + esc(x.stage || '?') : esc(x.status || '');
-  const S = [];
-  if (o.synthetic) {
-    const r = o._bl;
-    const bad = o.status === 'stuck' || o.status === 'failed';
-    S.push('<span class="rs">Rust blind</span> fired on a WazirX tape print at <b>' + esc(r.price) + '</b> (' + esc(r.pct) + '%), ' + inr2(r.spentInr) + ' — ' + (bad ? '<b class="neg">' + esc(actBlindOutcome(r)) + '</b>' : esc(actBlindOutcome(r))) + '.');
-    const a = actRecent(C, t, (x) => /^blindLink/.test(x.why || ''));
-    if (a) S.push('Coordination: the auto loop saw ' + C.toUpperCase() + ' ' + actMs(Number(a.atMs) - t) + ' later and stood down — <b>' + esc(a.why) + '</b> (the blind trade already holds that part of the book).');
-    const p = near(orders.filter((x) => x.mode === 'paper'));
-    if (p) S.push('Node shadow #' + p.id + ' (paper, no order) ' + actMs(actT(p) - t) + ': ' + res(p) + '.');
-  } else if (o.mode === 'live' && E.auto === 'rust') {
-    S.push('<span class="rs">Rust auto loop</span> placed this live.');
-    if (/nothing to trade from previous leg/.test(o.error || '')) S.push('Leg 1 never filled: the price was gone when the order reached WazirX, so legs 2–3 had nothing to sell.');
-    const p = near(orders.filter((x) => x.mode === 'paper'));
-    if (p) S.push('Node shadow #' + p.id + ' ran the same signal ' + actMs(actT(p) - t) + ' as paper: ' + res(p) + ' <i>(book price — it never meets the queue)</i>.');
-  } else if (o.mode === 'paper' && E.auto === 'rust') {
-    S.push('Paper shadow — Node placed nothing.');
-    const l = near(orders.filter((x) => x.mode === 'live'));
-    const b = actWithBlind([]).filter((x) => x.coin === o.coin && Math.abs(actT(x) - t) <= 3000)[0];
-    const sk = actRecent(C, t, (x) => x.outcome === 'skip');
-    const nr = (!l && !b && !sk) ? actNear(C, t) : null;
-    if (b) S.push('Live: <span class="rs">Rust blind</span> ' + blClock(actT(b), true) + ' (' + actMs(t - actT(b)) + ' before this row) — ' + esc(actBlindOutcome(b._bl)) + '.');
-    if (l) S.push('Live: <span class="rs">Rust #' + l.id + '</span> ' + actMs(actT(l) - t) + ' — ' + res(l) + '.');
-    if (sk) S.push('Rust saw it ' + actMs(Number(sk.atMs) - t) + ' and skipped: <b>' + esc(sk.why) + '</b>.');
-    if (nr) S.push('Rust skipped it: <b>' + esc(nr.why) + '</b>.');
-    if (!l && !b && !sk && !nr) S.push('No Rust trade or skip found within 3 s (its logs keep the last few hundred).');
-  }
-  return S.length ? '<div class="o-story selectable">' + S.join(' ') + '</div>' : '';
+  /* fe10: only the coordination case — a blind trade took the book and the auto loop had nothing left (Rust writes these
+     as status 'missed', stage 'blind_link'). Every other row stays as it was. */
+  if (o.stage !== 'blind_link') return '';
+  const t = actT(o), b = actBlindRaw().filter((r) => r.coin === o.coin && Number(r.atMs) <= t + 500 && t - Number(r.atMs) <= 5000).sort((x, y) => Number(y.atMs) - Number(x.atMs))[0];
+  const e = String(o.error || ''), what = (/\(([^)]*)\)/.exec(e) || [])[1] || '', left = (/auto loop: (.*)$/.exec(e) || [])[1] || 'nothing left';
+  if (!b) return '<div class="o-story selectable"><span class="rs">Blind trade</span> took it first' + (what ? ' (' + esc(what) + ')' : '') + '. Auto loop: ' + esc(left) + ' — no order sent.</div>';
+  return '<div class="o-story selectable"><span class="rs">Blind trade</span> ' + blClock(Number(b.atMs), true) + ' took it first' + (what ? ' (' + esc(what) + ')' : '') + ' — ' + esc(actBlindOutcome(b)) +
+    '. Auto loop ' + actMs(t - Number(b.atMs)) + ' later: ' + esc(left) + ' — no order sent.</div>';
 }
 function actBlindTimeline(id) {
   const r = actBlindRaw().find((x) => 'B' + x.atMs === id); if (!r) return '<div class="empty">No longer in the Rust log.</div>';
