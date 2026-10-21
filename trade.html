@@ -4695,7 +4695,7 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     return ok ? '<div class="swk-kvs">' + h + '</div>' : '<b>' + esc2(String(t).replace(/^plan/, 'Plan')) + '</b>';
   }
   function tradeCardHtml(o, evs, det){
-    var list = [], byId = {}, t0 = swkT0(o, evs, det), plan = null, val = null, uiVal = 0, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
+    var list = [], byId = {}, retryOf = {}, t0 = swkT0(o, evs, det), plan = null, val = null, uiVal = 0, notes = [], tu = { bought: 0, inr: 0, miss: 0, why: '' }, isSf = false;
     var coinLc = String((o && o.coin) || '').toLowerCase();
     evs.forEach(function (e, i) {
       var d = det[i], p = sfParse(e.stage), ts = new Date(e.ts).getTime();
@@ -4707,11 +4707,14 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       if (!p) p = legParse(e.stage);
       if (!p || p.tag === 'topup') return;
       var isLeg = /^leg/.test(p.tag);
+      /* fe12: a balance retry is the SAME order sent again, not a refused order of its own */
+      if (d.action === 'balance_retry') { if (e.ok) { var tR = d.atMs != null ? Number(d.atMs) : ts; (retryOf[e.stage] = retryOf[e.stage] || []).push({ at: t0 != null ? Math.max(0, tR - t0) : null, why: d.error, waited: d.waitedMs, prev: d.prevFilled }); } return; }
       if (d.error && d.orderId == null) { list.push({ p: p, qty: d.qty, price: d.price, ts: ts, end: 'refused', error: d.error, unconfirmed: d.unconfirmed, approx: t0 != null ? Math.max(0, ts - t0) : null }); return; }
       if ((d.action === 'placed' || d.action === 'placed_blind' || (isLeg && d.qty != null && d.price != null && d.orderId != null && d.filledQty == null))) {
         var sent = d.sentAfterMs != null ? d.sentAfterMs : (isLeg && d.sinceValidatedMs != null ? d.sinceValidatedMs : null);
         var r = { p: p, qty: d.qty, price: d.price, sent: sent, ack: d.ackAfterMs != null ? d.ackAfterMs : (sent != null && d.placeMs != null ? sent + Number(d.placeMs) : null), seq: d.sendSeq, ts: ts, end: null,
           approx: sent == null && t0 != null ? Math.max(0, ts - t0 - (Number(d.placeMs) || 0)) : null };
+        if (retryOf[e.stage] && retryOf[e.stage].length) { r.retry = retryOf[e.stage]; delete retryOf[e.stage]; }
         list.push(r); if (d.orderId != null) byId[String(d.orderId)] = r; return;
       }
       if (d.orderId != null && d.filledQty != null) {
@@ -4741,8 +4744,12 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
         else if (coinLc && sy.indexOf(coinLc) === 0) { var G = r.p.side === 'buy' ? LG.b : LG.s; G.q += got; G.v += got * fx; G.usdt = /usdt$/.test(sy); } }
       var ms2 = function (v) { return Math.round(Number(v) * 100) / 100; };   /* fe11: 19.439999999999998 -> 19.44 */
       var t = r.sent != null ? 'sent +' + ms2(r.sent) + ' ms' + (r.ack != null ? ' · on exchange +' + ms2(r.ack) + ' ms' : '') : (r.approx != null ? 'sent about +' + sfN(Math.round(r.approx)) + ' ms' : '');
+      if (r.retry && r.sent != null) { var last = r.retry[r.retry.length - 1];
+        t = 'first try +' + ms2(r.sent) + ' ms refused — coin not credited yet · sent again' + (r.retry.length > 1 ? ' (' + r.retry.length + '×)' : '') + (last.at != null ? ' +' + Math.round(last.at) + ' ms' : '') +
+          ' after leg 1\'s fill showed' + (r.ack != null ? ' · on exchange +' + ms2(r.ack) + ' ms' : ''); }
       /* fe11: the price it really filled at (average) — the limit it was sent at only when different */
       var avg = Number(r.avg) > 0 && got > 0 ? +Number(r.avg).toPrecision(8) : null, lim = Number(r.price);
+      if (r.price == null || r.price === '') r.price = '—';
       var pxHtml = avg != null && Math.abs(avg - lim) > Math.abs(lim) * 1e-9
         ? '<span class="num">' + esc2(avg) + '</span> <span class="sf-dim">avg filled · sent at ' + esc2(r.price) + '</span>'
         : '<span class="num">' + esc2(r.price) + '</span>';
