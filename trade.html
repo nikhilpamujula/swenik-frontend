@@ -4739,10 +4739,16 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
       if (got > 0) { var fx = Number(r.avg) > 0 ? Number(r.avg) : Number(r.price), sy = String(r.p.sym);
         if (sy === 'usdtinr') { LG.uq += got; LG.uv += got * fx; }
         else if (coinLc && sy.indexOf(coinLc) === 0) { var G = r.p.side === 'buy' ? LG.b : LG.s; G.q += got; G.v += got * fx; G.usdt = /usdt$/.test(sy); } }
-      var t = r.sent != null ? 'sent +' + r.sent + ' ms' + (r.ack != null ? ' · on exchange +' + r.ack + ' ms' : '') : (r.approx != null ? 'sent about +' + sfN(Math.round(r.approx)) + ' ms' : '');
+      var ms2 = function (v) { return Math.round(Number(v) * 100) / 100; };   /* fe11: 19.439999999999998 -> 19.44 */
+      var t = r.sent != null ? 'sent +' + ms2(r.sent) + ' ms' + (r.ack != null ? ' · on exchange +' + ms2(r.ack) + ' ms' : '') : (r.approx != null ? 'sent about +' + sfN(Math.round(r.approx)) + ' ms' : '');
+      /* fe11: the price it really filled at (average) — the limit it was sent at only when different */
+      var avg = Number(r.avg) > 0 && got > 0 ? +Number(r.avg).toPrecision(8) : null, lim = Number(r.price);
+      var pxHtml = avg != null && Math.abs(avg - lim) > Math.abs(lim) * 1e-9
+        ? '<span class="num">' + esc2(avg) + '</span> <span class="sf-dim">avg filled · sent at ' + esc2(r.price) + '</span>'
+        : '<span class="num">' + esc2(r.price) + '</span>';
       return '<div class="sf-step cmp ' + cls + '"><span class="sf-n">' + (i + 1) + '</span><div class="sf-b">' +
         '<div class="sf-what"><span class="swk-side ' + esc2(r.p.side) + '">' + esc2((/^(SELL|BUY BACK|BUY)/.exec(r.p.role) || [String(r.p.side).toUpperCase()])[0]) + '</span><b>' + esc2(r.p.role.replace(/^(SELL|BUY BACK|BUY) /, '')) + '</b>' +
-        '<span class="sf-num"><span class="sf-nw"><span class="num">' + esc2(sfN(q)) + '</span> ' + esc2(sfPair(r.p.sym)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc2(r.price) + '</span></span></span></div>' +
+        '<span class="sf-num"><span class="sf-nw"><span class="num">' + esc2(sfN(q)) + '</span> ' + esc2(sfPair(r.p.sym)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> ' + pxHtml + '</span></span></div>' +
         '<div class="sf-l2"><span class="sf-out ' + cls + '">' + esc2(out) + '</span>' + (t ? '<span class="sf-dim">' + esc2(t) + '</span>' : '') + '</div></div></div>';
     }).join('');
     /* ---- totals first: sold / bought, the profit made (partial in orange), what is missing, the top-up */
