@@ -1188,6 +1188,17 @@
           <div class="f"><label>Trade on the Binance signal (live)</label><select id="dx_binanceTrigger"><option value="AB">paths A + B</option><option value="A">path A only</option><option value="off">off</option></select><div class="sub">starts at once; the USDT order waits at the Binance price until CoinDCX catches up</div></div>
           <div class="f"><label>Binance price max age (ms)</label><input id="dx_binanceMaxAgeMs" type="number" step="100"></div>
         </div>
+        <div class="dx-grp">Blind (trade prints)</div>
+        <div class="frm">
+          <div class="f"><label>Live blind</label><select id="dx_blindLive"><option value="false">off - paper only</option><option value="true">on - real orders</option></select><div class="sub">trades a loop a print shows before the order book does</div></div>
+          <div class="f"><label>Blind path A · buy INR → sell USDT</label><select id="dx_blindPathA"><option value="true">on</option><option value="false">off</option></select></div>
+          <div class="f"><label>Blind path B · buy USDT → sell INR</label><select id="dx_blindPathB"><option value="false">off</option><option value="true">on</option></select></div>
+          <div class="f"><label>Fixed amount ₹</label><input id="dx_blindInr" type="number" step="100"></div>
+          <div class="f"><label>Min loop % after fees</label><input id="dx_blindBarPct" type="number" step="0.05"><div class="sub">paper and live blind</div></div>
+          <div class="f"><label>Min profit ₹</label><input id="dx_blindMinProfitInr" type="number" step="1"></div>
+          <div class="f"><label>Max blind trades per day</label><input id="dx_blindMaxTrades" type="number" step="1"></div>
+          <div class="f"><label>Blind loss cap ₹ per day</label><input id="dx_blindLossCapInr" type="number" step="50"><div class="sub">hit → blind stops for the day (normal trader goes on)</div></div>
+        </div>
         <div class="dx-grp">Safety</div>
         <div class="frm">
           <div class="f"><label>No repeat coin + path (sec)</label><input id="dx_cooldownSec" type="number" step="10"></div>
@@ -1209,6 +1220,7 @@
     <div class="tiles" id="dxTiles"></div>
     <div class="dx-sub">
       <button class="btn sm" id="dxv-trades" onclick="dxView('trades')">Live trades</button>
+      <button class="btn sm" id="dxv-blind" onclick="dxView('blind')">Blind</button>
       <button class="btn sm" id="dxv-signals" onclick="dxView('signals')">Paper signals</button>
       <button class="btn sm" id="dxv-health" onclick="dxView('health')">Health</button>
     </div>
@@ -5184,6 +5196,9 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
   #tab-dcxl, #tab-dcxl .rule { min-width:0; max-width:100%; overflow-x:hidden; }
   #tab-dcxl input[type=text] { min-width:0; width:100%; }
   #tab-dcxl .chip.dx-bn { background:#fdf3d6; color:#8a6100; }
+  #tab-dcxl .chip.dx-bl { background:#e8e4fb; color:#4b3aa8; }
+  #tab-dcxl .dx-out { font-size:12px; font-weight:700; }
+  #tab-dcxl .dx-out.good { color:var(--success); } #tab-dcxl .dx-out.bad { color:var(--danger); } #tab-dcxl .dx-out.dim { color:var(--muted, #6b7280); font-weight:600; }
   #tab-dcxl .dx-h { font-size:12px; font-weight:800; margin:14px 0 4px; }
 </style>
 <script id="swk-dcxl">
@@ -5193,8 +5208,8 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
 const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || 'https://api-ec2.swenik.co.in/dcx-api'; } catch (e) { return 'https://api-ec2.swenik.co.in/dcx-api'; } })();
 const DX_TKEY = 'swenik_dcx_token';
 let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
-const DX_NUM = ['leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
-const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch', 'leg3'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger'];
+const DX_NUM = ['blindInr', 'blindBarPct', 'blindMinProfitInr', 'blindMaxTrades', 'blindLossCapInr', 'leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
+const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch', 'leg3', 'blindLive', 'blindPathA', 'blindPathB'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger'];
 const dxList = (s) => { const a = String(s || '').split(',').filter(Boolean); return a.length > 4 ? a.length + ' coins' : esc(a.join(', ')); };
 const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
 function dxToken(ask) {
@@ -5274,8 +5289,8 @@ function drawDx() {
     tile('Signals', String(E.signals || 0), E.lastSignal ? 'last ' + E.lastSignal.coin + ' ' + E.lastSignal.path + ' ' + E.lastSignal.netPct + '% · ' + dxAgo(E.lastSignal.at) + ' ago' : 'none yet') +
     tile('REST', (R.ttfbMs && R.ttfbMs.p50 != null ? R.ttfbMs.p50 : '—') + ' ms', 'p90 ' + ((R.ttfbMs && R.ttfbMs.p90) || '—') + ' ms · ' + (R.calls || 0) + ' calls');
   const cnt = $('cntDcxl'); if (cnt) cnt.textContent = T.trades || 0;
-  for (const v of ['trades', 'signals', 'health']) { const b = $('dxv-' + v); if (b) b.className = 'btn sm' + (DX_VIEW === v ? ' on' : ''); }
-  $('dxBody').innerHTML = DX_VIEW === 'signals' ? dxSignals(D) : DX_VIEW === 'health' ? dxHealth(D) : dxTrades(D);
+  for (const v of ['trades', 'blind', 'signals', 'health']) { const b = $('dxv-' + v); if (b) b.className = 'btn sm' + (DX_VIEW === v ? ' on' : ''); }
+  $('dxBody').innerHTML = DX_VIEW === 'signals' ? dxSignals(D) : DX_VIEW === 'health' ? dxHealth(D) : DX_VIEW === 'blind' ? dxBlind(D) : dxTrades(D);
 }
 const DX_ST = { 'open order': ['failed', 'open order'], done: ['done', 'done'], partial: ['missed', 'part'], unwound: ['missed', 'sold back'], stuck: ['failed', 'stuck'], missed: ['skipped', 'missed'], running: ['running', 'running'] };
 const dxPair = (p) => String(p || '').replace(/^[A-Z]+-/, '').replace('_', '/');
@@ -5288,7 +5303,7 @@ function dxTrades(D) {
     const pathTxt = (t.path === 'A' ? 'A · buy INR → sell USDT' : 'B · buy USDT → sell INR') + ((t.plan || {}).legs === 3 ? (t.path === 'A' ? ' → sell USDT/INR' : ' → buy USDT/INR') : '');   /* trader9 */
     return '<div class="order ' + (t.state === 'done' ? 's-done' : t.state === 'missed' ? '' : 's-failed') + (open ? ' open' : '') + '">' +
       '<div class="order-row" onclick="dxToggle(\'' + esc(t.id) + '\')">' +
-        '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span><span class="chip live">live</span>' + (t.trigger === 'binance' ? '<span class="chip dx-bn">Binance</span>' : '') +
+        '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span><span class="chip live">live</span>' + (t.trigger === 'binance' ? '<span class="chip dx-bn">Binance</span>' : t.trigger === 'blind' ? '<span class="chip dx-bl">Blind</span>' : '') +
         '<span class="o-coin">' + esc(t.coin) + '</span>' +
         '<span class="o-path">' + pathTxt + ' · <b>' + t.plan.netPct + '%</b> · ' + inr(t.plan.costInr) + ' · ' + t.ms + ' ms</span>' +
         (t._run ? '' : '<span class="o-profit num ' + ((t.pnlInr || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(t.pnlInr) + '</span>') +
@@ -5320,11 +5335,46 @@ function dxCard(t) {
     '<span class="swk-kv"><i>USDT/INR</i><b>' + P.usdInr + '</b></span><span class="swk-kv"><i>Gap</i><b>' + P.gapMs + ' ms</b></span>' +
     (P.legs === 3 ? '<span class="swk-kv"><i>Legs</i><b>3 · ends in INR</b></span>' : '') +
     (t.leg3 && t.leg3.floatLeftUsdt > 0 ? '<span class="swk-kv"><i>Left in float</i><b>' + t.leg3.floatLeftUsdt + ' USDT</b></span>' : '') +
-    (t.trigger === 'binance' ? '<span class="swk-kv"><i>Started on</i><b>Binance · CoinDCX was ' + (t.dcxNetPctAtStart != null ? t.dcxNetPctAtStart + '%' : '—') + '</b></span>' : '') + '</div></div>' +
+    (t.trigger === 'binance' ? '<span class="swk-kv"><i>Started on</i><b>Binance · CoinDCX was ' + (t.dcxNetPctAtStart != null ? t.dcxNetPctAtStart + '%' : '—') + '</b></span>' : '') +
+    (t.trigger === 'blind' && t.blind ? '<span class="swk-kv"><i>Started on</i><b>print · ' + esc(DX_BK[t.blind.kind] || t.blind.kind) + ' on ' + esc(dxPair(t.blind.pair)) + '</b></span><span class="swk-kv"><i>Print → sent</i><b>' + t.blind.printToSendMs + ' ms</b></span>' : '') + '</div></div>' +
     '<div class="sf-hd"><b>Orders</b>' + (t.fees ? '<span class="sf-dim">fees ' + inr2(t.fees.leg1Inr) + ' + ' + inr2(t.fees.leg2Inr) + (t.fees.leg3Inr != null ? ' + ' + inr2(t.fees.leg3Inr) : '') + (t.fees.unwindInr ? ' + ' + inr2(t.fees.unwindInr) : '') + (t.fees.fromExchange ? ' (as charged)' : ' (estimated)') + '</span>' : '') + '</div>' + legs +
     (t.openOrder ? '<div class="facts"><span class="fact warn">order still OPEN: ' + esc(t.openOrder.side) + ' ' + esc(n(t.openOrder.qty)) + ' on ' + esc(t.openOrder.market) + ' @ ' + esc(n(t.openOrder.price)) + ' — cancel it in the CoinDCX app</span></div>' : '') +
     (t.leftover ? '<div class="facts"><span class="fact warn">still holding (in P&amp;L at its bid) <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
     '<div class="sf-hd" style="margin-top:10px;"><b>Timeline</b><span class="sf-dim">ms from leg 1 sent</span></div><div class="dx-ev">' + ev + '</div></div>';
+}
+const DX_BK = { breach: 'level used up', unmatched: 'unseen price', crossed: 'crossed the book' };
+function dxBlind(D) {
+  const P = D.blindPaper; if (!P) return '<div class="empty">Blind needs CoinDCX trader-11.</div>';
+  const C = P.counts || {}, L = P.live || {}, T = L.today || {}, S = D.settings || {};
+  const fresh = (C.passed || 0) - (C.alreadyOnBook || 0), ms = (o) => (o && o.p50 != null ? o.p50 + ' / ' + o.p90 + ' ms' : '—');
+  const row = (k, v) => '<tr><td>' + k + '</td><td class="num">' + v + '</td></tr>';
+  const facts = '<div class="facts">' +
+    '<span class="fact' + (L.on ? '' : ' warn') + '">live blind <b>' + (L.on ? (S.mode === 'live' ? 'ON' : 'on, but the trader is ' + esc(S.mode)) : 'off — paper only') + '</b></span>' +
+    '<span class="fact">path <b>' + (L.pathA ? 'A' : '') + (L.pathA && L.pathB ? ' + ' : '') + (L.pathB ? 'B' : '') + (L.pathA || L.pathB ? '' : 'none') + '</b> · <b>' + inr(L.amountInr) + '</b> each · loop ≥ <b>' + (P.rules || {}).barPct + '%</b></span>' +
+    '<span class="fact">today <b>' + (T.trades || 0) + ' / ' + L.maxTrades + '</b> trades · <b class="' + ((T.pnl || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(T.pnl || 0) + '</b> · loss cap ' + inr(L.lossCapInr) + '</span></div>';
+  const tbl = '<div class="dx-h">Paper — every print signal since the trader started (' + blN(C.prints, 0) + ' prints)</div><table class="dx-tbl">' +
+    row('Signals ≥ ' + (P.rules || {}).barPct + '%', blN(C.passed || 0, 0)) +
+    row('… already on the order book (normal trader sees it)', blN(C.alreadyOnBook || 0, 0)) +
+    row('… new: real — the book showed the loop within 3 s', blN(C.confirmed || 0, 0) + ' (' + blN(C.events || 0, 0) + ' events)') +
+    row('… new: false — the book never showed it', blN(C.notConfirmed || 0, 0)) +
+    row('Paper profit at ' + inr(L.amountInr) + ', once per event', '<span class="pos">' + dxR(C.paperInr || 0) + '</span>') +
+    row('False signals, cost if they had filled (most do not fill)', '<span class="neg">−' + inr2(C.falseCostInr || 0) + '</span>') +
+    row('Print → book shows it (p50 / p90)', ms(P.printFirstMs)) +
+    row('Print → real loop on the book (p50 / p90)', ms(P.signalToRealLoopMs)) +
+    row('Print → normal trader fires (p50 / p90)', ms(P.signalToAutoMs)) +
+    row('Live blind orders sent', blN(L.sent || 0, 0)) +
+    (L.skips && Object.keys(L.skips).length ? row('Live blind not sent', esc(Object.entries(L.skips).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => k + ' ×' + v).join(' · '))) : '') + '</table>';
+  const rows = (P.list || []).map((r) => {
+    const out = r.alreadyOnBook ? ['dim', 'already on the book'] : r.confirmed === true ? ['good', 'real · book +' + r.confirmMs + ' ms' + (r.paperInr != null ? ' · paper ' + dxR(r.paperInr) : '') + (r.sameEvent ? ' (same event)' : '')]
+      : r.confirmed === false ? ['bad', 'false' + (r.falseCostInr != null ? ' · cost if filled −' + inr2(r.falseCostInr) : '')] : ['dim', 'watching…'];
+    const live = r.live === 'sent' ? '<span class="chip live">LIVE sent</span>' : r.live ? '<span class="dx-out dim">' + esc(r.live) + '</span>' : '';
+    return '<div class="order"><div class="order-row" style="cursor:default;flex-wrap:wrap;">' +
+      '<span class="chip ' + (r.live === 'sent' ? 'dx-bl' : 'paper') + '">' + (r.live === 'sent' ? 'blind' : 'paper') + '</span><span class="o-coin">' + esc(r.coin) + '</span>' +
+      '<span class="o-path">' + esc(r.path) + ' · <b>' + r.estPct + '%</b> · ' + esc(DX_BK[r.kind] || r.kind) + ' on ' + esc(dxPair(r.pair)) + ' @ ' + blN(r.price, 8) + '</span>' +
+      '<span class="o-time num">' + blClock(r.at) + '</span>' +
+      '<div style="flex-basis:100%;padding-left:2px;"><span class="dx-out ' + out[0] + '">' + esc(out[1]) + '</span> ' + live + '</div></div></div>';
+  }).join('');
+  return facts + tbl + '<div class="dx-h">Latest signals</div>' + (rows || '<div class="empty">No print signal yet.</div>');
 }
 function dxSignals(D) {
   const L = D.signals || [];
