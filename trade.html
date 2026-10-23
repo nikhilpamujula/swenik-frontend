@@ -1198,6 +1198,8 @@
           <div class="f"><label>Min profit ₹</label><input id="dx_blindMinProfitInr" type="number" step="1"></div>
           <div class="f"><label>Max blind trades per day</label><input id="dx_blindMaxTrades" type="number" step="1"></div>
           <div class="f"><label>Blind loss cap ₹ per day</label><input id="dx_blindLossCapInr" type="number" step="50"><div class="sub">hit → blind stops for the day (normal trader goes on)</div></div>
+          <div class="f"><label>Blind: min book age ms (0 = off)</label><input id="dx_blindMinBookAgeMs" type="number" step="50"><div class="sub">live blind only when the printed pair's book is at least this old · pick from the "book age" table</div></div>
+          <div class="f"><label>Blind: max book age ms (0 = off)</label><input id="dx_blindMaxBookAgeMs" type="number" step="50"><div class="sub">live blind only when that book is at most this old</div></div>
         </div>
         <div class="dx-grp">Safety</div>
         <div class="frm">
@@ -5208,7 +5210,7 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
 const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || 'https://api-ec2.swenik.co.in/dcx-api'; } catch (e) { return 'https://api-ec2.swenik.co.in/dcx-api'; } })();
 const DX_TKEY = 'swenik_dcx_token';
 let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
-const DX_NUM = ['blindInr', 'blindBarPct', 'blindMinProfitInr', 'blindMaxTrades', 'blindLossCapInr', 'leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
+const DX_NUM = ['blindInr', 'blindBarPct', 'blindMinProfitInr', 'blindMaxTrades', 'blindLossCapInr', 'blindMinBookAgeMs', 'blindMaxBookAgeMs', 'leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
 const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch', 'leg3', 'blindLive', 'blindPathA', 'blindPathB'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger'];
 const dxList = (s) => { const a = String(s || '').split(',').filter(Boolean); return a.length > 4 ? a.length + ' coins' : esc(a.join(', ')); };
 const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
@@ -5343,7 +5345,55 @@ function dxCard(t) {
     '<div class="sf-hd" style="margin-top:10px;"><b>Timeline</b><span class="sf-dim">ms from leg 1 sent</span></div><div class="dx-ev">' + ev + '</div></div>';
 }
 const DX_BK = { breach: 'level used up', unmatched: 'unseen price', crossed: 'crossed the book' };
+const DX_AGE = (ms) => ms == null ? '—' : ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s';
 function dxBlind(D) {
+  const P = D.blindPaper; if (!P) return '<div class="empty">Blind needs CoinDCX trader-11.</div>';
+  const E = P.ev; if (!E) return dxBlind12(D);
+  const C = E.counts || {}, L = P.live || {}, T = L.today || {}, S = D.settings || {}, G = E.gate || {};
+  const ms = (o) => (o && o.p50 != null ? o.p50 + ' / ' + o.p90 + ' ms' : '—');
+  const row = (k, v) => '<tr><td>' + k + '</td><td class="num">' + v + '</td></tr>';
+  const gateTxt = (G.minAgeMs || G.maxAgeMs) ? 'book age ' + (G.minAgeMs ? '≥ ' + DX_AGE(G.minAgeMs) : '') + (G.minAgeMs && G.maxAgeMs ? ' and ' : '') + (G.maxAgeMs ? '≤ ' + DX_AGE(G.maxAgeMs) : '') : 'off';
+  const facts = '<div class="facts">' +
+    '<span class="fact' + (L.on ? '' : ' warn') + '">live blind <b>' + (L.on ? (S.mode === 'live' ? 'ON' : 'on, but the trader is ' + esc(S.mode)) : 'off — paper only') + '</b></span>' +
+    '<span class="fact">path <b>' + (L.pathA ? 'A' : '') + (L.pathA && L.pathB ? ' + ' : '') + (L.pathB ? 'B' : '') + (L.pathA || L.pathB ? '' : 'none') + '</b> · <b>' + inr(L.amountInr) + '</b> each · loop ≥ <b>' + (P.rules || {}).barPct + '%</b></span>' +
+    '<span class="fact">book-age gate <b>' + esc(gateTxt) + '</b></span>' +
+    '<span class="fact">today <b>' + (T.trades || 0) + ' / ' + L.maxTrades + '</b> trades · <b class="' + ((T.pnl || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(T.pnl || 0) + '</b> · loss cap ' + inr(L.lossCapInr) + '</span></div>';
+  const done = (C.real || 0) + (C.false || 0), rate = (r, f) => (r + f ? Math.round(100 * r / (r + f)) + '%' : '—');
+  const tbl = '<div class="dx-h">Paper — signal events (coin + path within ' + ((P.rules || {}).windowMs || 3000) / 1000 + ' s) since start · ' + blN(C.prints || 0, 0) + ' prints ≥ bar</div><table class="dx-tbl">' +
+    row('Events', blN(C.total || 0, 0)) +
+    row('… already on the order book (normal trader sees it)', blN(C.alreadyOnBook || 0, 0)) +
+    row('… real — the book showed the loop within ' + ((P.rules || {}).windowMs || 3000) / 1000 + ' s', blN(C.real || 0, 0)) +
+    row('… false — the book never showed it', blN(C.false || 0, 0)) +
+    row('Real rate (real ÷ real + false)', '<b>' + rate(C.real || 0, C.false || 0) + '</b>') +
+    row('Paper profit at ' + inr(L.amountInr) + ', once per real event', '<span class="pos">' + dxR(C.paperInr || 0) + '</span>') +
+    row('False events, cost if the first print had filled', '<span class="neg">−' + inr2(C.falseCostInr || 0) + '</span>') +
+    row('Print → book shows it (p50 / p90)', ms(P.printFirstMs)) +
+    row('Print → real loop on the book (p50 / p90)', ms(P.signalToRealLoopMs)) +
+    row('Print → normal trader fires (p50 / p90)', ms(P.signalToAutoMs)) +
+    row('Live blind orders sent', blN(L.sent || 0, 0)) +
+    (G.skipped ? row('Live skipped by the book-age gate', blN(G.skipped, 0)) : '') +
+    (L.skips && Object.keys(L.skips).length ? row('Live blind not sent', esc(Object.entries(L.skips).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => k + ' ×' + v).join(' · '))) : '') + '</table>';
+  const split = (title, o, lab) => { const ks = Object.keys(o || {}).filter((k) => o[k].n > 0); if (!ks.length) return '';
+    return '<tr><td colspan="2" style="font-weight:800;padding-top:9px;text-align:left;">' + title + '</td></tr>' + ks.map((k) => { const x = o[k];
+      return '<tr><td>' + esc(lab ? lab(k) : k) + ' · ' + x.n + ' events' + (x.onBook ? ' · ' + x.onBook + ' on book' : '') + '</td><td class="num"><span class="pos">' + (x.real || 0) + '</span> / <span class="neg">' + (x.false || 0) + '</span> · ' + rate(x.real || 0, x.false || 0) + '</td></tr>'; }).join(''); };
+  const by = E.by || {};
+  const ev = '<div class="dx-h">Which events turn out real — first print of each event (real / false · rate)</div><table class="dx-tbl">' +
+    split('Book age of the printed pair at the print', by.age) + split('Print kind', by.kind, (k) => DX_BK[k] || k) + split('Printed pair', by.pair, (k) => k + ' market') + '</table>';
+  const rows = (E.list || []).map((r) => {
+    const out = r.outcome === 'onBook' ? ['dim', 'already on the book'] : r.outcome === 'real' ? ['good', 'real · book +' + r.confirmMs + ' ms' + (r.paperInr != null ? ' · paper ' + dxR(r.paperInr) : '')]
+      : r.outcome === 'false' ? ['bad', 'false' + (r.falseCostInr != null ? ' · cost if filled −' + inr2(r.falseCostInr) : '')] : ['dim', 'watching…'];
+    const live = r.live === 'sent' ? '<span class="chip live">LIVE sent</span>' : r.live ? '<span class="dx-out dim">' + esc(r.live) + '</span>' : '';
+    const kinds = Object.entries(r.kinds || {}).map(([k, v]) => (DX_BK[k] || k) + (v > 1 ? ' ×' + v : '')).join(', ');
+    return '<div class="order"><div class="order-row" style="cursor:default;flex-wrap:wrap;">' +
+      '<span class="chip ' + (r.live === 'sent' ? 'dx-bl' : 'paper') + '">' + (r.live === 'sent' ? 'blind' : 'paper') + '</span><span class="o-coin">' + esc(r.coin) + '</span>' +
+      '<span class="o-path">' + esc(r.path) + ' · best <b>' + r.bestPct + '%</b> · ' + r.prints + ' print' + (r.prints > 1 ? 's' : '') + (r.prints > 1 ? ' in ' + r.spanMs + ' ms' : '') + ' · ' + esc(kinds) + ' on ' + esc((r.pairs || []).map(dxPair).join(' + ')) + '</span>' +
+      '<span class="o-time num">' + blClock(r.at) + '</span>' +
+      '<div style="flex-basis:100%;padding-left:2px;font-size:12px;color:var(--muted,#6b7280);">first print ' + r.firstPct + '% @ ' + blN(r.price, 8) + ' · book age ' + DX_AGE(r.bookAgeMs) + ' (other pair ' + DX_AGE(r.otherAgeMs) + ')' + (r.gate ? ' · gate: ' + esc(r.gate) : '') + '</div>' +
+      '<div style="flex-basis:100%;padding-left:2px;"><span class="dx-out ' + out[0] + '">' + esc(out[1]) + '</span> ' + live + '</div></div></div>';
+  }).join('');
+  return facts + tbl + ev + '<div class="dx-h">Latest events</div>' + (rows || '<div class="empty">No print signal yet.</div>');
+}
+function dxBlind12(D) {
   const P = D.blindPaper; if (!P) return '<div class="empty">Blind needs CoinDCX trader-11.</div>';
   const C = P.counts || {}, L = P.live || {}, T = L.today || {}, S = D.settings || {};
   const fresh = (C.passed || 0) - (C.alreadyOnBook || 0), ms = (o) => (o && o.p50 != null ? o.p50 + ' / ' + o.p90 + ' ms' : '—');
