@@ -2201,7 +2201,18 @@ function blindCardHtml(r) {
   const done = (f, q) => q > 0 && f >= q * 0.999999;
   let chips = kv('Path', esc(r.path || '?')) + kv('Edge', Number(r.pct || 0).toFixed(2) + '%');
   let steps = '', res = '';
-  if (L && L.leg1) {
+  if (L && L.leg1 && L.leg1.stock && L.engine === 'rust') {   // Rust stock path: the real orders are BUY coin/USDT, then SELL coin/INR
+    const p = Number(L.pnl) || 0, B = (L.leg2 || [])[0] || {}, S = L.sells || [], qb = Number(B.qty) || 0, fb = Number(B.filled) || 0;
+    const qs = S.reduce((a, o) => a + (Number(o.qty) || 0), 0), fs = S.reduce((a, o) => a + (Number(o.filled) || 0), 0), rjb = first('buy_rejected'), rjs = first('sell_rejected');
+    const res1 = (f, q, rj, cancelled) => rj && !(f > 0) ? ['REFUSED by WazirX — ' + rj.why, 'bad'] : !(q > 0) ? ['not placed', 'bad'] : done(f, q) ? ['FILLED ' + n(f), 'good'] : f > 0 ? ['PART FILLED — ' + n(f) + ' of ' + n(q) + (cancelled ? ', rest cancelled' : ''), 'part'] : ['NOT FILLED — ' + (cancelled ? 'cancelled, ' : '') + '0 of ' + n(q), 'bad'];
+    chips += kv('Size', esc(n(L.got || qb))) + kv(p >= 0 ? 'Profit' : 'Loss', (p >= 0 ? '' : '−') + inr2(Math.abs(p)), p >= 0 ? 'good' : 'bad');
+    const o1 = res1(fb, qb, rjb, true), sa = first('sell_ack'), ba = first('buy_ack');
+    steps += step(1, 'buy', C + '/USDT', qb, B.price, o1[0], o1[1], when(ms(first('buy_sent')), ms(ba)));
+    if (S.length || rjs) { const o2 = res1(fs, qs, rjs, true); steps += step(2, 'sell', C + '/INR', qs, (S[0] || {}).price || L.leg1Px, o2[0] + (S.length > 1 ? ' · ' + S.length + ' orders' : ''), o2[1], sa ? 'on exchange +' + ms(sa) + ' ms' + (sa.tag === 'early' ? ' · sent before the buy filled' : '') : ''); }
+    if (L.usdtSpent) res += '<span class="sf-out ink">USDT spent ' + esc(n(L.usdtSpent)) + '</span>';
+    if (Number(L.stock) > 0) res += '<span class="sf-out part">Holding ' + esc(n(L.stock)) + ' ' + esc(C) + (L.stockCostInr ? ' <span class="sf-dim">at ₹' + esc(n(L.stockCostInr)) + ' each · kept as blind stock</span>' : '') + '</span>';
+    else if (fb > 0 && done(fs, fb * 0.99)) res += '<span class="sf-out good">Level — bought and sold</span>';
+  } else if (L && L.leg1) {
     const p = Number(L.pnl) || 0;
     const unX = Math.abs(Number(L.unhedged) || 0), open1 = unX > 0.005 * Math.abs(Number(L.filled) || 0) && unX * (L.leg1Px || 0) >= 10;
     chips += kv('Size', esc(n(L.leg1.qty))) + (open1 ? kv('P&amp;L so far', (p >= 0 ? '' : '−') + inr2(Math.abs(p))) : kv(p >= 0 ? 'Profit' : 'Loss', (p >= 0 ? '' : '−') + inr2(Math.abs(p)), p >= 0 ? 'good' : 'bad'));
@@ -2236,7 +2247,7 @@ function blindCardHtml(r) {
   }
   const notes = [];
   if (L && L.engine === 'rust') notes.push('placed by the Rust engine');   /* 05es */
-  if (L && L.sizedBy) notes.push('sized to your ' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' ? 'USDT float' : 'INR'));
+  if (L && L.sizedBy) notes.push('sized to your ' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' || L.sizedBy === 'stock' || String(L.sizedBy).startsWith('usdtPrint') ? 'USDT float' : 'INR'));
   if (L && L.sizeMode) notes.push('size ' + L.sizeMode);
   if (L && L.autoQ) notes.push('auto trader already had ' + n(L.autoQ) + ' → blind sent less');
   if (L && L.link) notes.push('auto trader could match it for ' + L.link.holdMs + ' ms' + (L.link.caught ? ' · it did: ' + L.link.smaller + ' smaller, ' + L.link.skipped + ' skipped' : ' · it did not come'));
@@ -2291,7 +2302,7 @@ function blindTimeline(r) {
     if (L.usdtGot) facts.push('USDT kept <b>' + n(L.usdtGot) + '</b>');
     if (L.usdtSpent) facts.push('USDT spent <b>' + n(L.usdtSpent) + '</b>');
     facts.push('P&amp;L <b>' + inr2(L.pnl) + '</b>' + (L.priceSrc === 'limit' ? ' (limit prices)' : ''));
-    if (L.sizedBy) facts.push('sized to your <b>' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' ? 'USDT float' : 'INR') + '</b>');
+    if (L.sizedBy) facts.push('sized to your <b>' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' || L.sizedBy === 'stock' || String(L.sizedBy).startsWith('usdtPrint') ? 'USDT float' : 'INR') + '</b>');
     if (L.sizeMode) facts.push('size <b>' + L.sizeMode + '</b>');
     if (L.autoQ) facts.push('auto trader already had <b>' + n(L.autoQ) + '</b> → blind sent less');
     if (L.link) facts.push('auto trader could match it for <b>' + L.link.holdMs + ' ms</b>' + (L.link.caught ? ' · it did: <b>' + L.link.smaller + ' smaller, ' + L.link.skipped + ' skipped</b>' : ' · it did not come'));
