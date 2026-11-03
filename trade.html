@@ -1034,6 +1034,7 @@
          paper rows accumulate forever with nothing to close them — 500 of them
          filled his cap and silently refused every new trade for days. -->
     <div id="clearPosBar" style="display:none;margin:0 0 12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--warning-soft);">
+      <div id="syncPosBox"></div>
       <div id="clearPosText" style="font-size:13px;line-height:1.5;"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
         <button class="btn" id="clearPaperBtn" onclick="clearPositions('paper')">Clear paper positions</button>
@@ -1728,6 +1729,46 @@ async function refreshClearPosBar() {
     + 'but does <b>not</b> close the Binance futures position or sell the WazirX holding.';
   document.getElementById('clearPaperBtn').disabled = !info.paper;
   document.getElementById('clearLiveBtn').style.display = info.live ? '' : 'none';
+  renderSyncBox();
+}
+
+// ---- fe17 / 05hg: make the open-hedge ledger match Binance ----
+// The plan comes from the engine (every open live row vs Binance's positions). The button sends its ids to the
+// existing clear route - ledger only, nothing is traded. Rows newer than 10 min are never in the plan.
+function syncPlanFresh() {
+  const F = ST && ST.futures, P = F && F.sync;
+  if (!F || !F.on || F.error || !P || !P.at) return null;
+  return Date.now() - new Date(P.at).getTime() <= 120e3 ? P : null;
+}
+function renderSyncBox() {
+  const el = document.getElementById('syncPosBox'); if (!el) return;
+  const F = ST && ST.futures;
+  if (!F || !F.on) { el.innerHTML = ''; return; }
+  const P = F.sync, ok = syncPlanFresh(), W = (P && P.why) || {}, pos = F.positions || [];
+  const why = [['closedOnBinance', 'closed on Binance'], ['wrongSide', 'opposite side to Binance'], ['moreThanBinance', 'more than Binance holds'], ['noHedgeLeg', 'no futures leg']]
+    .filter(([k]) => W[k] > 0).map(([k, t]) => '<b>' + W[k] + '</b> ' + t).join(' · ');
+  const now = pos.map((p) => '<div class="fu-row"><span><b>' + esc(p.symbol) + '</b> <span class="mut">' + esc(p.side) + ' ' + fuN(Math.abs(p.amt)) + '</span></span>' +
+    '<span>' + fuPx(p.entry) + ' → ' + fuPx(p.mark) + ' · <b class="' + (p.uPnlUsdt >= 0 ? 'pos' : 'neg') + '">' + fuS(p.uPnlUsdt, 2) + '</b> · ' + (p.distPct != null ? Math.round(p.distPct) + '% to liq' : '—') + '</span></div>').join('');
+  const unc = P && P.uncovered && P.uncovered.length ? '<div class="hint" style="margin:8px 0 2px;font-weight:700;">On Binance with no ledger row (' + P.uncovered.length + ')</div>' +
+    P.uncovered.map((u) => '<div class="fu-row"><span><b>' + esc(u.symbol) + '</b></span><span>' + fuN(u.qty) + ' of ' + fuN(u.binanceQty) + '</span></div>').join('') : '';
+  el.innerHTML = '<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:10px;">' +
+    '<div style="font-weight:800;font-size:13px;">Binance now: ' + pos.length + ' position' + (pos.length === 1 ? '' : 's') + ' <span class="hint" style="font-weight:600;">· checked ' + (F.at ? esc(ago(F.at)) : '—') + '</span></div>' +
+    (P ? '<div style="font-size:12.5px;margin-top:4px;line-height:1.5;">Ledger: <b>' + P.rows + '</b> live open rows → <b>' + P.keep + '</b> match Binance' + (P.recent ? ' (' + P.recent + ' newer than ' + Math.round(P.minAgeMs / 60000) + ' min, kept)' : '') + ', <b class="' + (P.clearIds.length ? 'neg' : '') + '">' + P.clearIds.length + '</b> false' + (why ? ': ' + why : '') + '.</div>'
+       : '<div class="hint" style="margin-top:4px;">' + esc(F.syncError ? 'Sync plan unavailable: ' + F.syncError : 'Sync plan not ready — needs engine build 05hg and one Binance read.') + '</div>') +
+    (P && P.clearIds.length ? '<div style="margin-top:8px;"><button class="btn" ' + (ok ? '' : 'disabled ') + 'onclick="syncLedgerToBinance()" style="border-color:var(--accent);color:var(--accent-600);">Sync with Binance — clear ' + P.clearIds.length + ' false row' + (P.clearIds.length === 1 ? '' : 's') + '</button>' + (ok ? '' : ' <span class="hint">waiting for a fresh Binance read</span>') + '</div>' : '') +
+    '<details class="fu-sec" style="margin:10px 0 0;box-shadow:none;"' + (FU_OPEN.__now ? ' open' : '') + ' ontoggle="FU_OPEN.__now=this.open"><summary>Actual positions on Binance <span class="fu-pill mut">' + pos.length + '</span></summary>' + (now || '<div class="hint" style="padding:4px 0 8px;">None.</div>') + unc + '<div style="height:6px"></div></details>' +
+    '</div>';
+}
+async function syncLedgerToBinance() {
+  const P = syncPlanFresh();
+  if (!P || !P.clearIds.length) { toast('No fresh sync plan — try again in 30 s'); return; }
+  if (!confirm('Sync the ledger with Binance?\n\nClears ' + P.clearIds.length + ' live open-hedge rows that Binance does not hold.\n'
+    + P.keep + ' rows that match Binance stay open.\n\nLedger only: nothing is bought, sold or closed on Binance or WazirX.')) return;
+  try {
+    const r = await apiJson('/api/trader/positions/clear', { method: 'POST', body: JSON.stringify({ mode: 'live', ids: P.clearIds, acknowledgeNotClosedOnExchange: true }) });
+    toast('Synced: cleared ' + r.cleared + ' false row' + (r.cleared === 1 ? '' : 's'));
+    await refreshOrders(); await refreshClearPosBar();
+  } catch (e) { toast(e.message || 'Could not sync'); }
 }
 
 async function clearPositions(mode) {
@@ -1743,7 +1784,7 @@ async function clearPositions(mode) {
   try {
     const r = await apiJson('/api/trader/positions/clear', { method: 'POST', body: JSON.stringify(body) });
     toast('Cleared ' + r.cleared + ' ' + mode + ' position' + (r.cleared === 1 ? '' : 's'));
-    await loadOrders();
+    await refreshOrders();
     await refreshClearPosBar();
   } catch (e) { toast(e.message || 'Could not clear positions'); }
 }
