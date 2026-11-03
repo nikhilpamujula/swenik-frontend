@@ -528,6 +528,41 @@
   .posgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; margin-top:9px; }
   .posgrid .pk { font-size:10px; font-weight:700; color:var(--gray-500); text-transform:uppercase; letter-spacing:.04em; }
   .posgrid .pv { font-size:13px; font-weight:700; margin-top:1px; }
+  /* ---------- futures positions (fe16) ---------- */
+  .fu-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:9px; }
+  .fu-head h2 { font-size:14px; font-weight:800; letter-spacing:-.01em; }
+  .fu-strip { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:11px; }
+  .fu-strip .fact.ok { background:var(--success-soft); color:var(--success); }
+  .fu-strip .fact.amber { background:var(--warning-soft); color:var(--warning); }
+  .fu-alert { background:var(--danger-soft); color:var(--danger); border:1px solid rgba(226,61,84,.3); border-radius:var(--radius-sm); padding:10px 13px; font-weight:700; font-size:12.5px; margin-bottom:10px; }
+  .fu-card { background:#fff; border:1px solid var(--border); border-left:4px solid var(--accent-line); border-radius:var(--radius-sm); box-shadow:var(--shadow-sm); padding:11px 14px; margin-bottom:8px; cursor:pointer; }
+  .fu-card.warn { border-left-color:#e0973a; } .fu-card.urgent, .fu-card.act { border-left-color:var(--danger); }
+  .fu-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .fu-sym { font-weight:800; font-size:14px; letter-spacing:-.01em; }
+  .fu-pnl { margin-left:auto; font-weight:800; font-size:13.5px; font-variant-numeric:tabular-nums; }
+  .fu-pill { font-size:9.5px; font-weight:800; letter-spacing:.05em; padding:3.5px 9px; border-radius:999px; text-transform:uppercase; }
+  .fu-pill.side { background:var(--accent-soft); color:var(--accent-600); }
+  .fu-pill.ok { background:var(--success-soft); color:var(--success); }
+  .fu-pill.warn { background:var(--warning-soft); color:var(--warning); }
+  .fu-pill.bad { background:var(--danger-soft); color:var(--danger); }
+  .fu-pill.mut { background:var(--gray-100); color:var(--gray-700); }
+  .fu-facts { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .fu-facts .fact { font-variant-numeric:tabular-nums; }
+  .fu-bar { height:6px; border-radius:999px; background:var(--gray-100); margin-top:8px; position:relative; overflow:hidden; }
+  .fu-bar i { position:absolute; left:0; top:0; bottom:0; border-radius:999px; }
+  .fu-barl { display:flex; justify-content:space-between; font-size:10.5px; color:var(--gray-500); margin-top:3px; }
+  .fu-more { margin-top:9px; border-top:1px solid var(--gray-100); padding-top:8px; cursor:default; }
+  .fu-h { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px 12px; padding:7px 0; border-top:1px dashed var(--gray-200); font-size:12px; font-variant-numeric:tabular-nums; }
+  .fu-h:first-child { border-top:0; }
+  .fu-h .k { font-size:9.5px; font-weight:700; color:var(--gray-500); text-transform:uppercase; letter-spacing:.04em; }
+  .fu-h b { font-weight:700; }
+  @media(max-width:520px){ .fu-h { grid-template-columns:1fr 1fr; } }
+  .fu-sec { background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm); box-shadow:var(--shadow-sm); padding:4px 14px; margin:12px 0 8px; }
+  .fu-sec summary { cursor:pointer; padding:9px 0; font-weight:800; font-size:12.5px; list-style:none; display:flex; gap:8px; align-items:center; }
+  .fu-sec summary::-webkit-details-marker { display:none; }
+  .fu-sec summary::before { content:"▸"; color:var(--gray-500); } .fu-sec[open] summary::before { content:"▾"; }
+  .fu-row { display:flex; gap:10px; justify-content:space-between; padding:6px 0; border-top:1px solid var(--gray-100); font-size:12px; font-variant-numeric:tabular-nums; }
+  .fu-row .t { color:var(--gray-500); min-width:46px; }
 
   /* ---------- modal / rule editor ---------- */
   .modal-overlay { position:fixed; inset:0; background:rgba(11,21,41,.55); display:flex; align-items:flex-end; justify-content:center; z-index:60; }
@@ -1200,6 +1235,8 @@
           <div class="f"><label>Blind loss cap ₹ per day</label><input id="dx_blindLossCapInr" type="number" step="50"><div class="sub">hit → blind stops for the day (normal trader goes on)</div></div>
           <div class="f"><label>Blind: min book age ms (0 = off)</label><input id="dx_blindMinBookAgeMs" type="number" step="50"><div class="sub">live blind only when the printed pair's book is at least this old · pick from the "book age" table</div></div>
           <div class="f"><label>Blind: max book age ms (0 = off)</label><input id="dx_blindMaxBookAgeMs" type="number" step="50"><div class="sub">live blind only when that book is at most this old</div></div>
+          <div class="f"><label>Blind: print kinds</label><select id="dx_blindKinds"><option value="breach,unmatched,crossed">all kinds</option><option value="unmatched,crossed">unseen + crossed</option><option value="unmatched">unseen price only</option><option value="crossed">crossed only</option><option value="breach">level used up only</option></select><div class="sub">live blind trades only these · paper keeps every kind</div></div>
+          <div class="f"><label>Blind: print markets</label><select id="dx_blindMarkets"><option value="INR,USDT">INR + USDT</option><option value="USDT">USDT market only</option><option value="INR">INR market only</option></select><div class="sub">the market the print was on · paper keeps both</div></div>
         </div>
         <div class="dx-grp">Safety</div>
         <div class="frm">
@@ -1267,7 +1304,8 @@
         <div class="hint" id="fundingLine" style="margin-top:10px;"></div>
       </div>
     </div>
-    <div class="hint" style="margin-bottom:11px;">Hedged positions: ARB1 = long spot + short perp · ARB2 = sold spot (wallet) + long perp. Unwind manually when the gap converges.</div>
+    <div class="hint" id="posOldHint" style="margin-bottom:11px;">Hedged positions: ARB1 = long spot + short perp · ARB2 = sold spot (wallet) + long perp. Unwind manually when the gap converges.</div>
+    <div id="futBox"></div>
     <div id="positionsBox"><div class="empty">None</div></div>
   </div>
 
@@ -3647,13 +3685,110 @@ function actBlindTimeline(id) {
       '<div class="tl-body"><span class="tl-stage">' + esc(e.e) + '</span><span class="tl-t num">' + line + '</span>' + (d ? '<div class="tl-det selectable">' + esc(d) + '</div>' : '') + '</div></div>'; }).join('');
 }
 
+// ---------------- futures positions (fe16) ----------------
+// Reads ST.futures (05hd watcher, /api/trader/status) - Binance is the truth, the ledger is checked against it.
+const FU_OPEN = {};
+function fuN(v, d) { if (v == null || !isFinite(v)) return '—'; const x = Number(v), a = Math.abs(x);
+  const dp = d != null ? d : a >= 1000 ? 0 : a >= 1 ? 2 : a >= 0.01 ? 4 : 8; return (x < 0 ? '−' : '') + a.toLocaleString('en-IN', { maximumFractionDigits: dp }); }
+function fuPx(v) { return v == null || !isFinite(v) ? '—' : String(+Number(v).toPrecision(5)); }
+function fuS(v, d) { return v == null || !isFinite(v) ? '—' : (v >= 0 ? '+' : '−') + fuN(Math.abs(v), d); }
+function fuL(v) { const a = Math.abs(v); return '₹' + (a >= 1e5 ? (a / 1e5).toFixed(2) + 'L' : a >= 1e3 ? (a / 1e3).toFixed(1) + 'k' : a.toFixed(0)); }
+function fuLvl(p) { const d = p.distPct; if (d == null) return ['mut', 'no liq price'];
+  const t = (d >= 100 ? Math.round(d) : d.toFixed(1)) + '% to liq';
+  return p.level === 'act' ? ['bad', 'GUARD · ' + t] : p.level === 'urgent' ? ['bad', t] : p.level === 'warn' ? ['warn', t] : ['ok', t]; }
+// one open ledger hedge, valued now (before fees and funding)
+function fuHedge(o, F, pos) {
+  let r = o.result || {}; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { r = {}; } }
+  const sp = r.spot || {}, h = r.hedge || {}, sym = String(h.symbol || '').toUpperCase(), S = (F.spot || {})[sym] || {}, U = F.usdtInr || {};
+  const usd = Number(U.bid) || null, isUsdt = /usdt$/i.test(sp.symbol || ''), sold = String(sp.side) === 'sell';
+  const avg = Number(isUsdt ? sp.avgPriceUsdt : sp.avgPrice) || null, q = Number(sp.qty) || 0;
+  const now = isUsdt ? (sold ? S.usdtAsk : S.usdtBid) : (sold ? S.inrAsk : S.inrBid);
+  let spotInr = null; if (avg && now && q) spotInr = (sold ? avg - now : now - avg) * q * (isUsdt ? (usd || 0) : 1);
+  // no recorded hedge fill -> no perp leg (Binance's average entry mixes every hedge on the symbol and would mislead)
+  const hq = Number(h.qty) || 0, real = Number(h.avgPrice) > 0, ent = real ? Number(h.avgPrice) : null, mk = pos ? pos.mark : null;
+  let perpInr = null; if (ent && mk && hq && usd) perpInr = (String(h.side).toUpperCase() === 'LONG' ? mk - ent : ent - mk) * hq * usd;
+  const spotU = S.mult ? ((isUsdt ? S.usdtBid : (S.inrBid && U.ask ? S.inrBid / U.ask : null)) || null) : null;
+  const gap = spotU && mk ? ((spotU * (S.mult || 1)) - mk) / mk * 100 : null;
+  const tot = spotInr != null && perpInr != null ? spotInr + perpInr : null;
+  return '<div class="fu-h">' +
+    '<div><div class="k">#' + o.id + ' · ' + esc(ago(o.created_at)) + '</div>' + (q ? '<b>' + (sold ? 'sold ' : 'bought ') + fuN(q) + '</b> @ ' + fuPx(avg) + (isUsdt ? ' USDT' : '') : '<span class="mut">no spot leg on this row</span>') + '</div>' +
+    '<div><div class="k">Perp ' + esc(h.side || '') + '</div><b>' + fuN(hq) + '</b>' + (real ? ' @ ' + fuPx(ent) : ' <span class="mut">· fill price not recorded</span>') + '</div>' +
+    '<div><div class="k">Captured</div><b class="' + ((o.profit_inr || 0) >= 0 ? 'pos' : 'neg') + '">' + (o.profit_inr != null ? fuS(o.profit_inr, 2) : '—') + '</b></div>' +
+    '<div><div class="k">Spot now</div>' + (q ? fuPx(now) + (isUsdt ? ' USDT' : '') : '—') + (spotInr != null ? ' · <b class="' + (spotInr >= 0 ? 'pos' : 'neg') + '">' + fuS(spotInr, 0) + '</b>' : '') + '</div>' +
+    '<div><div class="k">Perp mark</div>' + fuPx(mk) + (perpInr != null ? ' · <b class="' + (perpInr >= 0 ? 'pos' : 'neg') + '">' + fuS(perpInr, 0) + '</b>' : '') + '</div>' +
+    '<div><div class="k">Running · gap</div><b class="' + (tot == null ? '' : tot >= 0 ? 'pos' : 'neg') + '">' + (tot != null ? fuS(tot, 0) : '—') + '</b>' + (gap != null ? ' · ' + fuS(gap, 2) + '%' : '') + '</div>' +
+    '</div>';
+}
+function renderFutures(F, hedged) {
+  const box = $('futBox'); if (!box) return 0;
+  if (!F) { box.innerHTML = ''; return 0; }
+  if (!F.on) { box.innerHTML = '<div class="hint" style="margin-bottom:10px;">Futures watch off — ' + esc(F.note || F.error || 'not started') + '</div>'; return 0; }
+  const P = F.positions || [], A = F.account || {}, C = F.cfg || {}, U = F.usdtInr || {}, cap = Number(F.coinCapInr) || 0;
+  const rec = {}; for (const x of F.reconcile || []) rec[x.symbol] = x;
+  const bySym = {}; for (const o of hedged || []) { if (o.mode !== 'live') continue; const s = fuSym(o); if (s) (bySym[s] = bySym[s] || []).push(o); }
+  const fund = P.reduce((a, p) => a + (Number(p.fundingUsdt7d) || 0), 0);
+  const mr = A.marginRatioPct, mrCls = mr == null ? '' : mr >= 70 ? ' warn' : mr >= 40 ? ' amber' : ' ok';
+  const hot = P.filter((p) => p.level === 'warn' || p.level === 'urgent' || p.level === 'act');
+  const out = [];
+  out.push('<div class="fu-head"><h2>Futures positions</h2><span class="hint">from Binance · ' + P.length + ' open · checked ' + (F.at ? esc(ago(F.at)) : 'not yet') + (F.error ? ' · <b class="neg">read failed: ' + esc(F.error) + '</b>' : '') + '</span></div>');
+  out.push('<div class="fu-strip">' +
+    '<span class="fact' + mrCls + '">Margin ratio <b>' + (mr != null ? mr + '%' : '—') + '</b> · liq at 100%</span>' +
+    '<span class="fact">Available <b>' + fuN(A.availableUsdt, 2) + ' USDT</b></span>' +
+    '<span class="fact">Unrealised <b class="' + ((A.uPnlUsdt || 0) >= 0 ? 'pos' : 'neg') + '">' + fuS(A.uPnlUsdt, 2) + ' USDT</b></span>' +
+    '<span class="fact">Funding 7d <b class="' + (fund >= 0 ? 'pos' : 'neg') + '">' + fuS(fund, 2) + ' USDT</b></span>' +
+    '<span class="fact ' + (F.auto ? 'ok' : 'amber') + '">Liq guard ' + (F.auto ? 'ON · ≤' + C.actPct + '% → unwind ' + C.stepPct + '%' : 'alerts only') + '</span>' +
+    (cap > 0 ? '<span class="fact">Coin cap <b>' + fuL(cap) + '</b></span>' : '') + '</div>');
+  if (hot.length) out.push('<div class="fu-alert">⚠ ' + hot.map((p) => esc(p.symbol) + ' ' + p.distPct.toFixed(1) + '% from liquidation').join(' · ') + '</div>');
+  for (const p of P) {
+    const [lc, lt] = fuLvl(p), R = rec[p.symbol], rows = bySym[p.symbol] || [], open = !!FU_OPEN[p.symbol];
+    const usedInr = U.ask ? p.notionalUsdt * U.ask : null, usePct = cap > 0 && usedInr != null ? Math.min(100, usedInr / cap * 100) : null;
+    const lg = !R ? '' : R.state === 'match' ? '<span class="fact ok" style="background:var(--success-soft);color:var(--success);">ledger ✓</span>'
+      : '<span class="fact warn">ledger ' + esc(R.state === 'not in ledger' ? 'has none' : 'has ' + fuN(R.ledgerQty)) + '</span>';
+    const sp = (F.spot || {})[p.symbol];
+    out.push('<div class="fu-card ' + esc(p.level) + '" onclick="fuToggle(\'' + esc(p.symbol) + '\')">' +
+      '<div class="fu-top"><span class="fu-sym">' + esc(p.symbol) + '</span><span class="fu-pill side">' + esc(p.side) + ' ' + (p.leverage || '?') + '×</span>' +
+        '<span class="fu-pill ' + lc + '">' + lt + '</span><span class="fu-pnl ' + (p.uPnlUsdt >= 0 ? 'pos' : 'neg') + '">' + fuS(p.uPnlUsdt, 2) + ' USDT</span></div>' +
+      '<div class="fu-facts"><span class="fact">qty <b>' + fuN(Math.abs(p.amt)) + '</b></span>' +
+        '<span class="fact">entry <b>' + fuPx(p.entry) + '</b> → mark <b>' + fuPx(p.mark) + '</b></span>' +
+        '<span class="fact">liq <b>' + fuPx(p.liq) + '</b></span>' +
+        '<span class="fact">funding 7d <b class="' + ((p.fundingUsdt7d || 0) >= 0 ? 'pos' : 'neg') + '">' + fuS(p.fundingUsdt7d, 2) + '</b></span>' +
+        (sp && sp.held != null ? '<span class="fact">WazirX holds <b>' + fuN(sp.held) + '</b></span>' : '') + lg +
+        (rows.length ? '<span class="fact">' + rows.length + ' hedge' + (rows.length === 1 ? '' : 's') + ' ' + (open ? '▾' : '▸') + '</span>' : '') + '</div>' +
+      (p.distPct != null && p.distPct <= 25 ? '<div class="fu-bar"><i style="width:' + Math.max(3, Math.min(100, p.distPct * 4)) + '%;background:' + (p.distPct <= C.urgentPct ? 'var(--danger)' : 'var(--warning)') + '"></i></div><div class="fu-barl"><span>liquidation</span><span>alert ≤' + C.warnPct + '% · urgent ≤' + C.urgentPct + '% · guard ≤' + C.actPct + '%</span></div>' : '') +
+      (usePct != null && p.side === 'SHORT' ? '<div class="fu-bar"><i style="width:' + Math.max(2, usePct) + '%;background:' + (usePct >= 90 ? 'var(--danger)' : usePct >= 70 ? 'var(--warning)' : 'var(--accent)') + '"></i></div><div class="fu-barl"><span>held ' + fuL(usedInr) + ' of ' + fuL(cap) + ' cap</span><span>room ' + fuL(Math.max(0, cap - usedInr)) + '</span></div>' : '') +
+      (open && rows.length ? '<div class="fu-more" onclick="event.stopPropagation()">' + rows.map((o) => fuHedge(o, F, p)).join('') + '<div class="hint" style="margin-top:4px;">Running = spot leg + perp leg at today\'s prices, before fees and funding. Gap = WazirX spot vs perp mark.</div></div>' : '') +
+      '</div>');
+  }
+  const bad = (F.reconcile || []).filter((x) => x.state !== 'match');
+  if (bad.length) {
+    const grp = (st, title, fmt) => { const g = bad.filter((x) => x.state === st); return g.length ? '<div class="hint" style="margin:8px 0 2px;font-weight:700;">' + title + ' (' + g.length + ')</div>' + g.map(fmt).join('') : ''; };
+    out.push('<details class="fu-sec"' + (FU_OPEN.__rec ? ' open' : '') + ' ontoggle="FU_OPEN.__rec=this.open"><summary>Ledger check <span class="fu-pill warn">' + bad.length + ' differ</span></summary>' +
+      grp('qty differs', 'Quantity differs', (x) => '<div class="fu-row"><span><b>' + esc(x.symbol) + '</b></span><span>Binance ' + fuN(x.binanceQty) + ' · ledger ' + fuN(x.ledgerQty) + '</span></div>') +
+      grp('not in ledger', 'On Binance, no ledger hedge (manual or cleared)', (x) => '<div class="fu-row"><span><b>' + esc(x.symbol) + '</b></span><span>' + fuN(x.binanceQty) + '</span></div>') +
+      grp('closed on Binance', 'Open in the ledger, already closed on Binance', (x) => '<div class="fu-row"><span><b>' + esc(x.symbol) + '</b></span><span>ledger ' + fuN(x.ledgerQty) + ' · Binance 0</span></div>') +
+      '<div class="hint" style="margin:6px 0 8px;">Binance is the truth. Signs: − short, + long. The ledger sums open live hedges only.</div></details>');
+  }
+  const acts = F.actions || [];
+  out.push('<details class="fu-sec"' + (FU_OPEN.__act ? ' open' : '') + ' ontoggle="FU_OPEN.__act=this.open"><summary>Liq guard activity <span class="fu-pill ' + (acts.length ? 'warn' : 'mut') + '">' + acts.length + '</span></summary>' +
+    (acts.length ? acts.map((a) => '<div class="fu-row"><span class="t">' + esc(new Date(a.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })) + '</span><span style="flex:1">' + esc(a.symbol + ' ' + (a.distPct != null ? a.distPct + '% · ' : '') + (a.result || a.action)) + '</span></div>').join('')
+      : '<div class="hint" style="padding:4px 0 10px;">No unwinds. At ≤' + C.actPct + '%: buy back ' + C.stepPct + '% of the perp, then trade the same coin on WazirX; every ' + Math.round((C.stepGapMs || 60000) / 1000) + ' s, up to ' + C.maxSteps + ' times.</div>') + '</details>');
+  box.innerHTML = out.join('');
+  return { n: P.length, hot: hot.length, syms: new Set(P.map((p) => p.symbol)) };
+}
+function fuSym(o) { let r = o.result || {}; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { r = {}; } } return String((r.hedge || {}).symbol || '').toUpperCase(); }
+function fuToggle(sym) { FU_OPEN[sym] = !FU_OPEN[sym]; refreshPositions(); }
+
 // ---------------- positions ----------------
 async function refreshPositions() {
   let data;
   try { data = await apiJson('/api/trader/positions'); } catch (e) { return; }
   const box = $('positionsBox');
-  const hedged = data.hedgedOrders || [];
-  $('cntPos').textContent = hedged.length;
+  const fu = renderFutures(ST && ST.futures, data.hedgedOrders || []);
+  // with the Binance view on, the old list keeps only rows Binance no longer has (or paper rows)
+  const hedged = (data.hedgedOrders || []).filter((o) => !fu || !fu.syms || o.mode !== 'live' || !fu.syms.has(fuSym(o)));
+  $('cntPos').textContent = fu && fu.n ? fu.n : hedged.length;
+  $('tb-positions').style.color = fu && fu.hot ? 'var(--danger)' : '';
+  if ($('posOldHint')) $('posOldHint').style.display = fu && fu.n ? 'none' : '';
   const rows = [];
   for (const o of hedged) {
     const r = o.result || {};
@@ -3662,8 +3797,8 @@ async function refreshPositions() {
       '<span class="chip ' + o.mode + '">' + o.mode + '</span>' +
       '<span class="hint">opened ' + ago(o.created_at) + '</span></div>' +
       '<div class="posgrid num">' +
-        '<div><div class="pk">Long (WazirX spot)</div><div class="pv">' + (r.spot ? r.spot.qty + ' @ ' + r.spot.avgPrice + ' · ' + esc(r.spot.symbol) : '—') + '</div></div>' +
-        '<div><div class="pk">Short (Binance perp)</div><div class="pv">' + (r.hedge ? r.hedge.qty + ' ' + esc(r.hedge.symbol) : '—') + '</div></div>' +
+        '<div><div class="pk">' + (r.spot && r.spot.side === 'sell' ? 'Sold' : 'Bought') + ' (WazirX spot)</div><div class="pv">' + (r.spot ? r.spot.qty + ' @ ' + (r.spot.avgPrice != null ? r.spot.avgPrice : r.spot.avgPriceUsdt != null ? r.spot.avgPriceUsdt + ' USDT' : '—') + ' · ' + esc(r.spot.symbol) : '—') + '</div></div>' +
+        '<div><div class="pk">' + (r.hedge && String(r.hedge.side).toUpperCase() === 'LONG' ? 'Long' : 'Short') + ' (Binance perp)</div><div class="pv">' + (r.hedge ? r.hedge.qty + ' ' + esc(r.hedge.symbol) + (r.hedge.avgPrice > 0 ? ' @ ' + r.hedge.avgPrice : '') : '—') + '</div></div>' +
         '<div><div class="pk">Deployed</div><div class="pv">' + inr2(o.spent_inr) + '</div></div>' +
         '<div><div class="pk">Expected capture</div><div class="pv pos">' + (o.profit_inr != null ? '+' + inr2(o.profit_inr) : '—') + '</div></div>' +
       '</div></div>');
@@ -3675,7 +3810,7 @@ async function refreshPositions() {
         ' · uPnL <b class="' + (Number(p.unRealizedProfit) >= 0 ? 'pos' : 'neg') + '">' + Number(p.unRealizedProfit).toFixed(2) + ' USDT</b></div>');
     }
   }
-  box.innerHTML = rows.length ? rows.join('') : '<div class="empty">No open hedged positions.</div>';
+  box.innerHTML = rows.length ? (fu && fu.n ? '<div class="hint" style="margin:14px 0 6px;font-weight:700;">Ledger hedges with no Binance position (' + rows.length + ')</div>' : '') + rows.join('') : (fu && fu.n ? '' : '<div class="empty">No open hedged positions.</div>');
 }
 
 // ---------------- global settings ----------------
@@ -4823,7 +4958,8 @@ window.addEventListener('appinstalled', () => { const b = $('installBtn'); if (b
     if (e.stage === 'validated' && plan) return { t: 'plan ' + sfN(plan.qty) + ' · edge ' + plan.netPct + '% · profit ' + sfR(plan.profitInr) + ' · cost ' + sfR(plan.costInr), s: d.depth && d.depth.stoppedBy ? swkStop(d.depth.stoppedBy) : '' };
     if (a === 'plan') return { t: 'plan ' + sfN(d.qty) + ' · held ' + sfN(d.held) + (Number(d.missing) > 0 ? ' · missing ' + sfN(d.missing) : ''), s: d.buyBackMaxPx != null && Number(d.buyBackExtraPct) > 0 ? 'buy-back may pay up to ' + d.buyBackMaxPx + ' (+' + d.buyBackExtraPct + '%)' : '' };
     if (a === 'placed' || a === 'placed_blind') return { t: 'sent ' + sfN(d.qty) + ' @ ' + d.price, s: d.placeMs != null ? 'exchange answered in ' + d.placeMs + ' ms' + (d.sizedFrom ? ' · sized from the ' + d.sizedFrom : '') : '' };
-    if (a === 'filled' || (a === 'blind_reconciled' && String(d.status) === 'done')) return { t: 'filled ' + sfN(d.filledQty) + ' of ' + sfN(d.ofQty != null ? d.ofQty : d.requestedQty), cls: 'good', s: d.avgPrice != null ? 'at ' + d.avgPrice : '' };
+    if (a === 'filled' || (a === 'blind_reconciled' && String(d.status) === 'done')) { var fq = d.filledQty != null ? d.filledQty : d.qty, oq = d.ofQty != null ? d.ofQty : d.requestedQty;
+      return { t: (d.symbol && d.side ? String(d.side) + ' ' + String(d.symbol) + ' ' : '') + 'filled ' + (fq != null ? sfN(fq) : '—') + (oq != null ? ' of ' + sfN(oq) : ''), cls: 'good', s: d.avgPrice != null ? 'at ' + d.avgPrice + (d.avgFrom ? ' (' + d.avgFrom + ')' : '') : (d.symbol ? 'fill price not recorded' : '') }; }
     if (a === 'cancelled' || a === 'blind_reconciled') return { t: 'cancelled · ' + sfN(d.filledQty) + ' of ' + sfN(d.ofQty != null ? d.ofQty : d.requestedQty) + ' filled', cls: Number(d.filledQty) > 0 ? 'part' : 'bad' };
     if (a === 'bought') return { t: 'bought ' + sfN(d.usdt) + ' USDT at ' + d.rate, cls: 'good' };
     if (a === 'not_bought' || a === 'skipped_rate' || a === 'too_small') return { t: sfN(d.usdt) + ' USDT not bought', s: d.note || String(d.why || '').replace(/_/g, ' '), cls: 'bad' };
@@ -5222,7 +5358,7 @@ const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || '
 const DX_TKEY = 'swenik_dcx_token';
 let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
 const DX_NUM = ['blindInr', 'blindBarPct', 'blindMinProfitInr', 'blindMaxTrades', 'blindLossCapInr', 'blindMinBookAgeMs', 'blindMaxBookAgeMs', 'leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
-const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch', 'leg3', 'blindLive', 'blindPathA', 'blindPathB'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger'];
+const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch', 'leg3', 'blindLive', 'blindPathA', 'blindPathB'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger', 'blindKinds', 'blindMarkets'];
 const dxList = (s) => { const a = String(s || '').split(',').filter(Boolean); return a.length > 4 ? a.length + ' coins' : esc(a.join(', ')); };
 const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
 function dxToken(ask) {
@@ -5256,7 +5392,7 @@ async function dxSave() {
   for (const k of DX_NUM) { const v = $('dx_' + k).value; if (v !== '') b[k] = Number(v); }
   for (const k of DX_BOOL) b[k] = $('dx_' + k).value === 'true';
   for (const k of DX_TXT) b[k] = $('dx_' + k).value.toUpperCase().replace(/\s+/g, '');
-  for (const k of DX_SEL) b[k] = $('dx_' + k).value;
+  for (const k of DX_SEL) { const el = $('dx_' + k); if (el && (k === 'binanceTrigger' || ((DX && DX.settings) || {})[k] != null)) b[k] = el.value; }
   if (b.maxInr < b.minInr) { alert('Max amount must be at least the min amount.'); return; }
   try { const j = await dxPost('/settings', b); DX = Object.assign({}, DX, { settings: j.settings }); dxFill(true); drawDx(); $('dxSaveHint').textContent = 'Saved ' + blClock(Date.now()); }
   catch (e) { alert('Not saved — ' + e.message); }
@@ -5368,6 +5504,7 @@ function dxBlind(D) {
     '<span class="fact' + (L.on ? '' : ' warn') + '">live blind <b>' + (L.on ? (S.mode === 'live' ? 'ON' : 'on, but the trader is ' + esc(S.mode)) : 'off — paper only') + '</b></span>' +
     '<span class="fact">path <b>' + (L.pathA ? 'A' : '') + (L.pathA && L.pathB ? ' + ' : '') + (L.pathB ? 'B' : '') + (L.pathA || L.pathB ? '' : 'none') + '</b> · <b>' + inr(L.amountInr) + '</b> each · loop ≥ <b>' + (P.rules || {}).barPct + '%</b></span>' +
     '<span class="fact">book-age gate <b>' + esc(gateTxt) + '</b></span>' +
+    (G.kinds ? '<span class="fact">live prints <b>' + esc(G.kinds.split(',').map((k) => DX_BK[k] || k).join(', ')) + '</b> on <b>' + esc(String(G.markets || '').replace(',', ' + ')) + '</b></span>' : '') +
     '<span class="fact">today <b>' + (T.trades || 0) + ' / ' + L.maxTrades + '</b> trades · <b class="' + ((T.pnl || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(T.pnl || 0) + '</b> · loss cap ' + inr(L.lossCapInr) + '</span></div>';
   const done = (C.real || 0) + (C.false || 0), rate = (r, f) => (r + f ? Math.round(100 * r / (r + f)) + '%' : '—');
   const tbl = '<div class="dx-h">Paper — signal events (coin + path within ' + ((P.rules || {}).windowMs || 3000) / 1000 + ' s) since start · ' + blN(C.prints || 0, 0) + ' prints ≥ bar</div><table class="dx-tbl">' +
@@ -5383,12 +5520,21 @@ function dxBlind(D) {
     row('Print → normal trader fires (p50 / p90)', ms(P.signalToAutoMs)) +
     row('Live blind orders sent', blN(L.sent || 0, 0)) +
     (G.skipped ? row('Live skipped by the book-age gate', blN(G.skipped, 0)) : '') +
+    (G.kindSkipped ? row('Live skipped: print kind / market off', blN(G.kindSkipped, 0)) : '') +
     (L.skips && Object.keys(L.skips).length ? row('Live blind not sent', esc(Object.entries(L.skips).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => k + ' ×' + v).join(' · '))) : '') + '</table>';
+  const money = (x) => { if (x.paperInr == null && x.falseInr == null) return ''; const d = (x.real || 0) + (x.false || 0), net = (x.paperInr || 0) - (x.falseInr || 0);
+    return '<div style="font-size:11.5px;font-weight:600;color:var(--muted,#6b7280);margin-top:2px;">paper <span class="pos">' + dxR(x.paperInr || 0) + '</span> · false <span class="neg">−' + inr2(x.falseInr || 0) + '</span>' +
+      (d ? ' · <b class="' + (net >= 0 ? 'pos' : 'neg') + '">' + (net >= 0 ? '+' : '−') + '₹' + Math.abs(net / d).toFixed(2) + ' per event</b>' : '') + '</div>'; };
+  const line = (label, x) => '<tr><td>' + label + ' · ' + x.n + ' events' + (x.onBook ? ' · ' + x.onBook + ' on book' : '') + money(x) + '</td><td class="num"><span class="pos">' + (x.real || 0) + '</span> / <span class="neg">' + (x.false || 0) + '</span> · ' + rate(x.real || 0, x.false || 0) + '</td></tr>';
   const split = (title, o, lab) => { const ks = Object.keys(o || {}).filter((k) => o[k].n > 0); if (!ks.length) return '';
-    return '<tr><td colspan="2" style="font-weight:800;padding-top:9px;text-align:left;">' + title + '</td></tr>' + ks.map((k) => { const x = o[k];
-      return '<tr><td>' + esc(lab ? lab(k) : k) + ' · ' + x.n + ' events' + (x.onBook ? ' · ' + x.onBook + ' on book' : '') + '</td><td class="num"><span class="pos">' + (x.real || 0) + '</span> / <span class="neg">' + (x.false || 0) + '</span> · ' + rate(x.real || 0, x.false || 0) + '</td></tr>'; }).join(''); };
+    return '<tr><td colspan="2" style="font-weight:800;padding-top:9px;text-align:left;">' + title + '</td></tr>' + ks.map((k) => line(esc(lab ? lab(k) : k), o[k])).join(''); };
   const by = E.by || {};
-  const ev = '<div class="dx-h">Which events turn out real — first print of each event (real / false · rate)</div><table class="dx-tbl">' +
+  const pe = (x) => { const d = (x.real || 0) + (x.false || 0); return d ? ((x.paperInr || 0) - (x.falseInr || 0)) / d : -1e9; };
+  const combo = by.combo ? Object.entries(by.combo).filter(([, x]) => x.n > 0).sort((a, b) => pe(b[1]) - pe(a[1])) : [];
+  const comboTbl = combo.length ? '<div class="dx-h">Print kind × market — best first (real / false · rate · ₹ per new event)</div><table class="dx-tbl">' +
+    combo.map(([k, x]) => { const [kd, mk] = k.split('|'); const on = G.kinds ? (G.kinds.split(',').includes(kd) && String(G.markets || '').split(',').includes(mk)) : true;
+      return line('<b>' + esc(DX_BK[kd] || kd) + '</b> on ' + esc(mk) + (on ? '' : ' <span class="dx-out dim">(live off)</span>'), x); }).join('') + '</table>' : '';
+  const ev = comboTbl + '<div class="dx-h">One way at a time — first print of each event (real / false · rate)</div><table class="dx-tbl">' +
     split('Book age of the printed pair at the print', by.age) + split('Print kind', by.kind, (k) => DX_BK[k] || k) + split('Printed pair', by.pair, (k) => k + ' market') + '</table>';
   const rows = (E.list || []).map((r) => {
     const out = r.outcome === 'onBook' ? ['dim', 'already on the book'] : r.outcome === 'real' ? ['good', 'real · book +' + r.confirmMs + ' ms' + (r.paperInr != null ? ' · paper ' + dxR(r.paperInr) : '')]
