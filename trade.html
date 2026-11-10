@@ -1336,6 +1336,9 @@
           <div class="f full"><label>Live coins (blank = every coin)</label><input id="bl_liveCoins" placeholder="e.g. xrp, doge"></div>
           <div class="f"><label>Late-fill watch (ms)</label><input id="bl_graceMs" type="number" step="100"><div class="sub">after the cancel, late leg 1 fills still get their leg 2</div></div>
           <div class="f"><label>Path B no coin → skip (min)</label><input id="bl_noInvMin" type="number" step="5"></div>
+          <div class="f"><label>Stock buying</label><input type="checkbox" id="bl_stockOn"><div class="sub">path B on a coin you hold little or none of: buy it on USDT, sell on INR, keep what does not sell</div></div>
+          <div class="f"><label>Stock ₹ per coin</label><input id="bl_stockInr" type="number" step="500" min="100" max="50000"><div class="sub">how much is bought on one signal (100–50,000)</div></div>
+          <div class="f full"><label>Stock cap ₹ (all coins together)</label><input id="bl_stockCapInr" type="number" step="10000" min="0"><div class="sub">no stock is bought once the stock you hold is worth this much</div><div id="blStockNow" style="font-size:12.5px;line-height:1.5;margin-top:8px;opacity:.85;"></div></div>
         </div>
       </div>
       <div class="fsec">
@@ -1959,7 +1962,7 @@ let BLIND = null, blindFormLoaded = false, BL_LIMIT = 40;
 let BL_VER = null, BL_LASTQ = '';
 const BLF = { range: 'today', kind: '', result: '', path: '', coin: '' };
 const BLIND_OPEN = new Set();
-const BL_LIVE_FIELDS = ['holdMs', 'liveCapInrA', 'liveCapInrB', 'liveMinPct', 'liveLossStopInr', 'maxLivePerDay', 'feePct', 'graceMs', 'noInvMin'];
+const BL_LIVE_FIELDS = ['holdMs', 'liveCapInrA', 'liveCapInrB', 'liveMinPct', 'liveLossStopInr', 'maxLivePerDay', 'feePct', 'graceMs', 'noInvMin', 'stockInr', 'stockCapInr'];   /* fe20 */
 const BL_PAPER_FIELDS = ['capInr', 'bAllocInr', 'minPct', 'maxPct', 'windowMs', 'minInr', 'minUsdt', 'dedupeSec', 'coinCooldownSec', 'maxPerCoinHour', 'maxUsdtAgeMs', 'priMs', 'sfExtraPct'];
 const blN = (v, d) => (v == null ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 6 : d }));
 const blClock = (t, ms) => { const d = new Date(t); return d.toLocaleTimeString('en-IN', { hour12: false }) + (ms ? '.' + String(d.getMilliseconds()).padStart(3, '0') : ''); };
@@ -2034,6 +2037,11 @@ function openBlindSettings() {
   $('bl_coins').value = c.coins || ''; $('bl_liveCoins').value = c.liveCoins || '';
   $('bl_livePathA').checked = c.livePathA !== false; $('bl_livePathB').checked = c.livePathB !== false;
   $('bl_bSizeMode').value = c.bSizeMode === 'all' ? 'all' : 'fixed'; $('bl_bAllDepthCap').checked = c.bAllDepthCap !== false;
+  { const S = (BLIND && BLIND.stock) || {}, so = $('bl_stockOn'), sn = $('blStockNow');   /* fe20 */
+    if (so) so.checked = c.stockOn !== false;
+    if (sn) { const v = Number(S.valueInr), cap = Number(c.stockCapInr != null ? c.stockCapInr : S.capInr), n = (S.coins || []).length;
+      sn.innerHTML = Number.isFinite(v) ? 'holding now <b>' + inr(v) + '</b>' + (n ? ' in ' + n + ' coins' : '') + (Number.isFinite(cap) ? ' · cap <b>' + inr(cap) + '</b>' + (v >= cap ? ' · <b style="color:var(--danger,#e03131)">cap is full — nothing more is bought</b>' : ' · room <b>' + inr(cap - v) + '</b>') : '')
+        : ''; } }
   $('blindModal').classList.remove('hidden');
 }
 function closeBlindSettings() { $('blindModal').classList.add('hidden'); }
@@ -2041,6 +2049,7 @@ async function saveBlind() {
   const body = { pathA: $('bl_pathA').checked, pathB: $('bl_pathB').checked, coins: $('bl_coins').value,
     livePathA: $('bl_livePathA').checked, livePathB: $('bl_livePathB').checked, liveCoins: $('bl_liveCoins').value };
   if (BLIND && BLIND.config && BLIND.config.bSizeMode !== undefined) { body.bSizeMode = $('bl_bSizeMode').value; body.bAllDepthCap = $('bl_bAllDepthCap').checked; }
+  if (BLIND && BLIND.config && BLIND.config.stockOn !== undefined && $('bl_stockOn')) body.stockOn = $('bl_stockOn').checked;   /* fe20 */
   if (BLIND && BLIND.config && BLIND.config.holdMs === undefined) delete body.holdMs;
   BL_PAPER_FIELDS.concat(BL_LIVE_FIELDS).forEach((k) => { const v = $('bl_' + k) && $('bl_' + k).value; if (v !== '' && v != null) body[k] = Number(v); });
   try { await blindPost(body, 'Blind settings saved'); closeBlindSettings(); }
@@ -2327,7 +2336,7 @@ function blindCardHtml(r) {
   }
   const notes = [];
   if (L && L.engine === 'rust') notes.push('placed by the Rust engine');   /* 05es */
-  if (L && L.sizedBy) notes.push('sized to your ' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' || L.sizedBy === 'stock' || String(L.sizedBy).startsWith('usdtPrint') ? 'USDT float' : 'INR'));
+  if (L && L.sizedBy) notes.push('sized to your ' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' || L.sizedBy === 'stock' || L.sizedBy === 'topUp' || String(L.sizedBy).startsWith('usdtPrint') ? 'USDT float' : 'INR'));
   if (L && L.sizeMode) notes.push('size ' + L.sizeMode);
   if (L && L.autoQ) notes.push('auto trader already had ' + n(L.autoQ) + ' → blind sent less');
   if (L && L.link) notes.push('auto trader could match it for ' + L.link.holdMs + ' ms' + (L.link.caught ? ' · it did: ' + L.link.smaller + ' smaller, ' + L.link.skipped + ' skipped' : ' · it did not come'));
@@ -2382,7 +2391,7 @@ function blindTimeline(r) {
     if (L.usdtGot) facts.push('USDT kept <b>' + n(L.usdtGot) + '</b>');
     if (L.usdtSpent) facts.push('USDT spent <b>' + n(L.usdtSpent) + '</b>');
     facts.push('P&amp;L <b>' + inr2(L.pnl) + '</b>' + (L.priceSrc === 'limit' ? ' (limit prices)' : ''));
-    if (L.sizedBy) facts.push('sized to your <b>' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' || L.sizedBy === 'stock' || String(L.sizedBy).startsWith('usdtPrint') ? 'USDT float' : 'INR') + '</b>');
+    if (L.sizedBy) facts.push('sized to your <b>' + (L.sizedBy === 'coin' ? C + ' held' : L.sizedBy === 'usdt' || L.sizedBy === 'stock' || L.sizedBy === 'topUp' || String(L.sizedBy).startsWith('usdtPrint') ? 'USDT float' : 'INR') + '</b>');
     if (L.sizeMode) facts.push('size <b>' + L.sizeMode + '</b>');
     if (L.autoQ) facts.push('auto trader already had <b>' + n(L.autoQ) + '</b> → blind sent less');
     if (L.link) facts.push('auto trader could match it for <b>' + L.link.holdMs + ' ms</b>' + (L.link.caught ? ' · it did: <b>' + L.link.smaller + ' smaller, ' + L.link.skipped + ' skipped</b>' : ' · it did not come'));
