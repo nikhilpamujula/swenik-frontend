@@ -907,6 +907,7 @@
 <div class="tabbar-wrap">
   <div class="tabbar">
     <button class="tabbtn active" id="tb-overview" onclick="setTab('overview')">Overview</button>
+    <button class="tabbtn" id="tb-pnl" onclick="setTab('pnl')">Profits</button>
     <button class="tabbtn" id="tb-rules" onclick="setTab('rules')">Rules<span class="cnt" id="cntRules">0</span></button>
     <button class="tabbtn" id="tb-activity" onclick="setTab('activity')">Activity<span class="cnt" id="cntOrders">0</span></button>
     <!-- Track Live is its own page now: a full clone of the scanner's WazirX
@@ -953,6 +954,242 @@
       </div>
     </div>
   </div>
+
+<style id="swk-pnl-css">
+  /* fe21: Profits tab */
+  #tab-pnl .pn-filters { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin:2px 0 10px; }
+  #tab-pnl .pn-refresh { margin-left:auto; }
+  #tab-pnl .pn-hint { font-size:11px; color:var(--gray-500); margin:-2px 2px 10px; }
+  #tab-pnl .pn-hint .w { color:var(--warning); font-weight:700; }
+  #tab-pnl .pn-chart { position:relative; padding:6px 10px 2px 4px; }
+  #tab-pnl .pn-chart svg { display:block; width:100%; height:190px; overflow:visible; }
+  #tab-pnl .pn-chart .ax { font-size:10px; fill:var(--gray-500); font-variant-numeric:tabular-nums; }
+  #tab-pnl .pn-tip { position:absolute; pointer-events:none; background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow-md); padding:8px 10px; font-size:11.5px; min-width:150px; display:none; z-index:3; }
+  #tab-pnl .pn-tip b { display:block; font-size:11px; color:var(--gray-500); margin-bottom:4px; }
+  #tab-pnl .pn-tip div { display:flex; justify-content:space-between; gap:12px; }
+  #tab-pnl table.pn-t { width:100%; border-collapse:collapse; font-size:12.5px; font-variant-numeric:tabular-nums; }
+  #tab-pnl .pn-t th { text-align:right; font-size:10.5px; font-weight:700; color:var(--gray-500); padding:6px 10px; border-bottom:1px solid var(--border); }
+  #tab-pnl .pn-t th:first-child, #tab-pnl .pn-t td:first-child { text-align:left; }
+  #tab-pnl .pn-t td { text-align:right; padding:7px 10px; border-bottom:1px solid var(--gray-100); color:#26303f; }
+  #tab-pnl .pn-t td.tot { font-weight:800; }
+  #tab-pnl .pn-more { display:block; width:100%; margin-top:8px; }
+  #tab-pnl .pn-coin { display:grid; grid-template-columns:22px 1fr auto; gap:2px 10px; align-items:center; padding:9px 2px; border-bottom:1px solid var(--gray-100); }
+  #tab-pnl .pn-coin:last-child { border-bottom:none; }
+  #tab-pnl .pn-rank { font-size:11px; font-weight:800; color:var(--gray-500); text-align:center; }
+  #tab-pnl .pn-name { font-weight:800; font-size:13.5px; }
+  #tab-pnl .pn-ex { font-size:10.5px; font-weight:700; color:var(--gray-700); margin-left:8px; }
+  #tab-pnl .pn-ex i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; }
+  #tab-pnl .pn-val { font-weight:800; font-size:13.5px; text-align:right; font-variant-numeric:tabular-nums; }
+  #tab-pnl .pn-sub { grid-column:2 / 4; display:flex; justify-content:space-between; font-size:11px; color:var(--gray-500); font-variant-numeric:tabular-nums; }
+  #tab-pnl .pn-bar { grid-column:2 / 4; height:4px; border-radius:2px; background:var(--gray-100); overflow:hidden; }
+  #tab-pnl .pn-bar span { display:block; height:100%; border-radius:2px; }
+  #tab-pnl .pn-facts { display:flex; flex-wrap:wrap; gap:6px; margin:-4px 0 14px; }
+</style>
+<div class="tabpane" id="tab-pnl">
+  <div class="pn-filters">
+    <button class="fbtn active" data-p="1" onclick="pnPick(1)">Today</button>
+    <button class="fbtn" data-p="7" onclick="pnPick(7)">7 days</button>
+    <button class="fbtn" data-p="30" onclick="pnPick(30)">30 days</button>
+    <button class="btn sm pn-refresh" onclick="pnLoad(true)">Refresh</button>
+  </div>
+  <div class="pn-hint" id="pnHint"></div>
+  <div class="tiles" id="pnTiles"></div>
+  <div class="pn-facts" id="pnFacts"></div>
+  <div class="panel" id="pnChartPanel" style="display:none;">
+    <div class="panel-h"><h2>WazirX profit per day</h2><span class="hint">auto + blind · tap a day</span></div>
+    <div class="pn-chart" id="pnChart"><svg id="pnSvg"></svg><div class="pn-tip" id="pnTip"></div></div>
+  </div>
+  <div class="panel" id="pnDaysPanel" style="display:none;">
+    <div class="panel-h"><h2>By day</h2><span class="hint">WazirX · midnight to midnight</span></div>
+    <div class="panel-b" style="padding:8px 8px 12px;"><div id="pnDays"></div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>Coins</h2><span class="hint" id="pnCoinHint"></span></div>
+    <div class="panel-b" style="padding:10px 14px 12px;">
+      <div class="filters" style="margin-bottom:4px;">
+        <button class="fbtn active" data-c="profit" onclick="pnCoinPick('profit')">Most profit</button>
+        <button class="fbtn" data-c="trades" onclick="pnCoinPick('trades')">Most trades</button>
+        <button class="fbtn" data-c="loss" onclick="pnCoinPick('loss')">Losing</button>
+      </div>
+      <div id="pnCoins"></div>
+    </div>
+  </div>
+</div>
+<script id="swk-pnl">
+/* fe21: Profits tab. Profit only (no trade lists). Loads when you open the tab or tap a period, and
+   when you tap Refresh — never by itself. Each period is kept until Refresh, so switching back is free.
+   WazirX = live auto trades (orders, same rules as Overview's "Made today") + live blind trades.
+   CoinDCX = today only: its trader keeps only today's totals (7 / 30 days needs a trader update). */
+const PN_COL = { wz: '#3b5bdb', dcx: '#eb6834' }, PN_NAME = { wz: 'WazirX', dcx: 'CoinDCX' };
+const PN_LIMIT = { 1: 250, 7: 800, 30: 2500 };
+const PN = { p: 1, c: 'profit', all: false, cache: {}, busy: false, err: null };
+const pnSg = (v) => (v < 0 ? '−' : '+') + inr(Math.abs(v));
+const pnKey = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const pnLabel = (k, o) => new Date(k + 'T12:00:00').toLocaleDateString('en-IN', o || { weekday: 'short', day: 'numeric', month: 'short' });
+const pnMidnight = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+function pnPath(o) {
+  const t = String(o.path_label || '').split('→').map((x) => x.trim().toUpperCase());
+  return t[0] === 'USDT' || t[1] === 'USDT' ? 'B' : t[2] === 'USDT' ? 'A' : 'other';
+}
+function pnPick(p) { PN.p = p; PN.all = false; pnLoad(false); }
+function pnCoinPick(c) { PN.c = c; pnDraw(); }
+function pnBlank() { return { auto: 0, autoN: 0, autoDone: 0, A: 0, B: 0, other: 0, blind: 0, blindN: 0, blindDone: 0 }; }
+
+/* WazirX auto: live order rows, same counting as Overview's Today tiles */
+function pnOrders(rows, since, days, coins) {
+  let unvalued = 0, oldest = null;
+  const keep = window.swkMadeOf; window.swkMadeOf = null;   // never fetch per-order details from here
+  try {
+    for (const o of rows) {
+      const t = new Date(o.created_at).getTime(); if (!Number.isFinite(t)) continue;
+      if (oldest == null || t < oldest) oldest = t;
+      if (o.mode !== 'live' || t < since || o.status === 'skipped' || o.status === 'missed') continue;
+      let p = null, done = false, traded = false;
+      if (o.status === 'done' || o.status === 'hedged_open') { if (o.profit_inr != null) { p = Number(o.profit_inr) || 0; done = true; traded = true; } }
+      else if (o.status === 'stuck') { const T = swkTodo(o); if (T && T.open) { traded = true; if (T.part) { if (T.made != null) p = T.made; else unvalued++; } } }
+      if (!traded) continue;
+      const D = days[pnKey(t)]; if (!D) continue;
+      D.autoN++; if (done) D.autoDone++; if (p != null) { D.auto += p; D[pnPath(o)] += p; }
+      const c = String(o.coin || '').toUpperCase(), C = coins['wz:' + c] || (coins['wz:' + c] = { coin: c, ex: 'wz', n: 0, done: 0, pnl: 0 });
+      C.n++; if (done) C.done++; if (p != null) C.pnl += p;
+    }
+  } finally { window.swkMadeOf = keep; }
+  return { unvalued, oldest, n: rows.length };
+}
+/* WazirX blind: live blind trades (rows with a placed leg 1) */
+function pnBlind(B, since, days, coins) {
+  let oldest = null, sum = 0;
+  for (const r of (B && B.rows) || []) {
+    const L = r.live; if (!L || !L.leg1) continue;
+    const t = typeof r.at === 'number' ? r.at : (Date.parse(r.at) || Number(r.atMs)); if (!Number.isFinite(t)) continue;
+    if (oldest == null || t < oldest) oldest = t;
+    if (t < since) continue;
+    const D = days[pnKey(t)]; if (!D) continue;
+    const p = Number(L.pnl) || 0, done = L.state === 'done';
+    D.blindN++; if (done) D.blindDone++; D.blind += p; sum += p;
+    const c = String(r.coin || '').toUpperCase(), C = coins['wz:' + c] || (coins['wz:' + c] = { coin: c, ex: 'wz', n: 0, done: 0, pnl: 0 });
+    C.n++; if (done) C.done++; C.pnl += p;
+  }
+  return { oldest, sum, summaryPnl: B && B.summary && B.summary.live ? Number(B.summary.live.pnl) : null };
+}
+/* CoinDCX today: totals from the trader; per coin only when its list holds all of today's trades */
+function pnDcx(S, coins) {
+  if (!S || !S.today) return null;
+  const T = S.today, mid = pnMidnight(), L = (S.trades || []).filter((x) => Date.parse(x.at) >= mid);
+  const full = (T.trades || 0) > 0 && L.length >= T.trades;
+  const out = { pnl: Number(T.pnl) || 0, n: T.trades || 0, done: T.done || 0, day: T.day, conv: T.rebalanceInr || 0, full, listed: L.length, A: 0, B: 0, fees: 0 };
+  if (full) for (const x of L) {
+    const p = Number(x.pnlInr) || 0; out[x.path === 'A' ? 'A' : 'B'] += p;
+    const f = x.fees || {}; out.fees += (f.leg1Inr || 0) + (f.leg2Inr || 0) + (f.leg3Inr || 0) + (f.unwindInr || 0);
+    const c = String(x.coin || '').toUpperCase(), C = coins['dcx:' + c] || (coins['dcx:' + c] = { coin: c, ex: 'dcx', n: 0, done: 0, pnl: 0 });
+    C.n++; if (x.state === 'done') C.done++; C.pnl += p;
+  }
+  return out;
+}
+async function pnLoad(force) {
+  const p = PN.p;
+  if (!force && PN.cache[p]) { pnDraw(); return; }
+  if (PN.busy) return;
+  PN.busy = true; PN.err = null; pnDraw();
+  const mid = pnMidnight(), since = mid - (p - 1) * 864e5, days = {};
+  for (let i = p - 1; i >= 0; i--) days[pnKey(mid - i * 864e5 + 3600e3)] = pnBlank();
+  try {
+    const [rows, bl, dx] = await Promise.all([
+      apiJson('/api/trader/orders?limit=' + PN_LIMIT[p]),
+      apiJson('/api/trader/blind?limit=1000&range=' + (p === 1 ? 'today' : 'all')).catch(() => null),
+      fetch(DX_URL + '/status?cb=' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    const coins = {};
+    const wz = pnOrders(Array.isArray(rows) ? rows : [], since, days, coins), blind = pnBlind(bl, since, days, coins), dcx = pnDcx(dx, coins);
+    PN.cache[p] = { at: Date.now(), since, days, coins, wz, blind, dcx, limit: PN_LIMIT[p], box: (currentBox() || {}).short || '' };
+  } catch (e) { PN.err = e.message; }
+  PN.busy = false; pnDraw();
+}
+function pnDraw() {
+  for (const b of document.querySelectorAll('#tab-pnl [data-p]')) b.classList.toggle('active', +b.dataset.p === PN.p);
+  for (const b of document.querySelectorAll('#tab-pnl [data-c]')) b.classList.toggle('active', b.dataset.c === PN.c);
+  const C = PN.cache[PN.p];
+  if (!C) {
+    $('pnHint').innerHTML = PN.busy ? 'loading…' : PN.err ? '<span class="w">could not load — ' + esc(PN.err) + '</span>' : '';
+    $('pnTiles').innerHTML = ''; $('pnFacts').innerHTML = ''; $('pnCoins').innerHTML = '';
+    $('pnChartPanel').style.display = 'none'; $('pnDaysPanel').style.display = 'none'; return;
+  }
+  const keys = Object.keys(C.days), D = keys.map((k) => C.days[k]), sum = (f) => D.reduce((a, d) => a + f(d), 0);
+  const auto = sum((d) => d.auto), blind = sum((d) => d.blind), wzT = auto + blind;
+  const wzN = sum((d) => d.autoN + d.blindN), wzDone = sum((d) => d.autoDone + d.blindDone);
+  const X = C.dcx, today = PN.p === 1;
+  // hint: what the numbers cover, and anything that makes them incomplete
+  const notes = [C.box + ' · loaded ' + new Date(C.at).toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit' })];
+  if (C.wz.oldest != null && C.wz.oldest > C.since && C.wz.n >= C.limit) notes.push('<span class="w">orders only reach back to ' + pnLabel(pnKey(C.wz.oldest), { day: 'numeric', month: 'short' }) + '</span>');
+  if (!today && C.blind.oldest != null && C.blind.oldest > C.since) notes.push('blind kept from ' + pnLabel(pnKey(C.blind.oldest), { day: 'numeric', month: 'short' }));
+  if (C.wz.unvalued) notes.push('<span class="w">' + C.wz.unvalued + ' part-done trade' + (C.wz.unvalued > 1 ? 's' : '') + ' not valued</span>');
+  if (today && C.blind.summaryPnl != null && Math.abs(C.blind.summaryPnl - C.blind.sum) > 1) notes.push('<span class="w">blind ' + pnSg(C.blind.sum) + ' here vs ' + pnSg(C.blind.summaryPnl) + ' on Blind tab</span>');
+  if (PN.busy) notes.push('refreshing…'); if (PN.err) notes.push('<span class="w">refresh failed — ' + esc(PN.err) + '</span>');
+  $('pnHint').innerHTML = notes.join(' · ');
+  const best = D.length > 1 ? keys.reduce((b, k) => { const v = C.days[k].auto + C.days[k].blind; return !b || v > b.v ? { k, v } : b; }, null) : null;
+  const pctDone = (d, n) => (n ? Math.round(d / n * 100) + '% done' : 'no trades');
+  const dxTile = X ? tile('CoinDCX' + (today ? '' : ' · today only'), '<span class="' + (X.pnl >= 0 ? 'pos' : 'neg') + '">' + pnSg(X.pnl) + '</span>', X.n + ' trades · ' + pctDone(X.done, X.n) + (today ? '' : ' · 7/30 days after trader update'), '') : tile('CoinDCX', '—', 'could not reach the CoinDCX trader', '');
+  $('pnTiles').innerHTML = today
+    ? tile('Total today', '<span class="' + (wzT + (X ? X.pnl : 0) >= 0 ? 'pos' : 'neg') + '">' + pnSg(wzT + (X ? X.pnl : 0)) + '</span>', 'WazirX + CoinDCX', '', true) +
+      tile('WazirX', '<span class="' + (wzT >= 0 ? 'pos' : 'neg') + '">' + pnSg(wzT) + '</span>', wzN + ' trades · ' + pctDone(wzDone, wzN), '') + dxTile
+    : tile('WazirX · last ' + PN.p + ' days', '<span class="' + (wzT >= 0 ? 'pos' : 'neg') + '">' + pnSg(wzT) + '</span>', 'avg ' + pnSg(wzT / PN.p) + ' a day · ' + wzN + ' trades', '', true) +
+      (best ? tile('Best day', '<span class="' + (best.v >= 0 ? 'pos' : 'neg') + '">' + pnSg(best.v) + '</span>', pnLabel(best.k), '') : '') + dxTile;
+  $('pnFacts').innerHTML = '<span class="fact">WazirX · auto A <b>' + pnSg(sum((d) => d.A)) + '</b> · auto B <b>' + pnSg(sum((d) => d.B)) + '</b>' + (Math.abs(sum((d) => d.other)) >= 1 ? ' · other <b>' + pnSg(sum((d) => d.other)) + '</b>' : '') + ' · blind <b>' + pnSg(blind) + '</b></span>' +
+    (X && today ? '<span class="fact">CoinDCX · ' + (X.full ? 'path A <b>' + pnSg(X.A) + '</b> · path B <b>' + pnSg(X.B) + '</b> · fees <b>' + inr(X.fees) + '</b> · ' : '') + 'conversions <b>−' + inr(X.conv) + '</b></span>' : '');
+  $('pnChartPanel').style.display = today ? 'none' : ''; $('pnDaysPanel').style.display = today ? 'none' : '';
+  if (!today) { pnChart(keys, C.days); pnDays(keys, C.days); }
+  pnCoins(C, X);
+}
+function pnChart(keys, days) {
+  const svg = $('pnSvg'), W = svg.clientWidth || 360, H = 190, L = 44, R = 6, T = 8, B = 22, v = keys.map((k) => days[k].auto + days[k].blind);
+  let hi = Math.max(0, ...v), lo = Math.min(0, ...v);
+  const step = (x) => { const m = Math.pow(10, Math.floor(Math.log10(x || 1)) - 1); return [1, 2, 2.5, 5, 10, 20, 25, 50, 100].map((k) => k * m).find((s) => x / s <= 5); };
+  const st = step(Math.max(hi - lo, 1)); hi = Math.ceil(hi / st) * st; lo = Math.floor(lo / st) * st; if (hi === lo) hi = st;
+  const y = (x) => T + (hi - x) / (hi - lo) * (H - T - B), cw = (W - L - R) / keys.length, bw = Math.max(4, Math.min(26, cw - (keys.length > 10 ? 3 : 10)));
+  const rr = (x, y0, w, h, up) => { const r = Math.min(4, w / 2, h); if (h <= 0.5) return '';
+    return up ? `M${x},${y0 + h}V${y0 + r}Q${x},${y0} ${x + r},${y0}H${x + w - r}Q${x + w},${y0} ${x + w},${y0 + r}V${y0 + h}Z`
+              : `M${x},${y0}V${y0 + h - r}Q${x},${y0 + h} ${x + r},${y0 + h}H${x + w - r}Q${x + w},${y0 + h} ${x + w},${y0 + h - r}V${y0}Z`; };
+  let g = '';
+  for (let t = lo; t <= hi + 1e-9; t += st) g += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="${Math.abs(t) < 1e-9 ? '#c3cad6' : '#eef1f6'}" stroke-width="1"/><text class="ax" x="${L - 6}" y="${y(t) + 3}" text-anchor="end">${Math.abs(t) < 1e-9 ? '0' : (t < 0 ? '−' : '') + (Math.abs(t) >= 1000 ? +(Math.abs(t) / 1000).toFixed(1) + 'k' : Math.abs(t))}</text>`;
+  keys.forEach((k, i) => {
+    const x = L + i * cw + (cw - bw) / 2, val = v[i];
+    g += `<path d="${val >= 0 ? rr(x, y(val), bw, y(0) - y(val), true) : rr(x, y(0), bw, y(val) - y(0), false)}" fill="${PN_COL.wz}"/>`;
+    if (keys.length <= 7 || i % 5 === (keys.length - 1) % 5) g += `<text class="ax" x="${L + i * cw + cw / 2}" y="${H - 6}" text-anchor="middle">${keys.length <= 7 ? pnLabel(k, { weekday: 'short' }) + ' ' + +k.slice(8) : +k.slice(8) + ' ' + pnLabel(k, { month: 'short' })}</text>`;
+    g += `<rect x="${L + i * cw}" y="${T}" width="${cw}" height="${H - T - B}" fill="transparent" data-i="${i}" class="pn-hit"/>`;
+  });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.innerHTML = g;
+  const tip = $('pnTip');
+  const show = (ev) => { const t = ev.target.closest('.pn-hit'); if (!t) { tip.style.display = 'none'; return; }
+    const k = keys[+t.dataset.i], d = days[k];
+    tip.innerHTML = '<b>' + pnLabel(k) + '</b><div><span>Auto</span><span class="num">' + pnSg(d.auto) + '</span></div><div><span>Blind</span><span class="num">' + pnSg(d.blind) + '</span></div><div style="margin-top:3px;font-weight:800;"><span>Total</span><span class="num">' + pnSg(d.auto + d.blind) + '</span></div>';
+    const r = $('pnChart').getBoundingClientRect(), tr = t.getBoundingClientRect(); tip.style.display = 'block';
+    tip.style.left = Math.max(4, Math.min(r.width - tip.offsetWidth - 4, tr.left - r.left + tr.width / 2 - tip.offsetWidth / 2)) + 'px'; tip.style.top = '4px'; };
+  svg.onmousemove = show; svg.onclick = show; svg.onmouseleave = () => { tip.style.display = 'none'; };
+}
+function pnDays(keys, days) {
+  const L = keys.slice().reverse(), show = PN.all ? L : L.slice(0, 7), c = (v) => '<span class="' + (v >= 0 ? '' : 'neg') + '">' + pnSg(v) + '</span>';
+  $('pnDays').innerHTML = '<table class="pn-t"><thead><tr><th>Day</th><th>Auto</th><th>Blind</th><th>Total</th></tr></thead><tbody>' +
+    show.map((k) => { const d = days[k];
+      return '<tr><td>' + pnLabel(k) + '</td><td>' + c(d.auto) + '<div class="mut" style="font-size:10.5px;">' + d.autoN + ' trades</div></td><td>' + c(d.blind) + '<div class="mut" style="font-size:10.5px;">' + d.blindN + ' trades</div></td><td class="tot">' + c(d.auto + d.blind) + '</td></tr>'; }).join('') + '</tbody></table>' +
+    (L.length > 7 ? '<button class="btn pn-more" onclick="PN.all=!PN.all;pnDraw()">' + (PN.all ? 'Show last 7 days' : 'Show all ' + L.length + ' days') + '</button>' : '');
+}
+function pnCoins(C, X) {
+  let L = Object.values(C.coins);
+  if (PN.c === 'loss') L = L.filter((c) => c.pnl < 0).sort((a, b) => a.pnl - b.pnl);
+  else L.sort((a, b) => (PN.c === 'trades' ? b.n - a.n || b.pnl - a.pnl : b.pnl - a.pnl));
+  L = L.slice(0, 10);
+  const max = Math.max(1, ...L.map((c) => Math.abs(PN.c === 'trades' ? c.n : c.pnl)));
+  $('pnCoinHint').textContent = (PN.p === 1 ? 'today' : 'last ' + PN.p + ' days') + ' · top 10';
+  const dxNote = X && PN.p === 1 && !X.full && X.n ? '<div class="hint" style="margin-top:8px;">CoinDCX coins not shown: the trader sends only its latest ' + X.listed + ' of today\'s ' + X.n + ' trades.</div>'
+    : PN.p > 1 ? '<div class="hint" style="margin-top:8px;">WazirX only — CoinDCX coins over 7 / 30 days need the trader update.</div>' : '';
+  $('pnCoins').innerHTML = (L.length ? L.map((c, i) => '<div class="pn-coin"><span class="pn-rank">' + (i + 1) + '</span>' +
+    '<span><span class="pn-name">' + esc(c.coin) + '</span><span class="pn-ex"><i style="background:' + PN_COL[c.ex] + '"></i>' + PN_NAME[c.ex] + '</span></span>' +
+    '<span class="pn-val ' + (c.pnl >= 0 ? 'pos' : 'neg') + '">' + pnSg(c.pnl) + '</span>' +
+    '<span class="pn-bar"><span style="width:' + (Math.abs(PN.c === 'trades' ? c.n : c.pnl) / max * 100).toFixed(1) + '%;background:' + PN_COL[c.ex] + '"></span></span>' +
+    '<span class="pn-sub"><span>' + c.n + ' trade' + (c.n > 1 ? 's' : '') + ' · ' + Math.round(c.done / c.n * 100) + '% done</span><span>avg ' + pnSg(c.pnl / c.n) + ' / trade</span></span></div>').join('')
+    : '<div class="empty">' + (PN.c === 'loss' ? 'No losing coins in this period.' : 'No live trades in this period.') + '</div>') + dxNote;
+}
+</script>
 
   <!-- RULES -->
   <div class="tabpane" id="tab-rules">
@@ -1850,13 +2087,14 @@ const openTimelines = new Set();
 function setTab(name) {
   // 'manual' (Track Live) is not a pane anymore — its tab button navigates
   // straight to track.html, the scanner-page clone.
-  for (const t of ['overview', 'rules', 'activity', 'positions', 'missed', 'blind', 'dcx', 'dcxl', 'rs']) {
+  for (const t of ['overview', 'pnl', 'rules', 'activity', 'positions', 'missed', 'blind', 'dcx', 'dcxl', 'rs']) {
     if (!$('tab-' + t)) continue;
     $('tab-' + t).classList.toggle('active', t === name);
     $('tb-' + t).classList.toggle('active', t === name);
   }
   if (name === 'dcx') refreshDcx();
   if (name === 'dcxl') refreshDx();
+  if (name === 'pnl') pnLoad(false);   /* fe21 */
   if (name === 'rs') refreshRs();
   if (name === 'missed') refreshMissed();
   if (name === 'blind') refreshBlind(true);
@@ -5440,6 +5678,10 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
   #tab-dcxl .dx-out { font-size:12px; font-weight:700; }
   #tab-dcxl .dx-out.good { color:var(--success); } #tab-dcxl .dx-out.bad { color:var(--danger); } #tab-dcxl .dx-out.dim { color:var(--muted, #6b7280); font-weight:600; }
   #tab-dcxl .dx-h { font-size:12px; font-weight:800; margin:14px 0 4px; }
+  #tab-dcxl .dx-sb { margin:8px 0 2px; padding:9px 12px; background:var(--gray-100); border-radius:10px; font-size:12px; line-height:1.55; }   /* fe21 */
+  #tab-dcxl .order-row .o-path { flex-basis:100%; order:9; }
+  #tab-dcxl .order-row .o-profit { margin-left:auto; }
+  #tab-dcxl .dx-ub > summary { cursor:pointer; font-size:11.5px; font-weight:700; color:var(--gray-700); padding:6px 2px; }
 </style>
 <script id="swk-dcxl">
 /* CoinDCX live trader (Trader 2, service swenik-dcx, tools trader.js) at api-ec2/dcx-api.
@@ -5508,20 +5750,19 @@ function drawDx() {
   const bal = (x, f) => (x ? f(x.free) + (x.locked ? ' (+' + f(x.locked) + ' locked)' : '') : '—');
   const books = F.coins ? F.coins * 2 + 1 : 0;
   const wz = W.now ? 'avg <b>' + W.now.avgLagMs + '</b> · max <b>' + W.now.maxLagMs + ' ms</b>' + (W.baseline ? ' (at start ' + W.baseline.maxLagMs + ')' : '') : (W.err ? 'n/a' : '—');
+  const dxKnown = new Set(String(S.block || '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean));   /* fe21 */
+  const dxPausedNew = (M.pausedPairs || []).filter((p) => !dxKnown.has(String(p).replace(/^[A-Z]+-/, '').split('_')[0].toUpperCase()));
+  const dxMissing = books ? Math.max(0, books - (F.books || 0)) : 0;
   $('dxFacts').innerHTML =
     '<span class="fact">INR <b>' + bal(B.INR, inr2) + '</b></span>' +
     '<span class="fact">USDT <b>' + bal(B.USDT, (v) => blN(v, 2)) + '</b></span>' +
     (D.keys ? '' : '<span class="fact warn">no API keys — paper only</span>') +
     (B.err ? '<span class="fact warn">balance: ' + esc(B.err) + '</span>' : '') +
-    '<span class="fact">loop ≥ <b>' + S.minNetPct + '%</b> after fees INR <b>' + S.feeInrPct + '%</b> + USDT <b>' + S.feeUsdtPct + '%</b> · ≥ <b>' + inr(S.minProfitInr) + '</b></span>' +
-    (S.autoBalance ? '<span class="fact">auto-balance <b>' + S.balTriggerPct + '% → ' + S.balTargetPct + '%</b>' + (B.INR && B.USDT && D.feed ? '' : '') + '</span>' : '') +
-    '<span class="fact">size <b>' + inr(S.minInr) + '–' + inr(S.maxInr) + '</b> · gap <b>' + S.gapMs + ' ms</b></span>' +
-    '<span class="fact">paths <b>' + (S.pathA ? 'A' : '') + (S.pathA && S.pathB ? ' + ' : '') + (S.pathB ? 'B' : '') + (S.pathA || S.pathB ? '' : 'none') + '</b>' + (S.allow ? ' · only <b>' + dxList(S.allow) + '</b>' : '') + (S.block ? ' · never <b>' + dxList(S.block) + '</b>' : '') + '</span>' +
-    '<span class="fact' + (F.books >= books && books ? '' : ' warn') + '">books <b>' + (F.books || 0) + '/' + books + '</b> · ' + (F.coins || 0) + ' coins</span>' +
+    '<span class="fact">' + (S.pathA ? 'A' : '') + (S.pathA && S.pathB ? '+' : '') + (S.pathB ? 'B' : '') + (S.pathA || S.pathB ? '' : 'no path') + ' · ≥ <b>' + S.minNetPct + '%</b> after fees · ≥ <b>' + inr(S.minProfitInr) + '</b> · <b>' + inr(S.minInr) + '–' + inr(S.maxInr) + '</b>' + (S.allow ? ' · only <b>' + dxList(S.allow) + '</b>' : '') + '</span>' +
     (D.busy ? '<span class="fact warn">trading <b>' + esc(D.busy.coin) + ' ' + esc(D.busy.path) + '</b> since ' + blClock(D.busy.since) + '</span>' : '') +
     ((D.blocked || []).length ? '<span class="fact warn">auto-blocked <b>' + dxList(D.blocked.map((b) => b.coin).join(',')) + '</b></span>' : '') +
-    (M.paused ? '<span class="fact warn">paused pairs <b>' + M.paused + '</b></span>' : '') +
-    '<span class="fact">WazirX loop ' + wz + '</span>';
+    (dxMissing > 2 ? '<span class="fact warn">books <b>' + (F.books || 0) + '/' + books + '</b></span>' : '') +
+    (dxPausedNew.length ? '<span class="fact warn">paused on CoinDCX <b>' + esc(dxPausedNew.map(dxPair).join(', ')) + '</b></span>' : '');
   const pnl = T.pnl || 0;
   $('dxTiles').innerHTML =
     tile('Today P&L ' + (S.mode === 'live' ? '' : '(live trades)'), '<span class="' + (pnl >= 0 ? 'pos' : 'neg') + '">' + dxR(pnl) + '</span>', (T.rebalances ? 'incl. ' + T.rebalances + ' conversion' + (T.rebalances > 1 ? 's' : '') + ' −' + inr2(T.rebalanceInr) + ' · ' : '') + 'loss cap ' + inr(S.dailyLossCapInr), '', true) +
@@ -5539,28 +5780,46 @@ function dxTrades(D) {
   if (D.busy && D.busy.ev) L.unshift({ id: 'run-' + D.busy.id, at: D.busy.since, coin: D.busy.coin, path: D.busy.path, plan: D.busy.plan || {}, legs: D.busy.legs || [], ev: D.busy.ev, state: 'running', ms: Date.now() - Date.parse(D.busy.since), pnlInr: 0, _run: true });
   if (!L.length) return '<div class="empty">No live CoinDCX trade yet' + ((D.settings || {}).mode !== 'live' ? ' — switch to Live to start.' : '.') + '</div>';
   return L.map((t) => {
-    const st = DX_ST[t.state] || ['failed', t.state], open = DX_OPEN.has(t.id);
-    const pathTxt = (t.path === 'A' ? 'A · buy INR → sell USDT' : 'B · buy USDT → sell INR') + ((t.plan || {}).legs === 3 ? (t.path === 'A' ? ' → sell USDT/INR' : ' → buy USDT/INR') : '');   /* trader9 */
+    const dust = dxDust(t), st = dust ? DX_ST.unwound : (DX_ST[t.state] || ['failed', t.state]), open = DX_OPEN.has(t.id);   /* fe21 */
+    const pathTxt = t.path === 'A' ? 'A · INR → USDT' : 'B · USDT → INR';
     return '<div class="order ' + (t.state === 'done' ? 's-done' : t.state === 'missed' ? '' : 's-failed') + (open ? ' open' : '') + '">' +
       '<div class="order-row" onclick="dxToggle(\'' + esc(t.id) + '\')">' +
-        '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span><span class="chip live">live</span>' + (t.trigger === 'binance' ? '<span class="chip dx-bn">Binance</span>' : t.trigger === 'blind' ? '<span class="chip dx-bl">Blind</span>' : '') +
+        '<span class="caret">▶</span><span class="st ' + st[0] + '">' + st[1] + '</span>' + (t.trigger === 'binance' ? '<span class="chip dx-bn">Binance</span>' : t.trigger === 'blind' ? '<span class="chip dx-bl">Blind</span>' : '') +
         '<span class="o-coin">' + esc(t.coin) + '</span>' +
-        '<span class="o-path">' + pathTxt + ' · <b>' + t.plan.netPct + '%</b> · ' + inr(t.plan.costInr) + ' · ' + t.ms + ' ms</span>' +
+        '<span class="o-path">' + pathTxt + ' · <b>' + t.plan.netPct + '%</b> · ' + inr(t.plan.costInr) + '</span>' +
         (t._run ? '' : '<span class="o-profit num ' + ((t.pnlInr || 0) >= 0 ? 'pos' : 'neg') + '">' + dxR(t.pnlInr) + '</span>') +
         '<span class="o-time num">' + blClock(t.at) + '</span>' +
       '</div>' + (open ? '<div class="timeline" style="display:block;">' + dxCard(t) + '</div>' : '') + '</div>';
   }).join('');
 }
+
+/* fe21: a leftover worth under Rs 10 is dust, not a stuck trade */
+const DX_DUST_INR = 10;
+function dxDust(t) { return t && t.state === 'stuck' && t.leftover && Number(t.leftover.valueInr) < DX_DUST_INR && !t.openOrder; }
+/* fe21: one line saying where the coins were sold back and at what price vs the buy */
+function dxSellBack(t) {
+  const U = t.unwinds || (t.unwind ? [t.unwind] : []); if (!U.length) return '';
+  const rate = Number((t.plan || {}).usdInr) || 0, inrPx = (pair, px) => (/_USDT$/.test(pair) ? px * rate : px);
+  const buy = (t.legs || []).find((l) => l.side === 'buy' && !/USDT_INR$/.test(l.pair) && l.filled > 0 && l.avg);
+  const bPx = buy ? inrPx(buy.pair, buy.avg) : null, g = {};
+  for (const u of U) { if (!(u.filled > 0) || !u.avg) continue; const k = /_INR$/.test(u.pair) ? 'INR' : 'USDT'; const x = g[k] || (g[k] = { q: 0, v: 0, pair: u.pair }); x.q += u.filled; x.v += u.filled * u.avg; }
+  const parts = Object.entries(g).map(([k, x]) => { const avg = x.v / x.q, pct = bPx && rate ? (inrPx(x.pair, avg) / bPx - 1) * 100 : null;
+    return '<b>' + blN(x.q, 2) + '</b> on ' + k + ' @ ' + Number(avg.toPrecision(4)) + (pct != null ? ' <span class="' + (pct >= 0 ? 'pos' : 'neg') + '">(' + (pct >= 0 ? '+' : '−') + Math.abs(pct).toFixed(1) + '% vs buy)</span>' : ''); });
+  const refused = U.filter((u) => u.status === 'rejected').length;
+  return '<div class="dx-sb"><b>Sold back</b> ' + (parts.length ? parts.join(' · ') : 'nothing filled yet') + (refused ? '<div class="sf-dim">' + refused + ' sell-back order' + (refused > 1 ? 's' : '') + ' refused by CoinDCX</div>' : '') + '</div>';
+}
+function dxUbOpen(t) { const U = t.unwinds || (t.unwind ? [t.unwind] : []); return U.length ? '<details class="dx-ub"><summary>' + U.length + ' sell-back order' + (U.length > 1 ? 's' : '') + '</summary>' : ''; }
+function dxUbClose(t) { const U = t.unwinds || (t.unwind ? [t.unwind] : []); return U.length ? '</details>' : ''; }
 function dxCard(t) {
   const P = t.plan || {}, n = (v) => blN(v, 8);
-  const legs = (t.legs || []).map((l) => {
+  const legs = (t.legs || []).filter((l) => !(l.n === 3 && !(Number(l.qty) > 0) && !(l.filled > 0))).map((l) => {   /* fe21: hide an empty leg 3 */
     const full = l.filled >= l.qty - 1e-9, none = !(l.filled > 0), cls = full ? 'good' : none ? 'bad' : 'part';
     const out = (none ? 'not filled' : full ? 'FILLED' : 'filled ' + n(l.filled)) + (l.avg ? ' @ ' + n(l.avg) : '') + (full && l.status === 'filled' ? '' : ' · ' + (l.status || '—')) +
       (l.ackMs != null ? ' · ack +' + l.ackMs + ' ms' : '') + (l.ids && l.ids.length ? ' · ' + l.ids.length + ' order' + (l.ids.length > 1 ? 's' : '') + ', ' + (l.tries || 0) + ' tries' : '') + (l.err ? ' · ' + l.err : '') + (l.note ? ' · ' + l.note : '');
     return '<div class="sf-step cmp ' + cls + '"><span class="sf-n">' + l.n + '</span><div class="sf-b">' +
       '<div class="sf-what"><span class="swk-side ' + l.side + '">' + l.side.toUpperCase() + '</span><span class="sf-num"><span class="sf-nw"><span class="num">' + esc(n(l.qty)) + '</span> ' + esc(dxPair(l.pair)) + '</span> <span class="sf-nw"><span class="sf-dim">@</span> <span class="num">' + esc(n(l.price)) + '</span></span></span></div>' +
       '<div class="sf-l2"><span class="sf-out ' + cls + '">' + esc(out) + '</span></div></div></div>';
-  }).join('') + (t.unwinds || (t.unwind ? [t.unwind] : [])).map((u) => '<div class="sf-step cmp ' + (u.filled >= u.qty - 1e-9 ? 'part' : 'bad') + '"><span class="sf-n">↩</span><div class="sf-b"><div class="sf-what"><span class="swk-side sell">SELL BACK</span><span class="sf-num"><span class="num">' + esc(n(u.qty)) + '</span> ' + esc(dxPair(u.pair)) + '</span></div><div class="sf-l2"><span class="sf-out">' + (u.filled > 0 ? 'filled ' + esc(n(u.filled)) + (u.avg ? ' @ ' + esc(n(u.avg)) : '') : 'not filled') + (u.status === 'filled' ? '' : ' · ' + esc(u.status || '—')) + (u.ms != null ? ' · +' + (u.ms >= 10000 ? Math.round(u.ms / 1000) + ' s' : u.ms + ' ms') : '') + '</span></div></div></div>').join('') + (t.retry && t.retry.state === 'waiting' ? '<div class="hint" style="margin:4px 0 0 34px;">sell-back: trying again every ' + t.retry.everySec + ' s · try ' + t.retry.tries + ' of ' + t.retry.of + '</div>' : '');
+  }).join('') + dxSellBack(t) + dxUbOpen(t) + (t.unwinds || (t.unwind ? [t.unwind] : [])).map((u) => '<div class="sf-step cmp ' + (u.filled >= u.qty - 1e-9 ? 'part' : 'bad') + '"><span class="sf-n">↩</span><div class="sf-b"><div class="sf-what"><span class="swk-side sell">SELL BACK</span><span class="sf-num"><span class="num">' + esc(n(u.qty)) + '</span> ' + esc(dxPair(u.pair)) + '</span></div><div class="sf-l2"><span class="sf-out">' + (u.filled > 0 ? 'filled ' + esc(n(u.filled)) + (u.avg ? ' @ ' + esc(n(u.avg)) : '') : 'not filled') + (u.status === 'filled' ? '' : ' · ' + esc(u.status || '—')) + (u.ms != null ? ' · +' + (u.ms >= 10000 ? Math.round(u.ms / 1000) + ' s' : u.ms + ' ms') : '') + '</span></div></div></div>').join('') + dxUbClose(t) + (t.retry && t.retry.state === 'waiting' ? '<div class="hint" style="margin:4px 0 0 34px;">sell-back: trying again every ' + t.retry.everySec + ' s · try ' + t.retry.tries + ' of ' + t.retry.of + '</div>' : '');
   let prev = 0; const t0 = Date.parse(t.at);
   const ev = (t.ev || []).map((e) => {
     const d = e.ms - prev; prev = e.ms;
@@ -5579,7 +5838,8 @@ function dxCard(t) {
     (t.trigger === 'blind' && t.blind ? '<span class="swk-kv"><i>Started on</i><b>print · ' + esc(DX_BK[t.blind.kind] || t.blind.kind) + ' on ' + esc(dxPair(t.blind.pair)) + '</b></span><span class="swk-kv"><i>Print → sent</i><b>' + t.blind.printToSendMs + ' ms</b></span>' : '') + '</div></div>' +
     '<div class="sf-hd"><b>Orders</b>' + (t.fees ? '<span class="sf-dim">fees ' + inr2(t.fees.leg1Inr) + ' + ' + inr2(t.fees.leg2Inr) + (t.fees.leg3Inr != null ? ' + ' + inr2(t.fees.leg3Inr) : '') + (t.fees.unwindInr ? ' + ' + inr2(t.fees.unwindInr) : '') + (t.fees.fromExchange ? ' (as charged)' : ' (estimated)') + '</span>' : '') + '</div>' + legs +
     (t.openOrder ? '<div class="facts"><span class="fact warn">order still OPEN: ' + esc(t.openOrder.side) + ' ' + esc(n(t.openOrder.qty)) + ' on ' + esc(t.openOrder.market) + ' @ ' + esc(n(t.openOrder.price)) + ' — cancel it in the CoinDCX app</span></div>' : '') +
-    (t.leftover ? '<div class="facts"><span class="fact warn">still holding (in P&amp;L at its bid) <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
+    (t.leftover && dxDust(t) ? '<div class="facts"><span class="fact">dust left <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — nothing to do</span></div>' : '') +
+    (t.leftover && !dxDust(t) ? '<div class="facts"><span class="fact warn">still holding (in P&amp;L at its bid) <b>' + esc(n(t.leftover.qty)) + ' ' + esc(t.leftover.coin) + '</b> (' + inr2(t.leftover.valueInr) + ') — sell it on CoinDCX</span></div>' : '') +
     '<div class="sf-hd" style="margin-top:10px;"><b>Timeline</b><span class="sf-dim">ms from leg 1 sent</span></div><div class="dx-ev">' + ev + '</div></div>';
 }
 const DX_BK = { breach: 'level used up', unmatched: 'unseen price', crossed: 'crossed the book' };
@@ -5714,6 +5974,7 @@ function dxHealth(D) {
       row('REST calls · p50 · p90', (R.calls || 0) + ' · ' + ((R.ttfbMs || {}).p50 ?? '—') + ' · ' + ((R.ttfbMs || {}).p90 ?? '—') + ' ms') +
       row('REST errors', esc(Object.entries(R.errors || {}).map(([k, v]) => k + ' ×' + v).join(', ') || 'none')) +
       row('CPU · memory · cores', (Me.cpuPct ?? '—') + '% · ' + (Me.rssMb ?? '—') + ' MB · ' + esc(Me.cpus || '—')) +
+      row('WazirX engine loop (watch)', D.wazirx && D.wazirx.now ? 'avg ' + D.wazirx.now.avgLagMs + ' · max ' + D.wazirx.now.maxLagMs + ' ms' + (D.wazirx.baseline ? ' (at start ' + D.wazirx.baseline.maxLagMs + ')' : '') : '—') +   /* fe21 */
       row('market checks', (M.checks || 0) + (M.at ? ' · ' + blClock(M.at) : '')) + '</table>' +
     (F.lastErr || R.lastErr ? '<div class="facts">' + (F.lastErr ? '<span class="fact warn">feed: ' + esc(F.lastErr) + '</span>' : '') + (R.lastErr ? '<span class="fact warn">rest: ' + esc(String(R.lastErr).slice(0, 160)) + '</span>' : '') + '</div>' : '') +
     (M.pausedPairs && M.pausedPairs.length ? '<div class="dx-h">Paused on CoinDCX</div><div class="facts">' + M.pausedPairs.map((p) => '<span class="fact">' + esc(dxPair(p)) + '</span>').join('') + '</div>' : '') +
