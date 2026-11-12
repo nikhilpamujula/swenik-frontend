@@ -1485,6 +1485,7 @@ function pnCoins(C, X) {
           <div class="f"><label>Keep INR ₹</label><input id="dx_inrReserve" type="number" step="100"><div class="sub">path A never spends this</div></div>
           <div class="f"><label>Keep USDT</label><input id="dx_usdtReserve" type="number" step="1"><div class="sub">path B never spends this</div></div>
           <div class="f"><label>Skip pair with no trade for (min)</label><input id="dx_maxTradeAgeMin" type="number" step="30"><div class="sub">markets under maintenance stop trading · 0 = off</div></div>
+          <div class="f"><label>Skip pair whose order book is silent for (min)</label><input id="dx_staleBookMin" type="number" step="5"><div class="sub">a frozen book gives fake loops (HIPPO 12 Nov) · 0 = off</div></div>
           <div class="f"><label>Auto-block coin for (hours)</label><input id="dx_autoBlockHours" type="number" step="1"><div class="sub">after CoinDCX refuses an order or one will not cancel · 0 = off</div></div>
           <div class="f full"><label>Only these coins (comma, empty = all)</label><input id="dx_allow" type="text" placeholder="XRP, DOGE"></div>
           <div class="f full"><label>Never these coins</label><input id="dx_block" type="text" placeholder="SOL"></div>
@@ -5690,7 +5691,7 @@ setInterval(() => { if (!document.hidden && $('tab-dcx') && $('tab-dcx').classLi
 const DX_URL = (() => { try { return localStorage.getItem('swenik_dcx_url') || 'https://api-ec2.swenik.co.in/dcx-api'; } catch (e) { return 'https://api-ec2.swenik.co.in/dcx-api'; } })();
 const DX_TKEY = 'swenik_dcx_token';
 let DX = null, DX_SET = false, DX_VIEW = 'trades'; const DX_OPEN = new Set();
-const DX_NUM = ['blindInr', 'blindBarPct', 'blindMinProfitInr', 'blindMaxTrades', 'blindLossCapInr', 'blindMinBookAgeMs', 'blindMaxBookAgeMs', 'leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
+const DX_NUM = ['staleBookMin', 'blindInr', 'blindBarPct', 'blindMinProfitInr', 'blindMaxTrades', 'blindLossCapInr', 'blindMinBookAgeMs', 'blindMaxBookAgeMs', 'leg3MaxSlipPct', 'leg3CancelMs', 'unwindWaitSec', 'unwindTries', 'binanceMaxAgeMs', 'feeInrPct', 'feeUsdtPct', 'balTriggerPct', 'balTargetPct', 'balMinGapMin', 'balMarginPct', 'unwindMaxPct', 'maxTradeAgeMin', 'autoBlockHours', 'minNetPct', 'minProfitInr', 'maxPct', 'minInr', 'maxInr', 'gapMs', 'retryMs', 'retryForMs', 'pollMs', 'leg1CancelMs', 'leg2TimeoutMs', 'cooldownSec', 'maxTradesPerDay', 'dailyLossCapInr', 'inrReserve', 'usdtReserve'];
 const DX_BOOL = ['pathA', 'pathB', 'unwindStuck', 'autoBalance', 'binanceWatch', 'leg3', 'blindLive', 'blindPathA', 'blindPathB'], DX_TXT = ['allow', 'block'], DX_SEL = ['binanceTrigger', 'blindKinds', 'blindMarkets'];
 const dxList = (s) => { const a = String(s || '').split(',').filter(Boolean); return a.length > 4 ? a.length + ' coins' : esc(a.join(', ')); };
 const dxR = (v) => (v < 0 ? '−' : '+') + inr2(Math.abs(v || 0));
@@ -5977,6 +5978,8 @@ function dxHealth(D) {
       row('WazirX engine loop (watch)', D.wazirx && D.wazirx.now ? 'avg ' + D.wazirx.now.avgLagMs + ' · max ' + D.wazirx.now.maxLagMs + ' ms' + (D.wazirx.baseline ? ' (at start ' + D.wazirx.baseline.maxLagMs + ')' : '') : '—') +   /* fe21 */
       row('market checks', (M.checks || 0) + (M.at ? ' · ' + blClock(M.at) : '')) + '</table>' +
     (F.lastErr || R.lastErr ? '<div class="facts">' + (F.lastErr ? '<span class="fact warn">feed: ' + esc(F.lastErr) + '</span>' : '') + (R.lastErr ? '<span class="fact warn">rest: ' + esc(String(R.lastErr).slice(0, 160)) + '</span>' : '') + '</div>' : '') +
+    (M.moves && M.moves.length ? '<div class="dx-h">Markets switched automatically</div><div class="facts">' + M.moves.slice().reverse().map((x) => '<span class="fact">' + esc(x.coin + '/' + x.side + ': ' + String(x.from).split('-')[0] + ' → ' + String(x.to).split('-')[0] + ' · ' + blClock(x.at)) + '</span>').join('') + '</div>' : '') +   /* fe22 */
+    (M.unresolved && Object.keys(M.unresolved).length ? '<div class="dx-h">Off on CoinDCX (no active market)</div><div class="facts">' + Object.entries(M.unresolved).map(([p, u]) => '<span class="fact">' + esc(u.coin + '/' + u.side + ' · ' + u.why) + '</span>').join('') + '</div>' : '') +
     (M.pausedPairs && M.pausedPairs.length ? '<div class="dx-h">Paused on CoinDCX</div><div class="facts">' + M.pausedPairs.map((p) => '<span class="fact">' + esc(dxPair(p)) + '</span>').join('') + '</div>' : '') +
     (M.changes && M.changes.length ? '<div class="dx-h">Market status changes</div><div class="facts">' + M.changes.slice().reverse().map((c) => '<span class="fact">' + esc(typeof c === 'string' ? c : JSON.stringify(c)) + '</span>').join('') + '</div>' : '') +
     '</div>';
